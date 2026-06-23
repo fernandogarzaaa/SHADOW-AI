@@ -1,70 +1,66 @@
 # SHADOW-AI
 
-SHADOW-AI is a concept for an iOS-first personal AI agent that stays available, learns from user-approved context, and acts on behalf of the user with explicit permission, privacy controls, and guardrails.
+SHADOW-AI is an iOS-first personal AI agent implementation. It combines an always-on product vision with a production-oriented Swift core that enforces consent, app allow-lists, memory isolation, audit logging, and autonomous-action guardrails.
 
-## Page 1 — Shadow Agent Vision iOS App
+## What is implemented
 
-### Shadow Agent Vision
+- `ShadowAgentCore`, a Swift Package Manager library for the agent domain model and runtime policy engine.
+- Permission grants for read/write access across email, chat, calendar, notes, photos, voice, keystrokes, work apps, and device control.
+- Configurable modes: observe-only, recommend, confirm-before-action, and autonomous.
+- Watched-application allow-list enforcement before context ingestion.
+- Local memory stores for approved user context, including in-memory and file-backed implementations.
+- Recommendation generation from approved local context.
+- Autonomous decisioning that checks write permissions and safety guardrails before approving an action.
+- Consent audit logging for permission, ingestion, proposal, approval, and denial events.
+- A SwiftUI iOS app shell under `ios/ShadowAgentVisionApp` that demonstrates consent, local context ingestion, recommendations, action evaluation, and audit history.
 
-- Always on by default, similar in spirit to the next generation of Siri, but designed to be more personalized and proactive.
-- Notifies the user before requesting permission to read or write data.
-- Gathers context only after approval, asks the user again before sensitive actions, and uses approved data to improve the agent experience.
-- Operates autonomously when the user enables autonomous mode.
-- Trains on user-approved personal data to become hyper-specific to the user.
-- Requests permission before accessing emails, chats, work apps, messages, notes, photos, voice, and other personal context.
-- Works on behalf of the user while respecting user consent and configurable boundaries.
+## Product vision
 
-## Page 2 — Shadow Agent Startup
+Shadow Agent Vision is designed to be always on by default, similar in spirit to a next-generation mobile assistant but more personal, contextual, and proactive. The agent notifies the user before requesting read or write permissions, gathers approved context, asks again before sensitive actions, and learns from user-approved data so it can work on behalf of the user inside clear boundaries.
 
-### Personal AI Agent Idea
+## Startup concept
 
-- Quantized personal hybrid RAG architecture.
-- Mobile-first experience.
-- Always-on mode that can be configured for specific apps and activities.
-- Watches approved app activity and learns from authorized signals such as:
-  - Typing behavior
-  - User behavior patterns
-  - Keystrokes
-  - Photos
-  - Voice
-  - Notes
-  - Messages
-- Uses approved signals to train the AI model or agent so it becomes highly personal to the user.
+The agent is built around a quantized personal hybrid RAG idea:
 
-### User Value
+- Mobile-first operation.
+- Always-on mode that can be scoped to designated apps.
+- Approved app activity learning from signals such as typing behavior, user behavior patterns, photos, voice, notes, messages, and work context.
+- Local memory retrieval for personal context.
+- Optional frontier-model reasoning for higher-quality planning and generation.
+
+## User value
 
 The agent can help the user by:
 
 - Recommending actions and giving advice.
-- Running in autonomous mode to perform tasks the user commonly performs after it has learned the workflow.
-- Speaking on behalf of the user when explicitly authorized.
-- Connecting to approved devices and local computers to control them remotely as an autonomous AI remote.
+- Running in autonomous mode after permissions, guardrails, and learned workflow context are in place.
+- Speaking on behalf of the user only when explicitly authorized.
+- Connecting to approved devices and local computers for autonomous remote-control workflows.
 
-### Key Integrations
-
-- Axiom Aether
-- Ghost Chimera
-
-## Page 3 — Continuation
-
-### Autonomous Capabilities
-
-- Perform user-approved autonomous actions after training on the user's preferred workflows.
-- Speak on behalf of the user when consent and policy boundaries allow it.
-- Connect to approved devices and local computers for autonomous remote control.
-
-### Key Integrations
+## Key integrations
 
 - [Axiom Aether](https://github.com/fernandogarzaaa/AXIOM-AETHER)
 - [Ghost Chimera](https://github.com/fernandogarzaaa/GHOST-Chimera)
 
-### Challenges
+## Safety and privacy model
 
-- Hardware requirements.
-- Adoption.
-- Guardrails.
-- Legal considerations.
+SHADOW-AI treats user data as permissioned local context. The core enforces:
 
-### Cloud and Local Hybrid Training Idea
+- Read permission before context ingestion.
+- Write permission before action approval.
+- Expiring permission grants.
+- Watched-app allow lists.
+- Guardrails for dangerous actions such as sharing passwords, deleting accounts, disabling security, or moving money.
+- Audit logs for user-visible traceability.
 
-SHADOW-AI can combine cloud-based frontier model reasoning with local RAG. In this hybrid model, generation can benefit from frontier models while private user data remains fingerprinted, encrypted, and protected to reduce the risk of private data leakage.
+## Cloud and local hybrid model
+
+The intended architecture combines local RAG with cloud-based frontier reasoning. Private context should remain fingerprinted, encrypted, minimized, and policy-filtered before any remote reasoning request. The current repository implements the local consent, memory, and decisioning foundation needed for that architecture.
+
+## Development
+
+Run the test suite:
+
+```bash
+swift test
+```
