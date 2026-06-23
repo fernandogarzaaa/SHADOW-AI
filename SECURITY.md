@@ -1,22 +1,17 @@
 # Security and Privacy
 
-## Principles
-User-owned memory, explicit consent, least privilege, local-first defaults, revocable permissions, transparent audit, no covert collection, no silent cloud context.
+Shadow Agent defaults to local-first, explicit consent, auditability, emergency pause, and revocable devices/memory.
 
-## Threat Model
-Threats include malicious connectors, prompt injection, stolen node, local malware, cloud over-sharing, automation abuse, replayed pairing codes, and unsafe model/tool output.
+## Enforced controls
+- Emergency pause blocks ingestion and execution-sensitive flows.
+- Keylogging, covert monitoring, iOS sandbox bypass, silent microphone, and silent camera classes are hard-blocked.
+- Critical/destructive actions require approval and double confirmation at execution.
+- Outbound message/email actions are critical and require approval.
+- Cloud model providers require explicit request approval plus active non-local consent.
+- AXIOM redacts private data before cloud-safe context packaging.
+- Device revocation marks devices untrusted and blocks trusted-device checks.
+- Audit store is append-only at the repository API layer.
+- Secrets are not logged; `.env` is ignored.
 
-## Encryption
-Memory rows are encrypted with Fernet in the Python MVP. Production iOS uses Keychain plus CryptoKit-compatible envelope encryption. Node secrets should be stored in OS secure storage. Pairing secrets, API tokens, sync payloads, and sensitive logs must be encrypted.
-
-## Consent Ledger
-ConsentGrant records source, scope, purpose, retention, model access, approval, revocation, and last use.
-
-## Cloud Escalation
-Default deny. If allowed, policy checks grants, redacts sensitive data, compresses context, discloses payload/model/purpose, logs event, and supports local-only fallback.
-
-## Abuse Prevention
-Hard blocks include keylogging, covert monitoring, iOS sandbox bypass, silent microphone/camera capture, and unapproved destructive or external-write actions.
-
-## App Store Notes
-The iOS app must be transparent about data access, use App Intents/Share Extension/BackgroundTasks within platform constraints, and avoid claims or behaviors suggesting hidden monitoring.
+## Remaining hardening
+Use SQLCipher/encrypted indexes, transport mTLS, OS keychains, signed iOS app groups, prompt-injection filters, and real sandboxed desktop execution in the next phase.

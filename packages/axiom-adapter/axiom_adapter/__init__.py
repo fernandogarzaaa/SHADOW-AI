@@ -15,6 +15,6 @@ class DriftDetector:
 class TokenBudgetEstimator:
     def estimate(self,text:str)->int: return max(1,len(text)//4)
 class AxiomAdapter:
-    def __init__(self): self.redactor=RedactionLayer(); self.compressor=ContextCompressor(); self.fingerprinter=Fingerprinter()
+    def __init__(self): self.redactor=RedactionLayer(); self.compressor=ContextCompressor(); self.fingerprinter=Fingerprinter(); self.skeleton=SemanticSkeletonGenerator(); self.tokens=TokenBudgetEstimator()
     def package_context(self,text:str,budget:int=1200):
-        red=self.redactor.redact(text); return {"context":self.compressor.compress(red,budget),"fingerprint":self.fingerprinter.fingerprint(red),"tokens_estimated":TokenBudgetEstimator().estimate(red)}
+        red=self.redactor.redact(text); return {"context":self.compressor.compress(red,budget),"fingerprint":self.fingerprinter.fingerprint(red),"tokens_estimated":self.tokens.estimate(red), "semantic_skeleton": self.skeleton.generate(red)}

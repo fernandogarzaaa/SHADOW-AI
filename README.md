@@ -1,32 +1,40 @@
-# Shadow Agent
+# Shadow Agent Alpha
 
-Local-first personal AI agent foundation for iOS, desktop Shadow Node, encrypted memory, consent-ledger policy, AXIOM-AETHER context routing adapters, and GHOST-Chimera action adapters.
+Production-shaped local-first personal AI agent alpha for iOS + desktop Shadow Node + encrypted personal memory.
 
-## What works now
-- FastAPI Shadow Node with health, pairing, memory, agent, approvals, devices, audit, and WebSocket task endpoints.
-- Encrypted SQLite/FTS5 memory engine with chunking, attribution, confidence scoring, deletion/revocation.
-- Agent Core with autonomy modes, risk classification, approval gates, cloud escalation policy, audit events, and tool registry.
-- AXIOM adapter seam for redaction, compression, semantic skeletons, fingerprinting, drift detection, token budgets.
-- GHOST adapter seam for task IR, execution policy, desktop action, safety profile, telemetry.
-- SwiftUI iOS command-center skeleton with required screens and App Intents/Share Extension/BackgroundTasks seams.
+## Demoable end-to-end flow
+1. Pair a demo iOS/device identity with Shadow Node.
+2. Ingest approved text into encrypted memory.
+3. Ask Shadow a question.
+4. Retrieve memory and package context through AXIOM redaction/compression.
+5. Generate an action and approval request.
+6. Approve/deny the action.
+7. Execute a safe local mock task through the Ghost adapter.
+8. Inspect durable audit, device, approval, task, consent, and memory state.
 
-## Run
+## Run backend
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-uvicorn shadow_node.main:app --app-dir apps/shadow-node --reload --port 8787
+make run
+```
+
+## Run demo
+```bash
+make run   # terminal 1
+make demo  # terminal 2
 ```
 
 ## Test
 ```bash
-pytest
+pytest -q
 ```
 
-## Repository tree
-- `apps/ios-shadow` — SwiftUI iOS app foundation.
-- `apps/shadow-node` — local desktop/server runtime.
-- `packages/memory-engine` — encrypted personal memory and local RAG baseline.
-- `packages/agent-core` — planner, policy, consent, approval workflow, audit models.
-- `packages/axiom-adapter` — AXIOM-AETHER-compatible context layer.
-- `packages/ghost-adapter` — GHOST-Chimera-compatible action layer.
-- `docs` — product, security, architecture, API, and delivery docs.
+## Key paths
+- `apps/shadow-node` FastAPI runtime, durable stores, pairing, connectors, model providers.
+- `apps/ios-shadow` SwiftUI command-center package and Xcode-ready README.
+- `packages/memory-engine` encrypted memory with SQLite/FTS5.
+- `packages/agent-core` policy, autonomy, approval, task, audit models.
+- `packages/axiom-adapter` redaction/compression/fingerprint/skeleton context packaging.
+- `packages/ghost-adapter` approval-gated safe mock execution and telemetry.
+- `docs/` alpha specifications and demo documentation.

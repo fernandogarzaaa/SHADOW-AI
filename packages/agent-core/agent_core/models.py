@@ -29,6 +29,6 @@ class ApprovalRequest(BaseModel):
 class AuditEvent(BaseModel):
     id: str = Field(default_factory=lambda:new_id("aud")); actor: str; event_type: str; data_used: list[str]=[]; model_used: str|None=None; permission_checked: str|None=None; proposed_action: str|None=None; status: str="recorded"; result: str|None=None; timestamp: datetime=Field(default_factory=now)
 class Device(BaseModel):
-    id: str = Field(default_factory=lambda:new_id("dev")); name: str; public_key: str; trusted: bool=False; registered_at: datetime=Field(default_factory=now)
+    id: str = Field(default_factory=lambda:new_id("dev")); name: str; public_key: str; trusted: bool=False; registered_at: datetime=Field(default_factory=now); revoked_at: datetime|None=None; pinned_key_fingerprint: str|None=None
 class CloudEscalationRequest(BaseModel):
     id: str = Field(default_factory=lambda:new_id("clr")); purpose: str; redacted_context: str; model: str; approved: bool=False

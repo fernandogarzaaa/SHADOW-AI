@@ -1,5 +1,5 @@
-import base64, json, os, sqlite3, hashlib
-from cryptography.fernet import Fernet
+import re, sqlite3, hashlib
+from cryptography.fernet import Fernet, InvalidToken
 from .models import *
 class LocalEmbedder:
     def embed(self, text:str)->list[float]:
@@ -22,9 +22,20 @@ class EncryptedMemoryStore:
     def get(self,id:str):
         row=self.conn.execute("SELECT ciphertext FROM memory WHERE id=? AND revoked_at IS NULL",(id,)).fetchone()
         return MemoryItem.model_validate_json(self.cipher.decrypt(row[0]).decode()) if row else None
+    def _fts_query(self, query: str) -> str:
+        terms = re.findall(r"[A-Za-z0-9_]+", query)
+        return " OR ".join(terms) if terms else ""
     def search(self,query:str,limit:int=5):
-        rows=self.conn.execute("SELECT m.ciphertext, bm25(memory_fts) FROM memory_fts JOIN memory m ON m.id=memory_fts.id WHERE memory_fts MATCH ? AND m.revoked_at IS NULL ORDER BY 2 LIMIT ?",(query,limit)).fetchall()
-        return [SearchResult(item=MemoryItem.model_validate_json(self.cipher.decrypt(r[0]).decode()), score=float(1/(1+abs(r[1]))), attribution="SQLite FTS5 local encrypted store") for r in rows]
+        safe_query = self._fts_query(query)
+        if not safe_query: return []
+        rows=self.conn.execute("SELECT m.ciphertext, bm25(memory_fts) FROM memory_fts JOIN memory m ON m.id=memory_fts.id WHERE memory_fts MATCH ? AND m.revoked_at IS NULL ORDER BY 2 LIMIT ?",(safe_query,limit)).fetchall()
+        out=[]
+        for r in rows:
+            try:
+                out.append(SearchResult(item=MemoryItem.model_validate_json(self.cipher.decrypt(r[0]).decode()), score=float(1/(1+abs(r[1]))), attribution="SQLite FTS5 local encrypted store"))
+            except InvalidToken:
+                continue
+        return out
     def revoke(self,id:str): self.conn.execute("UPDATE memory SET revoked_at=? WHERE id=?",(now().isoformat(),id)); self.conn.commit()
     def export(self): return [MemoryItem.model_validate_json(self.cipher.decrypt(r[0]).decode()) for r in self.conn.execute("SELECT ciphertext FROM memory WHERE revoked_at IS NULL")]
 class MemoryEngine:
