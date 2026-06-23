@@ -1,0 +1,5 @@
+services:
+  shadow-node:
+    build: .
+    command: uvicorn shadow_node.main:app --app-dir apps/shadow-node --host 0.0.0.0 --port 8787
+    ports: ["8787:8787"]
