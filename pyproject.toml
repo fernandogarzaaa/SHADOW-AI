@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+pythonpath = ["apps/shadow-node", "packages/agent-core", "packages/memory-engine", "packages/axiom-adapter", "packages/ghost-adapter"]
+testpaths = ["tests"]
+asyncio_mode = "auto"

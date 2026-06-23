@@ -1,0 +1,19 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  1 /* Project object */ = {isa = PBXProject; attributes = {LastSwiftUpdateCheck = 1500; LastUpgradeCheck = 1500;}; buildConfigurationList = 2; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = 3; productRefGroup = 4; projectDirPath = ""; targets = (5);};
+  2 = {isa = XCConfigurationList; buildConfigurations = (6,7); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug;};
+  3 = {isa = PBXGroup; children = (4); sourceTree = "<group>";};
+  4 = {isa = PBXGroup; children = (); name = Products; sourceTree = "<group>";};
+  5 = {isa = PBXNativeTarget; buildConfigurationList = 8; buildPhases = (); buildRules = (); dependencies = (); name = ShadowAgentApp; productName = ShadowAgentApp; productType = "com.apple.product-type.application";};
+  6 = {isa = XCBuildConfiguration; buildSettings = {}; name = Debug;};
+  7 = {isa = XCBuildConfiguration; buildSettings = {}; name = Release;};
+  8 = {isa = XCConfigurationList; buildConfigurations = (9,10); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug;};
+  9 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = ai.shadow.agent; PRODUCT_NAME = ShadowAgent; SWIFT_VERSION = 5.9; IPHONEOS_DEPLOYMENT_TARGET = 17.0;}; name = Debug;};
+  10 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = ai.shadow.agent; PRODUCT_NAME = ShadowAgent; SWIFT_VERSION = 5.9; IPHONEOS_DEPLOYMENT_TARGET = 17.0;}; name = Release;};
+ };
+ rootObject = 1;
+}
