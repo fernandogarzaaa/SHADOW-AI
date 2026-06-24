@@ -8,10 +8,21 @@ from axiom_adapter import AxiomAdapter
 from ghost_adapter import GhostAdapter
 from .connectors import read_local_document
 from .model_providers import ModelProviderConfig, LocalMockModel
+from .crypto_config import load_fernet_key
 import tempfile, hashlib, uuid, os
-app=FastAPI(title="Shadow Node", version="0.4.0-phase4")
+APP_VERSION="1.0.0-rc"
+app=FastAPI(title="Shadow Node", version=APP_VERSION)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8787", "http://127.0.0.1:8787"], allow_methods=["*"], allow_headers=["*"])
-profile=UserProfile(); core=AgentCore(profile); store=EncryptedMemoryStore(path=tempfile.gettempdir()+f"/shadow_memory_beta_{uuid.uuid4().hex}.db"); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); pairing={}; consents:list[ConsentGrant]=[]
+def _build_memory_store():
+    # Persistent, stable-key store when SHADOW_MEMORY_DB is set (production);
+    # ephemeral temp store otherwise (tests/dev) so runs stay isolated.
+    db=os.getenv("SHADOW_MEMORY_DB")
+    if db:
+        key=load_fernet_key("SHADOW_MEMORY_KEY","SHADOW_MEMORY_KEY_FILE","data/keys/memory.key")
+        os.makedirs(os.path.dirname(os.path.abspath(db)), exist_ok=True)
+        return EncryptedMemoryStore(path=db, key=key)
+    return EncryptedMemoryStore(path=tempfile.gettempdir()+f"/shadow_memory_beta_{uuid.uuid4().hex}.db")
+profile=UserProfile(); core=AgentCore(profile); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); pairing={}; consents:list[ConsentGrant]=[]
 AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "false").lower()=="true"
 class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
@@ -34,7 +45,7 @@ async def auth_middleware(request:Request, call_next):
         if not ok: return JSONResponse(status_code=401, content={"detail":reason})
     return await call_next(request)
 @app.get("/health")
-def health(): return {"status":"ok","version":"0.4.0-phase4","local_first":True,"emergency_paused":profile.emergency_paused,"auth_required":AUTH_REQUIRED}
+def health(): return {"status":"ok","version":APP_VERSION,"local_first":True,"emergency_paused":profile.emergency_paused,"auth_required":AUTH_REQUIRED}
 @app.post("/pair/start")
 def pair_start():
     pid=new_id("pair"); pairing[pid]="pending"; return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":300}
@@ -73,7 +84,14 @@ def ask(req:AskRequest):
         audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
     results=memory.search(req.prompt,5,include_sensitive=False); context="\n".join(mark_untrusted(r.item.text) for r in results); packaged=axiom.package_context(context); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
     if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
-    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used="local_mock",status="answered")); return {"answer":model.complete(req.prompt,packaged["context"]),"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":"local_mock","cloud_allowed":False,"untrusted_context":True,"context_package":packaged,"plan":plan}
+    # Real cloud model only when the user explicitly approved cloud AND a key-backed provider is ready; otherwise stay fully local.
+    cloud_model=model_config.cloud_model() if req.allow_cloud else None
+    model_used=model_config.provider if cloud_model else "local_mock"; cloud_used=False
+    try:
+        answer=(cloud_model or model).complete(req.prompt, packaged["context"]); cloud_used=cloud_model is not None
+    except Exception as e:
+        answer=model.complete(req.prompt, packaged["context"]); model_used="local_mock"; audit.append(AuditEvent(actor="agent",event_type="cloud_model_error",model_used=model_config.provider,status="fallback_local",result=str(e)[:200]))
+    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=model_used,status="answered")); return {"answer":answer,"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":model_used,"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":packaged,"plan":plan}
 @app.post("/agent/plan")
 def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
@@ -102,6 +120,6 @@ def get_audit(): return audit + core.audit + sessions.audit
 def model_providers(): return model_config.safe_summary()
 @app.websocket("/ws/tasks")
 async def ws_tasks(ws:WebSocket):
-    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":"0.4.0-phase4"})
+    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":APP_VERSION})
     while True:
         data=await ws.receive_json(); await ws.send_json({"type":"ack","received":data})
