@@ -1,12 +1,2 @@
 import SwiftUI
-struct ApprovalDetailView: View {
-    @EnvironmentObject var state: AppState
-    var body: some View {
-        List {
-            Text("ApprovalDetailView").font(.title.bold())
-            Text("Consent-based, local-first Shadow Agent command center.")
-            Toggle("Emergency pause", isOn: $state.emergencyPaused)
-            if "ApprovalDetailView" == "AutonomySettingsView" { Picker("Autonomy", selection: $state.autonomyMode) { ForEach(AutonomyMode.allCases) { Text($0.rawValue).tag($0) } } }
-        }.navigationTitle("Shadow")
-    }
-}
+struct ApprovalDetailView: View { @EnvironmentObject var state: AppState; var approval: ApprovalRequest? = nil; @State private var denyReason = "Not approved"; @State private var doubleConfirm = false; var body: some View { List { if let a = approval { Section("Action") { Text(a.actionPreview ?? a.action.description); Text("Risk: \(a.riskLabel?.rawValue ?? "unknown")"); Text("Destination: \(a.destinationPreview ?? "local/mock")"); Text("Model: \(a.modelUsedPreview ?? "local_mock")"); ForEach(a.dataUsedPreview ?? [], id: \.self) { Text("Data: \($0)") } } if a.action.toolName == "send_email" || a.action.toolName == "send_message" { Text("Outbound messages always require explicit approval.").foregroundStyle(.orange) } if a.requiresDoubleConfirmation == true { Toggle("I understand this destructive action", isOn: $doubleConfirm) } Section("Decision") { Button("Approve once") { Task { await state.approve(a) } }; TextField("Deny reason", text: $denyReason); Button("Deny", role: .destructive) { Task { await state.deny(a, reason: denyReason) } }; Button("Execute safe/mock action") { Task { await state.execute(a, doubleConfirmed: doubleConfirm) } } } } else { Text("Select an approval.") } }.navigationTitle("Approval") } }

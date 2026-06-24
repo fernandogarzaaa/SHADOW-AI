@@ -1,0 +1,2 @@
+import SwiftUI
+struct EmergencyPauseView: View { @EnvironmentObject var state: AppState; var body: some View { VStack(spacing: 20) { Text("Emergency Pause").font(.largeTitle.bold()); Text("Blocks all execution on the node and records an audit event."); Toggle("Block all execution", isOn: Binding(get: { state.emergencyPaused }, set: { value in Task { await state.setEmergencyPause(value) } })).padding(); Text(state.statusMessage).font(.footnote) }.padding().navigationTitle("Pause") } }

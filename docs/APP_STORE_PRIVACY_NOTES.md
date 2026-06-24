@@ -1,2 +1,5 @@
 # App Store Privacy Notes
-Shadow Agent must disclose local-first memory, user-approved ingestion, node pairing, and optional cloud model escalation. It must not claim iOS sandbox bypass, covert monitoring, hidden keylogging, silent microphone/camera use, or automatic message sending.
+
+Shadow Agent is consent-based and local-first. It does not keylog, covertly monitor apps, bypass iOS sandboxing, silently read private chats, silently record microphone/camera, auto-send messages, or send cloud context without explicit consent.
+
+Before submission, add a privacy manifest, final Keychain access controls, App Intents descriptions, user-visible connector consent strings, screenshot captures, and reviewer notes explaining local-only defaults and emergency pause.

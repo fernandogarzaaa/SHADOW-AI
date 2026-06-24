@@ -1,23 +1,18 @@
-# Shadow Agent Alpha Architecture
+# Architecture
 
 ```text
-iOS Shadow App -> Pairing v1 / HTTP / WS -> Shadow Node
-Shadow Node -> Durable Stores | Agent Core | Memory Engine | AXIOM Adapter | Ghost Adapter | Connectors | Model Providers
+iOS Shadow App -> encrypted API/WebSocket -> Shadow Node
+Shadow Node -> Agent Core | Memory Engine | Consent Ledger | Policy Engine | AXIOM Adapter | Ghost Adapter | Connector Registry | Audit Log
 ```
 
-## Alpha boundaries
-- iOS remains the consent command center with pairing, node URL settings, memory, approvals, devices, audit, privacy, autonomy, and emergency pause screens.
-- Shadow Node owns local API, durable runtime stores, pairing, task planning, approval state, audit, model-provider policy, and Ghost execution handoff.
-- Memory Engine owns encrypted memory payloads and SQLite FTS5 retrieval.
-- Agent Core owns risk classification, autonomy enforcement, approval decisions, cloud gating, and audit models.
-- AXIOM packages retrieved personal context using redaction, compression, skeletons, fingerprints, and token estimates.
-- GHOST receives approved AgentPlan-derived task IR and returns telemetry from a safe mock executor.
+## Boundaries
+The iOS app is the consent command center. Shadow Node is the heavier local runtime. Memory Engine owns encrypted storage and retrieval. Agent Core owns planning, policy, approvals, and audit. AXIOM routes compressed/redacted context. GHOST executes policy-gated desktop/device tasks.
 
-## End-to-end flow
-Pair device, ingest approved memory, search/ask, package context, propose action, persist approval, user approves/denies, execute approved safe task, append audit events.
+## Data Flow
+User-approved content enters via manual import or future Share Extension/connectors, is chunked, scored, encrypted, indexed, and attributed. Queries retrieve local memory, pass through AXIOM redaction/compression when needed, then Agent Core proposes answers/actions.
 
-## Durable state
-`DeviceStore`, `ApprovalStore`, `AuditStore`, `ConsentStore`, and `TaskStore` use SQLite with encrypted JSON payloads. The audit store is append-only at the repository layer.
+## Approval Flow
+Every action is risk classified. Medium/high/critical/destructive/external-write/cloud actions require approval. Blocked classes never execute. Audit records initiation, data used, permission checked, decision, and result.
 
-## Security defaults
-Emergency pause, blocked action classes, critical double confirmation, outbound approval, cloud consent, redaction, device revocation, and no-secret logging are enforced in the node flow.
+## Device Pairing
+Node creates one-time pairing code, iOS submits device public key, node registers trusted device. Production hardening will replace MVP code exchange with authenticated ECDH and key pinning.

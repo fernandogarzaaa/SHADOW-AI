@@ -1,12 +1,2 @@
 import SwiftUI
-struct ApprovalsView: View {
-    @EnvironmentObject var state: AppState
-    var body: some View {
-        List {
-            Text("ApprovalsView").font(.title.bold())
-            Text("Consent-based, local-first Shadow Agent command center.")
-            Toggle("Emergency pause", isOn: $state.emergencyPaused)
-            if "ApprovalsView" == "AutonomySettingsView" { Picker("Autonomy", selection: $state.autonomyMode) { ForEach(AutonomyMode.allCases) { Text($0.rawValue).tag($0) } } }
-        }.navigationTitle("Shadow")
-    }
-}
+struct ApprovalsView: View { @EnvironmentObject var state: AppState; var body: some View { List { Button("Refresh approvals") { Task { await state.loadApprovals() } }; ForEach(state.approvals) { approval in NavigationLink(destination: ApprovalDetailView(approval: approval)) { VStack(alignment: .leading) { Text(approval.actionPreview ?? approval.action.description); Text("Risk: \(approval.riskLabel?.rawValue ?? "unknown") • \(approval.status.rawValue)").font(.caption) } } } }.navigationTitle("Approvals") } }

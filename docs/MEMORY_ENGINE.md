@@ -1,6 +1,5 @@
 # MEMORY ENGINE
 
-See root PRD, ARCHITECTURE, and SECURITY for product-wide decisions.
+The memory engine encrypts memory rows with Fernet, indexes approved text with SQLite FTS5, chunks input, deduplicates by source/content hash, and returns attribution, confidence, freshness, sensitivity, do-not-send-cloud, and retrieval explanations.
 
-## MVP Contract
-This document formalizes the production seam implemented in code. Interfaces are real and test-covered where critical; provider-specific integrations remain adapter-backed.
+Phase 4 adds app-facing memory list/search contracts and iOS display of source previews, confidence, freshness, sensitive indicators, and untrusted-context explanations.
