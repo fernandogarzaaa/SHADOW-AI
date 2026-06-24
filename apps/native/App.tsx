@@ -5,6 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { api, loadBaseUrl } from './src/api';
+import { DesignConceptScreen, getRequestedConcept } from './src/concepts';
 import { theme } from './src/theme';
 import { AmbientBackground, Pill } from './src/ui';
 import {
@@ -51,6 +52,22 @@ function TabMark({ focused, label }: { focused: boolean; label: string }) {
 }
 
 export default function App() {
+  const requestedConcept = getRequestedConcept();
+  if (requestedConcept) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style={requestedConcept === '5' ? 'light' : 'dark'} />
+        <SafeAreaView style={s.conceptApp} edges={['top', 'bottom']}>
+          <DesignConceptScreen concept={requestedConcept} />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  return <MainApp />;
+}
+
+function MainApp() {
   const [status, setStatus] = useState<{ version?: string; paused?: boolean; online: boolean }>({ online: false });
   const [showSettings, setShowSettings] = useState(false);
 
@@ -133,6 +150,7 @@ export default function App() {
 
 const s = StyleSheet.create({
   app: { flex: 1, backgroundColor: theme.bg, overflow: 'hidden' },
+  conceptApp: { flex: 1, overflow: 'hidden' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
