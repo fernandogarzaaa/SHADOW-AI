@@ -7,6 +7,8 @@
     "@react-navigation/bottom-tabs": "^7.18.3",
     "@react-navigation/native": "^7.3.4",
     "expo": "~56.0.12",
+    "expo-build-properties": "~56.0.19",
+    "expo-secure-store": "~56.0.4",
     "expo-status-bar": "~56.0.4",
     "js-sha256": "^0.11.1",
     "react": "19.2.3",

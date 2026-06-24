@@ -1,10 +1,25 @@
 // Shadow Node API client for the native app.
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { pair as pairNode, signHeaders, DeviceCreds } from './auth';
 
 const KEY = 'shadow.baseUrl';
-const CREDS_KEY = 'shadow.creds';
+// Underscore key: SecureStore only allows [A-Za-z0-9._-].
+const CREDS_KEY = 'shadow_creds';
+
+// The pairing shared_secret signs every request, so it lives in the OS keystore
+// (iOS Keychain / Android Keystore via expo-secure-store) rather than AsyncStorage,
+// which is plaintext and can be backed up or read on a rooted device. SecureStore
+// is unavailable on web, so the web build falls back to AsyncStorage.
+const credStore = {
+  get: (k: string) =>
+    Platform.OS === 'web' ? AsyncStorage.getItem(k) : SecureStore.getItemAsync(k),
+  set: (k: string, v: string) =>
+    Platform.OS === 'web' ? AsyncStorage.setItem(k, v) : SecureStore.setItemAsync(k, v),
+  remove: (k: string) =>
+    Platform.OS === 'web' ? AsyncStorage.removeItem(k) : SecureStore.deleteItemAsync(k),
+};
 
 function defaultBase(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -22,7 +37,7 @@ export async function loadBaseUrl(): Promise<string> {
   try {
     const v = await AsyncStorage.getItem(KEY);
     if (v) baseUrl = v;
-    const c = await AsyncStorage.getItem(CREDS_KEY);
+    const c = await credStore.get(CREDS_KEY);
     if (c) creds = JSON.parse(c);
   } catch {}
   return baseUrl;
@@ -37,15 +52,15 @@ export async function setBaseUrl(url: string): Promise<string> {
 export function getBaseUrl(): string { return baseUrl; }
 export function isPaired(): boolean { return creds !== null; }
 
-/** Pair with the current node and persist the device credentials. */
+/** Pair with the current node and persist the device credentials in the keystore. */
 export async function pairDevice(deviceName = 'Shadow Native'): Promise<void> {
   creds = await pairNode(baseUrl, deviceName);
-  try { await AsyncStorage.setItem(CREDS_KEY, JSON.stringify(creds)); } catch {}
+  try { await credStore.set(CREDS_KEY, JSON.stringify(creds)); } catch {}
 }
 
 export async function unpair(): Promise<void> {
   creds = null;
-  try { await AsyncStorage.removeItem(CREDS_KEY); } catch {}
+  try { await credStore.remove(CREDS_KEY); } catch {}
 }
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
