@@ -1,8 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView } from 'react-native';
-import { api } from './api';
+import { api, getBaseUrl, setBaseUrl, pairDevice, isPaired, unpair } from './api';
 import { theme } from './theme';
 import { Card, Field, Button, Pill, styles } from './ui';
+
+export function SettingsScreen() {
+  const [url, setUrl] = useState(getBaseUrl());
+  const [paired, setPaired] = useState(isPaired());
+  const [status, setStatus] = useState('');
+  const save = async () => { await setBaseUrl(url); setStatus('Saved node URL'); };
+  const test = async () => {
+    try { const h = await api.health(); setStatus(`Connected · node ${h.version}${h.auth_required ? ' · auth on' : ''}`); }
+    catch (e: any) { setStatus('Cannot reach node: ' + String(e.message || e)); }
+  };
+  const doPair = async () => {
+    try { await setBaseUrl(url); await pairDevice('Shadow PWA'); setPaired(true); setStatus('Paired — signed requests enabled'); }
+    catch (e: any) { setStatus('Pairing failed: ' + String(e.message || e)); }
+  };
+  const doUnpair = async () => { await unpair(); setPaired(false); setStatus('Unpaired'); };
+  return (
+    <Card title="Node connection" hint="Point the app at your Shadow Node and pair. Pairing is required when the node enforces authentication.">
+      <Field label="Base URL" placeholder="http://localhost:8787" autoCapitalize="none" autoCorrect={false} value={url} onChangeText={setUrl} />
+      <View style={[styles.row, { flexWrap: 'wrap' }]}>
+        <Button title="Save" onPress={save} />
+        <Button title="Test" kind="ghost" onPress={test} />
+        {paired ? <Button title="Unpair" kind="danger" onPress={doUnpair} /> : <Button title="Pair device" onPress={doPair} />}
+      </View>
+      <View style={styles.meta}><Pill tone={paired ? 'ok' : undefined} text={paired ? 'paired' : 'not paired'} /></View>
+      {status ? <Text style={[styles.itemDesc, { marginTop: 10 }]}>{status}</Text> : null}
+    </Card>
+  );
+}
 
 export function AskScreen() {
   const [prompt, setPrompt] = useState('');

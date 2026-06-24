@@ -1,8 +1,10 @@
 // Shadow Node API client. Works against the FastAPI node (default localhost:8787).
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pair as pairNode, signHeaders, DeviceCreds } from './auth';
 
 const KEY = 'shadow.baseUrl';
+const CREDS_KEY = 'shadow.creds';
 
 function defaultBase(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -14,11 +16,14 @@ function defaultBase(): string {
 }
 
 let baseUrl = defaultBase();
+let creds: DeviceCreds | null = null;
 
 export async function loadBaseUrl(): Promise<string> {
   try {
     const v = await AsyncStorage.getItem(KEY);
     if (v) baseUrl = v;
+    const c = await AsyncStorage.getItem(CREDS_KEY);
+    if (c) creds = JSON.parse(c);
   } catch {}
   return baseUrl;
 }
@@ -29,11 +34,27 @@ export async function setBaseUrl(url: string): Promise<void> {
 }
 
 export function getBaseUrl(): string { return baseUrl; }
+export function isPaired(): boolean { return creds !== null; }
+
+/** Pair with the current node and persist the device credentials. */
+export async function pairDevice(deviceName = 'Shadow PWA'): Promise<void> {
+  creds = await pairNode(baseUrl, deviceName);
+  try { await AsyncStorage.setItem(CREDS_KEY, JSON.stringify(creds)); } catch {}
+}
+
+export async function unpair(): Promise<void> {
+  creds = null;
+  try { await AsyncStorage.removeItem(CREDS_KEY); } catch {}
+}
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
+  const method = (opts.method || 'GET').toUpperCase();
+  const body = typeof opts.body === 'string' ? opts.body : '';
+  // Sign with the node's HMAC scheme when paired (required if the node enforces auth).
+  const signed = creds ? signHeaders(creds, method, path.split('?')[0], body) : {};
   const res = await fetch(baseUrl + path, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...signed, ...(opts.headers || {}) },
   });
   const text = await res.text();
   let json: any = {};

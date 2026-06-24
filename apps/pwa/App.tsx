@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, StyleSheet, SafeAreaView } from 'rea
 import { StatusBar } from 'expo-status-bar';
 import { theme } from './src/theme';
 import { api, loadBaseUrl } from './src/api';
-import { AskScreen, MemoryScreen, ActionsScreen, ModelsScreen, ApprovalsScreen, AuditScreen } from './src/screens';
+import { AskScreen, MemoryScreen, ActionsScreen, ModelsScreen, ApprovalsScreen, AuditScreen, SettingsScreen } from './src/screens';
 import { registerPWA } from './src/pwa';
 
 const TABS = [
@@ -13,6 +13,7 @@ const TABS = [
   { key: 'models', label: 'Models', screen: ModelsScreen },
   { key: 'approvals', label: 'Approvals', screen: ApprovalsScreen },
   { key: 'audit', label: 'Audit', screen: AuditScreen },
+  { key: 'settings', label: 'Settings', screen: SettingsScreen },
 ];
 
 export default function App() {
