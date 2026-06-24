@@ -19,3 +19,7 @@ Run `pip install -r requirements.txt`, `pytest -q`, `python -m compileall apps/s
 
 ## Release-candidate limitations
 Live OAuth, App Store submission, production GHOST/AXIOM runtime binaries, and live cloud model invocation are intentionally post-RC unless explicitly configured and reviewed.
+
+## RC2 replay update
+
+Nonce replay protection is backed by the runtime SQLite database instead of process-only memory. This keeps replay checks intact across verifier recreation in single-node local deployments. Multi-worker deployments should continue to use one shared runtime database or an external nonce store.

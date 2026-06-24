@@ -25,6 +25,11 @@ final class KeychainDeviceIdentity {
 
     func publicKeyBase64URL() throws -> String { try signingKey().publicKey.rawRepresentation.base64URLEncodedString() }
 
+    func signPairingConfirmation(pairingID: String, challenge: String, nonce: String) throws -> String {
+        let payload = "\(pairingID):\(challenge):\(nonce)"
+        return try signingKey().signature(for: Data(payload.utf8)).base64URLEncodedString()
+    }
+
     func sign(method: String, path: String, body: Data) throws -> SignedShadowRequest {
         guard let deviceID = storedDeviceID() else { throw URLError(.userAuthenticationRequired) }
         let nonce = UUID().uuidString.replacingOccurrences(of: "-", with: "")

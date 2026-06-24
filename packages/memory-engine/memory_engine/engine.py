@@ -1,4 +1,5 @@
-import re, sqlite3, hashlib
+import os, re, sqlite3, hashlib
+from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from .models import *
 class LocalEmbedder:
@@ -11,7 +12,16 @@ class Chunker:
         return [c.strip() for c in out if c.strip()]
 class EncryptedMemoryStore:
     def __init__(self,path="shadow_memory.db",key:bytes|None=None):
-        self.path=path; self.key=key or Fernet.generate_key(); self.cipher=Fernet(self.key); self.conn=sqlite3.connect(path, check_same_thread=False); self._init()
+        self.path=path; self.key=key or self._load_key(); self.cipher=Fernet(self.key); self.conn=sqlite3.connect(path, check_same_thread=False, timeout=30); self._init()
+    def _load_key(self):
+        explicit=os.getenv("SHADOW_MEMORY_KEY")
+        if explicit: return explicit.encode()
+        key_file=Path(os.getenv("SHADOW_MEMORY_KEY_FILE", "data/keys/memory.key")); key_file.parent.mkdir(parents=True, exist_ok=True)
+        if key_file.exists(): return key_file.read_bytes().strip()
+        key=Fernet.generate_key(); key_file.write_bytes(key)
+        try: key_file.chmod(0o600)
+        except OSError: pass
+        return key
     def _init(self):
         self.conn.execute("CREATE TABLE IF NOT EXISTS memory(id TEXT PRIMARY KEY, ciphertext BLOB NOT NULL, text_index TEXT NOT NULL, revoked_at TEXT)")
         self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(id UNINDEXED, text)"); self.conn.commit()

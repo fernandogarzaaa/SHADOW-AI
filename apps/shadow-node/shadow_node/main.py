@@ -26,7 +26,7 @@ class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retent
 def audit(event_type:str, status:str="recorded", **kw):
     ev=AuditEvent(actor=kw.pop("actor","shadow_node"), event_type=event_type, status=status, **kw); audit_store.put(ev); return ev
 @app.get("/health")
-def health(): return {"status":"ok","version":"0.2.0-alpha","local_first":True,"emergency_paused":profile.emergency_paused}
+def health(): return {"status":"ok","version":"1.0.0-rc2","local_first":True,"emergency_paused":profile.emergency_paused}
 @app.post("/emergency/pause")
 def pause(device: Device = Depends(require_device)): profile.emergency_paused=True; audit("emergency_pause",status="enabled"); return health()
 @app.post("/emergency/resume")
@@ -105,6 +105,6 @@ def execute(req:ExecuteRequest, device: Device = Depends(require_device)):
 def get_audit(device: Device = Depends(require_device)): return audit_store.list(include_revoked=True)
 @app.websocket("/ws/tasks")
 async def ws_tasks(ws:WebSocket):
-    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":"0.2.0-alpha"})
+    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":"1.0.0-rc2"})
     while True:
         data=await ws.receive_json(); await ws.send_json({"type":"ack","received":data})

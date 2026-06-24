@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Generic, TypeVar
 from cryptography.fernet import Fernet, InvalidToken
 from pydantic import BaseModel
+from .crypto_config import load_fernet_key
 from agent_core import ApprovalRequest, AuditEvent, ConsentGrant, AgentTask, Device
 
 T = TypeVar("T", bound=BaseModel)
@@ -14,9 +15,9 @@ class SQLiteRuntimeStore(Generic[T]):
     def __init__(self, db_path: str = "data/shadow_runtime.db", key: bytes | None = None):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
-        self.key = key or Fernet.generate_key()
+        self.key = key or load_fernet_key("SHADOW_RUNTIME_KEY", "SHADOW_RUNTIME_KEY_FILE", "data/keys/runtime.key")
         self.cipher = Fernet(self.key)
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.row_factory = sqlite3.Row
         self._init()
     def _init(self):

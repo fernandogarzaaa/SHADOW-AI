@@ -149,3 +149,7 @@ Listing 'packages/memory-engine/memory_engine'..., and PYTHONPATH=apps/shadow-no
 
 ## Release notes
 This document is part of the production release-candidate package. Mock OAuth, live cloud models, and real GHOST/AXIOM runtime binaries remain post-RC integration tasks unless explicitly configured by the operator.
+
+## RC2 key management update
+
+Runtime and memory encryption keys are stable across restarts. Operators may set `SHADOW_RUNTIME_KEY`, `SHADOW_RUNTIME_KEY_FILE`, `SHADOW_MEMORY_KEY`, or `SHADOW_MEMORY_KEY_FILE`; otherwise the node creates local files under `data/keys/` with restrictive permissions. Do not commit these key files.
