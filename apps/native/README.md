@@ -1,17 +1,17 @@
-# Shadow — Native app (React Native + Expo)
+# Shadow - Native app (React Native + Expo)
 
 Production-ready native iOS/Android app for the Shadow Node, built with React
 Native (Expo) and `@react-navigation`. Same minimalist design as the web/PWA
 clients; same local-first privacy model.
 
 ## Features
-- **Ask** — query local memory; shows route (on-device vs frontier), sources, token savings, grounding.
-- **Memory** — ingest + search encrypted memory.
-- **Actions** — run sandboxed actions (note/reminder/http) through the approval gate.
-- **Models** — connect frontier providers (Anthropic/OpenAI/Gemini) by API key.
-- **Approvals** — approve/deny pending high-impact actions.
-- **Audit** — recent decisions.
-- **Settings** — point the app at your node (LAN address), test connection.
+- **Ask** - query local memory; shows route (on-device vs frontier), sources, token savings, grounding.
+- **Memory** - ingest + search encrypted memory.
+- **Actions** - run sandboxed actions (note/reminder/http) through the approval gate.
+- **Models** - connect frontier providers (Anthropic/OpenAI/Gemini) by API key.
+- **Approvals** - approve/deny pending high-impact actions.
+- **Audit** - recent decisions.
+- **Settings** - point the app at your node (LAN address), test connection.
 - Live node status + emergency-pause toggle.
 
 ## Develop
@@ -20,11 +20,33 @@ cd apps/native
 npm install
 npx expo start            # press i (iOS sim) / a (Android) / scan QR with Expo Go
 ```
+
 On a physical device, open **Settings** in the app and set your node's LAN URL
-(e.g. `http://192.168.1.20:8787`) — `localhost` only works in a simulator.
+(e.g. `http://192.168.1.20:8787`) - `localhost` only works in a simulator.
+
+## Design approval portal (Streamlit)
+The React Native app remains the actual sample work. The Streamlit page is a
+client/recruiter review hub for choosing one visual direction before final
+polish.
+
+```bash
+cd apps/native
+python -m pip install -r streamlit-requirements.txt
+python -m streamlit run streamlit_app.py
+```
+
+For Streamlit Community Cloud, deploy the `NATIVE` branch with main file:
+`apps/native/streamlit_app.py`. Use `apps/native/streamlit-requirements.txt`
+for the Streamlit dependency if the deploy UI asks for a requirements file.
+
+Local Expo concept previews:
+- `http://localhost:19009/?concept=3` - Tamagui Bento
+- `http://localhost:19009/?concept=4` - Gluestack Utility
+- `http://localhost:19009/?concept=5` - Craft Editorial
 
 ## Production builds (App Store / Play Store)
 Uses [EAS Build](https://docs.expo.dev/build/introduction/):
+
 ```bash
 npm i -g eas-cli
 eas login
@@ -33,6 +55,7 @@ eas build -p ios --profile production
 eas build -p android --profile production
 eas submit -p ios             # or -p android
 ```
+
 Bundle identifiers: `ai.shadowagent.app` (iOS & Android). Bump `ios.buildNumber`
 / `android.versionCode` (or use the `autoIncrement` production profile).
 
