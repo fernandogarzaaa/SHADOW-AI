@@ -22,6 +22,24 @@ jobs:
         run: npx tsc --noEmit
       - name: Build PWA
         run: npx expo export -p web
+      - name: Run new-user simulation
+        env:
+          SHADOW_AUTH_REQUIRED: "true"
+          SHADOW_NODE_URL: http://127.0.0.1:8799
+          PYTHONPATH: ../../apps/shadow-node:../../packages/agent-core:../../packages/memory-engine:../../packages/axiom-adapter:../../packages/ghost-adapter
+        run: |
+          python -m pip install -r ../../requirements.txt
+          python -m uvicorn shadow_node.main:app --host 127.0.0.1 --port 8799 --log-level warning &
+          NODE_PID=$!
+          trap "kill $NODE_PID" EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS "$SHADOW_NODE_URL/health" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS "$SHADOW_NODE_URL/health"
+          npx --yes tsx sim/new-user-sim.ts
       - name: Verify PWA artifacts
         run: |
           test -f dist/index.html

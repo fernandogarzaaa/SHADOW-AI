@@ -6,7 +6,7 @@
  */
 import { pair, signHeaders, DeviceCreds } from '../src/auth';
 
-const BASE = process.env.SIM_BASE || 'http://127.0.0.1:8799';
+const BASE = process.env.SHADOW_NODE_URL || process.env.SIM_BASE || 'http://127.0.0.1:8799';
 let pass = 0, fail = 0;
 
 function check(name: string, ok: boolean, detail = '') {
@@ -75,12 +75,16 @@ async function main() {
   const r2 = await fetch(BASE + '/audit', { headers: h });
   check('nonce replay rejected on 2nd use', r1.status === 200 && r2.status === 401, `first ${r1.status}, replay ${r2.status}`);
 
-  // 11. Emergency pause + resume.
+  // 11. The replay rejection is visible in the protected audit trail.
+  const replayAudit = await call(creds, 'GET', '/audit');
+  check('nonce replay audit event recorded', (replayAudit.json || []).some((e: any) => ['auth_failed', 'auth_failure'].includes(e.event_type) && e.result === 'replayed_nonce'), `${(replayAudit.json || []).length} events`);
+
+  // 12. Emergency pause + resume.
   const pause = await call(creds, 'POST', '/emergency_pause', { paused: true, reason: 'sim' });
   const resume = await call(creds, 'POST', '/emergency_pause', { paused: false, reason: 'sim' });
   check('emergency pause + resume', pause.status === 200 && pause.json.paused === true && resume.json.paused === false);
 
-  // 12. Audit trail recorded the journey.
+  // 13. Audit trail recorded the journey.
   const audit = await call(creds, 'GET', '/audit');
   const types = new Set((audit.json || []).map((e: any) => e.event_type));
   check('audit recorded pairing/ask/action', types.has('device_paired') && types.has('agent_ask'), `${(audit.json || []).length} events`);
