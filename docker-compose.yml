@@ -12,6 +12,9 @@ services:
       SHADOW_RUNTIME_KEY_FILE: /data/keys/runtime.key
       SHADOW_WORKSPACE_DIR: /data/workspace
       GHOST_RUNTIME_MODE: local
+      # Production hardening
+      SHADOW_GROUNDING_VERIFY: "true"
+      SHADOW_RATE_LIMIT_RPM: "120"
       # Optional cloud model — supply a key to enable real Claude answers.
       # SHADOW_CLOUD_ENABLED: "true"
       # SHADOW_MODEL_PROVIDER: anthropic
