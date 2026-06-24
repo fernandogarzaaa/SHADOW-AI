@@ -63,8 +63,12 @@ class HybridRouter:
         raw_tokens = self.estimator.estimate(raw_context) if raw_context else 0
         packaged = self.axiom.package_context(raw_context or "")
         compressed_context = packaged["context"]
-        compressed_tokens = packaged["tokens_estimated"]
-        decision = self.router.decide(prompt, compressed_tokens, frontier is not None, threshold)
+        # Estimate from the actual compressed text (package_context.tokens_estimated
+        # counts the pre-compression redacted text, which would under-report savings).
+        compressed_tokens = self.estimator.estimate(compressed_context)
+        # Routing keys off RAW context size (how much information there is);
+        # compression affects cost/savings, not complexity.
+        decision = self.router.decide(prompt, raw_tokens, frontier is not None, threshold)
 
         if decision.route == "local" or frontier is None:
             answer = self.local.complete(prompt, compressed_context)
