@@ -21,8 +21,8 @@ def headers(dev, secret, method, path, body=b'', nonce='ios-nonce'):
     ts=int(time.time())
     return {'x-shadow-device-id':dev.id,'x-shadow-nonce':nonce,'x-shadow-timestamp':str(ts),'x-shadow-signature':sign_request(secret, method, path, body_text, nonce, ts)}
 
-def test_health_reports_phase4_version(client):
-    assert client.get('/health').json()['version']=='0.4.0-phase4'
+def test_health_reports_version(client):
+    assert client.get('/health').json()['version']=='1.0.0-rc'
 
 def test_memory_list_endpoint(client):
     client.post('/memory/ingest',json={'text':'phase four memory','source_title':'phase4'})

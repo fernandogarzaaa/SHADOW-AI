@@ -1,0 +1,27 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  rc-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile
+        run: python -m compileall apps/shadow-node packages
+      - name: Test
+        run: pytest -q
+      - name: Demo smoke
+        run: make demo
+      - name: Secret scan
+        run: |
+          if grep -rEn "sk-[A-Za-z0-9]{20,}|(api[_-]?key|secret|password)[[:space:]]*=[[:space:]]*['\"][^'\"]{8,}" \
+            --include='*.py' --include='*.swift' --include='*.md' --include='*.yml' \
+            apps packages scripts; then
+            echo "Potential secret detected"; exit 1
+          fi
+          echo "No secrets detected"
