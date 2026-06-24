@@ -1,12 +1,2 @@
 import SwiftUI
-struct MemoryView: View {
-    @EnvironmentObject var state: AppState
-    var body: some View {
-        List {
-            Text("MemoryView").font(.title.bold())
-            Text("Consent-based, local-first Shadow Agent command center.")
-            Toggle("Emergency pause", isOn: $state.emergencyPaused)
-            if "MemoryView" == "AutonomySettingsView" { Picker("Autonomy", selection: $state.autonomyMode) { ForEach(AutonomyMode.allCases) { Text($0.rawValue).tag($0) } } }
-        }.navigationTitle("Shadow")
-    }
-}
+struct MemoryView: View { @EnvironmentObject var state: AppState; @State private var text = ""; @State private var title = "iOS manual note"; @State private var query = ""; var body: some View { List { Section("Consent-based ingestion") { Text("Paste or select user-approved text only. Shadow never scans files covertly.").font(.footnote); TextField("Source title", text: $title); TextEditor(text: $text).frame(minHeight: 100); Button("Ingest pasted text") { Task { await state.ingest(text: text, title: title) } } } Section("Search") { TextField("Search memory", text: $query); Button("Search") { Task { await state.search(query) } } } Section("Results") { ForEach(state.searchResults) { r in NavigationLink(destination: MemoryDetailView(result: r)) { VStack(alignment: .leading) { Text(r.attribution); Text("confidence \(r.item.confidence, specifier: "%.2f") freshness \(r.freshness, specifier: "%.2f")").font(.caption) } } } } }.navigationTitle("Memory") } }

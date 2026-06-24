@@ -1,3 +1,5 @@
 # MEMORY ENGINE
 
-The beta memory engine stores encrypted chunks in SQLite, indexes approved text with FTS5, and returns source attribution, confidence, freshness, and retrieval explanations. It supports categories, duplicate detection, sensitive flags, do-not-send-to-cloud flags, export, item revocation, and source-level deletion.
+The memory engine encrypts memory rows with Fernet, indexes approved text with SQLite FTS5, chunks input, deduplicates by source/content hash, and returns attribution, confidence, freshness, sensitivity, do-not-send-cloud, and retrieval explanations.
+
+Phase 4 adds app-facing memory list/search contracts and iOS display of source previews, confidence, freshness, sensitive indicators, and untrusted-context explanations.

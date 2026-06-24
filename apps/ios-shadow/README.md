@@ -1,13 +1,25 @@
 # Shadow Agent iOS
 
-Open `ShadowAgent.xcodeproj` in Xcode. The `ShadowAgentApp` target is intended for iOS 17+ simulator runs.
+Open `ShadowAgent.xcodeproj` in Xcode. The required target is `ShadowAgentApp` for iOS 17+ simulator testing.
+
+## Tester flow
+1. Start Shadow Node with `make run` from the repo root.
+2. Open the app and set the node URL to `http://127.0.0.1:8787`.
+3. Disable mock mode.
+4. Pair from Devices / Pair.
+5. Ingest user-approved pasted text from Memory.
+6. Ask a question from Ask Shadow.
+7. Review sources and why explanations.
+8. Create/approve/deny/execute proposals from Approvals.
+9. Toggle Emergency Pause and confirm execution is blocked.
+10. Review Audit Log.
 
 ## Modes
-- Local mock mode is default.
-- Real node mode points to `SHADOW_NODE_URL` or `http://127.0.0.1:8787`.
+- Local mock mode is available for screenshots and offline testing.
+- Real node mode signs requests with the paired device session secret.
 
-## Screens
-Home, Ask Shadow, Memory, Memory Detail, Approvals, Approval Detail, Devices, Pair Device, Audit Log, Privacy Dashboard, Autonomy Settings, Connector Settings, Model Provider Settings, Emergency Pause.
+## Secure identity
+The app stores device ID, node fingerprint, public key metadata, and HMAC session secret in `KeychainDeviceIdentityStore`. Requests include `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, and `x-shadow-timestamp`.
 
-## Secrets
-`KeychainSecretStore` is the Keychain-backed seam for pairing/session secrets; the beta placeholder uses app-local persistence in this repo and must be swapped for full Keychain item attributes before distribution.
+## Build notes
+See `BUILD_NOTES.md`. Xcode is not available in the CI/container environment used by this agent, so local macOS validation is required before TestFlight.

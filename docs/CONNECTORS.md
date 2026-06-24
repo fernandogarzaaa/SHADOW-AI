@@ -1,6 +1,5 @@
 # CONNECTORS
 
-Shadow Agent beta keeps local-first defaults and requires explicit consent for sensitive data access, cloud escalation, and execution.
+The beta connector path is user-approved local text ingestion. Backend file ingestion supports `.txt`, `.md`, `.markdown`, and `.json` via `POST /memory/ingest_file` with an active consent grant. iOS currently supports manual paste ingestion and documents the next security-scoped document picker path.
 
-## Local File Connector
-`POST /memory/ingest_file` supports `.txt`, `.md`, `.markdown`, and `.json`. It requires an active consent grant, stores source attribution, supports source-level deletion through `DELETE /memory/source/{source_id}`, and supports re-ingestion through duplicate detection/content hashes.
+Shadow Agent must never scan files covertly. Every ingestion path requires user-selected content, a source name, and a consent explanation.

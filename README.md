@@ -39,3 +39,8 @@ The demo grants local-only consent, ingests `examples/sample_project_context.md`
 
 ## Secure pairing/auth testing
 Pair with `POST /pair/start` then `POST /pair/confirm`. Authenticated mode validates `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, and `x-shadow-timestamp` using per-device session secrets, timestamp skew checks, replay protection, revocation, and audit logging.
+
+## Phase 4 iOS-to-node beta
+A real tester can now run the node, open the iOS app project, pair with the node, store session identity in Keychain, send signed requests, ingest pasted memory, ask questions, review sources/why explanations, approve or deny actions, execute safe mock/GHOST actions, view audit logs, and toggle emergency pause.
+
+Xcode is not available in this container; validate the iOS simulator build locally using `apps/ios-shadow/BUILD_NOTES.md`.

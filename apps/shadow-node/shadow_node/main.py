@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, WebSocket, Request, Header
+from fastapi import FastAPI, HTTPException, WebSocket, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent_core import *
 from memory_engine import *
@@ -7,17 +8,23 @@ from axiom_adapter import AxiomAdapter
 from ghost_adapter import GhostAdapter
 from .connectors import read_local_document
 from .model_providers import ModelProviderConfig, LocalMockModel
-import tempfile, hashlib, uuid
-app=FastAPI(title="Shadow Node", version="0.3.0-beta")
+import tempfile, hashlib, uuid, os
+app=FastAPI(title="Shadow Node", version="0.4.0-phase4")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8787", "http://127.0.0.1:8787"], allow_methods=["*"], allow_headers=["*"])
 profile=UserProfile(); core=AgentCore(profile); store=EncryptedMemoryStore(path=tempfile.gettempdir()+f"/shadow_memory_beta_{uuid.uuid4().hex}.db"); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); pairing={}; consents:list[ConsentGrant]=[]
-AUTH_REQUIRED=False
+AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "false").lower()=="true"
 class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
 class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
 class PairConfirm(BaseModel): pairing_id:str; device_name:str; public_key:str
 class DenyRequest(BaseModel): reason:str
 class ExecuteRequest(BaseModel): action:AgentAction; approved:bool=False; double_confirmed:bool=False
+class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User requested approval"
+class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
 class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:str="local_only"
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request:Request, exc:HTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"error":{"code":str(exc.detail),"message":str(exc.detail),"path":request.url.path}})
 @app.middleware("http")
 async def auth_middleware(request:Request, call_next):
     exempt=request.url.path in {"/health","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
@@ -27,7 +34,7 @@ async def auth_middleware(request:Request, call_next):
         if not ok: return JSONResponse(status_code=401, content={"detail":reason})
     return await call_next(request)
 @app.get("/health")
-def health(): return {"status":"ok","version":"0.3.0-beta","local_first":True,"emergency_paused":profile.emergency_paused,"auth_required":AUTH_REQUIRED}
+def health(): return {"status":"ok","version":"0.4.0-phase4","local_first":True,"emergency_paused":profile.emergency_paused,"auth_required":AUTH_REQUIRED}
 @app.post("/pair/start")
 def pair_start():
     pid=new_id("pair"); pairing[pid]="pending"; return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":300}
@@ -52,6 +59,8 @@ def ingest(req:IngestRequest):
 def ingest_file(req:FileIngestRequest):
     if not any(c.id==req.consent_grant_id and c.is_active() for c in consents): raise HTTPException(403,"active consent grant required")
     text,kind=read_local_document(req.path); src=MemorySource(kind=f"file/{kind}",title=req.source_title or req.path,uri=req.path,consent_grant_id=req.consent_grant_id); items=memory.ingest(text,src); audit.append(AuditEvent(actor="connector:file",event_type="file_ingest",data_used=[req.path],status="stored",metadata={"source_id":src.id,"count":len(items)})); return {"source":src,"items":items}
+@app.get("/memory")
+def list_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
 @app.get("/memory/search")
 def search(q:str, limit:int=5, include_sensitive:bool=True): return memory.search(q,limit,include_sensitive)
 @app.delete("/memory/source/{source_id}")
@@ -64,25 +73,35 @@ def ask(req:AskRequest):
         audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
     results=memory.search(req.prompt,5,include_sensitive=False); context="\n".join(mark_untrusted(r.item.text) for r in results); packaged=axiom.package_context(context); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
     if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
-    return {"answer":model.complete(req.prompt,packaged["context"]),"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"context_package":packaged,"plan":plan}
+    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used="local_mock",status="answered")); return {"answer":model.complete(req.prompt,packaged["context"]),"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":"local_mock","cloud_allowed":False,"untrusted_context":True,"context_package":packaged,"plan":plan}
 @app.post("/agent/plan")
 def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
     if req.action.tool_name=="ghost_handoff": return ghost.execute(ghost.to_ir(AgentPlan(user_intent=req.action.description, actions=[req.action])), approved=req.approved)
     res=core.execute(req.action,req.approved,req.double_confirmed); audit.extend(core.audit); return res
+@app.post("/approvals")
+def create_approval(req:ApprovalCreateRequest):
+    approval=core.approvals.create(req.action, req.reason); audit.append(AuditEvent(actor="user", event_type="approval_created", proposed_action=req.action.description, status="pending", metadata={"approval_id":approval.id})); return approval
 @app.get("/approvals")
 def approvals(): return list(core.approvals.requests.values())
 @app.post("/approvals/{id}/approve")
-def approve(id:str): return core.approvals.decide(id,True)
+def approve(id:str):
+    req=core.approvals.decide(id,True); audit.append(AuditEvent(actor="user", event_type="approval_approved", proposed_action=req.action.description, status="approved", metadata={"approval_id":id})); return req
 @app.post("/approvals/{id}/deny")
-def deny(id:str, req:DenyRequest): return core.approvals.decide(id,False,req.reason)
+def deny(id:str, req:DenyRequest):
+    out=core.approvals.decide(id,False,req.reason); audit.append(AuditEvent(actor="user", event_type="approval_denied", proposed_action=out.action.description, status="denied", result=req.reason, metadata={"approval_id":id})); return out
+@app.get("/emergency_pause")
+def get_emergency_pause(): return {"paused":profile.emergency_paused}
+@app.post("/emergency_pause")
+def set_emergency_pause(req:EmergencyPauseRequest):
+    profile.emergency_paused=req.paused; audit.append(AuditEvent(actor="user", event_type="emergency_pause", status="paused" if req.paused else "resumed", result=req.reason)); return {"paused":profile.emergency_paused}
 @app.get("/audit")
 def get_audit(): return audit + core.audit + sessions.audit
 @app.get("/model/providers")
 def model_providers(): return model_config.safe_summary()
 @app.websocket("/ws/tasks")
 async def ws_tasks(ws:WebSocket):
-    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":"0.3.0-beta"})
+    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":"0.4.0-phase4"})
     while True:
         data=await ws.receive_json(); await ws.send_json({"type":"ack","received":data})
