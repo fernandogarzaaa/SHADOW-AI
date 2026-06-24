@@ -15,7 +15,12 @@ from . import provider_auth
 import tempfile, hashlib, uuid, os, time
 APP_VERSION="1.0.0-rc"
 app=FastAPI(title="Shadow Node", version=APP_VERSION)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8787", "http://127.0.0.1:8787"], allow_methods=["*"], allow_headers=["*"])
+# CORS: localhost by default; add deployed PWA/app origins via SHADOW_CORS_ORIGINS
+# (comma-separated). Use "*" only for fully trusted/private deployments.
+_DEFAULT_CORS=["http://localhost","http://127.0.0.1","http://localhost:8787","http://127.0.0.1:8787","http://localhost:8081","http://localhost:19006"]
+_EXTRA_CORS=[o.strip() for o in os.getenv("SHADOW_CORS_ORIGINS","").split(",") if o.strip()]
+CORS_ORIGINS=_EXTRA_CORS if "*" in _EXTRA_CORS else (_DEFAULT_CORS+_EXTRA_CORS)
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 def _build_memory_store():
     # Persistent, stable-key store when SHADOW_MEMORY_DB is set (production);
     # ephemeral temp store otherwise (tests/dev) so runs stay isolated.
