@@ -31,13 +31,13 @@ polish.
 
 ```bash
 cd apps/native
-python -m pip install -r streamlit-requirements.txt
+python -m pip install -r requirements.txt
 python -m streamlit run streamlit_app.py
 ```
 
 For Streamlit Community Cloud, deploy the `NATIVE` branch with main file:
-`apps/native/streamlit_app.py`. Use `apps/native/streamlit-requirements.txt`
-for the Streamlit dependency if the deploy UI asks for a requirements file.
+`apps/native/streamlit_app.py`. The Streamlit dependency file lives next to the
+entrypoint at `apps/native/requirements.txt`.
 
 Local Expo concept previews:
 - `http://localhost:19009/?concept=3` - Tamagui Bento
