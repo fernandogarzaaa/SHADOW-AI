@@ -3,3 +3,21 @@ services:
     build: .
     command: uvicorn shadow_node.main:app --app-dir apps/shadow-node --host 0.0.0.0 --port 8787
     ports: ["8787:8787"]
+    environment:
+      # Production posture: persistent encrypted state + real actions.
+      SHADOW_AUTH_REQUIRED: "true"
+      SHADOW_MEMORY_DB: /data/shadow_memory.db
+      SHADOW_MEMORY_KEY_FILE: /data/keys/memory.key
+      SHADOW_RUNTIME_DB: /data/shadow_runtime.db
+      SHADOW_RUNTIME_KEY_FILE: /data/keys/runtime.key
+      SHADOW_WORKSPACE_DIR: /data/workspace
+      GHOST_RUNTIME_MODE: local
+      # Optional cloud model — supply a key to enable real Claude answers.
+      # SHADOW_CLOUD_ENABLED: "true"
+      # SHADOW_MODEL_PROVIDER: anthropic
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - shadow-data:/data
+
+volumes:
+  shadow-data:

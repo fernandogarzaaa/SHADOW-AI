@@ -3,12 +3,17 @@
 Local-first personal AI agent foundation for iOS, desktop Shadow Node, encrypted memory, consent-ledger policy, AXIOM-AETHER context routing adapters, and GHOST-Chimera action adapters.
 
 ## What works now
-- FastAPI Shadow Node with health, pairing, memory, agent, approvals, devices, audit, and WebSocket task endpoints.
-- Encrypted SQLite/FTS5 memory engine with chunking, attribution, confidence scoring, deletion/revocation.
-- Agent Core with autonomy modes, risk classification, approval gates, cloud escalation policy, audit events, and tool registry.
-- AXIOM adapter seam for redaction, compression, semantic skeletons, fingerprinting, drift detection, token budgets.
-- GHOST adapter seam for task IR, execution policy, desktop action, safety profile, telemetry.
-- SwiftUI iOS command-center skeleton with required screens and App Intents/Share Extension/BackgroundTasks seams.
+- **Minimalist web dashboard** served at `/` (Ask, Memory, Actions, Approvals, Audit, emergency pause) — no build step.
+- FastAPI Shadow Node with health, pairing, memory, agent, approvals, devices, audit, tools, and WebSocket task endpoints.
+- Encrypted SQLite/FTS5 memory engine with chunking, attribution, confidence scoring, deletion/revocation — **persists across restarts** with a stable key.
+- **Real model**: local mock by default; a real Claude (`AnthropicProvider`) is used when cloud consent + explicit approval + an API key are all present.
+- **Real, sandboxed actions** behind the approval gate: `note.create/append/list`, `reminder.create`, and SSRF-guarded `http.get` (file actions confined to the workspace).
+- **Persistent encrypted runtime state** (audit, consents, devices) via `SHADOW_RUNTIME_DB`.
+- Agent Core with autonomy modes, risk classification, approval gates, cloud-escalation policy, prompt-injection defenses, audit events, and a tool registry.
+- AXIOM adapter for redaction, compression, semantic skeletons, fingerprinting, token budgets.
+- SwiftUI iOS command-center app (validate the simulator build locally — Xcode isn't available in CI).
+
+See `docs/PRODUCTION_RUNBOOK.md` to deploy and `docs/PROJECT_AUDIT_2026-06.md` for the verified state of every component.
 
 ## Run
 ```bash
