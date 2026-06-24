@@ -1,114 +1,198 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView } from 'react-native';
-import { api, getBaseUrl, setBaseUrl, pairDevice, isPaired, unpair } from './api';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Text, View } from 'react-native';
+import { api, getBaseUrl, isPaired, pairDevice, setBaseUrl, unpair } from './api';
 import { theme } from './theme';
-import { Card, Field, Button, Pill, styles } from './ui';
+import { Button, Field, GlassCard, Metric, Pill, Screen, SegmentedControl, styles } from './ui';
 
-function Screen({ children }: { children: React.ReactNode }) {
+const PROMPTS = [
+  'What did I note about Aurora?',
+  'Summarize my last memory.',
+  'What needs approval?',
+];
+
+function StatusLine({ ok, text }: { ok?: boolean; text: string }) {
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.bg }} contentContainerStyle={{ padding: 16 }}>
-      {children}
-    </ScrollView>
+    <View style={[styles.row, { justifyContent: 'space-between', marginTop: 8 }]}>
+      <Text style={styles.itemDesc}>{text}</Text>
+      <Pill tone={ok ? 'ok' : undefined} text={ok ? 'ready' : 'idle'} />
+    </View>
   );
 }
 
 export function AskScreen() {
-  const [prompt, setPrompt] = useState('');
-  const [cloud, setCloud] = useState(false);
+  const [prompt, setPrompt] = useState(PROMPTS[0]);
+  const [mode, setMode] = useState('Local');
   const [out, setOut] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+
   const ask = async () => {
     if (!prompt.trim()) return;
     setBusy(true);
-    try { setOut(await api.ask(prompt, cloud)); } catch (e: any) { setOut({ error: String(e.message || e) }); }
-    setBusy(false);
+    try {
+      setOut(await api.ask(prompt, mode === 'Cloud'));
+    } catch (e: any) {
+      setOut({ error: String(e.message || e) });
+    } finally {
+      setBusy(false);
+    }
   };
+
   return (
     <Screen>
-      <Card title="Ask Shadow" hint="Answers are grounded in your local memory. Retrieved context is treated as untrusted.">
-        <Field placeholder="What did I note about the Aurora project?" value={prompt} onChangeText={setPrompt} multiline />
-        <View style={[styles.row, { justifyContent: 'space-between' }]}>
-          <Button title={cloud ? 'cloud: on' : 'cloud: off'} kind="ghost" onPress={() => setCloud(!cloud)} />
-          <Button title={busy ? '…' : 'Ask'} onPress={ask} disabled={busy} />
+      <GlassCard eyebrow="Sample feature" title="Private Memory Brief" right={<Pill tone="accent" text="React Native" />}>
+        <View style={[styles.row, { alignItems: 'stretch', marginBottom: 14 }]}>
+          <Metric label="memory" value={out?.sources?.length ? `${out.sources.length}` : '0'} />
+          <Metric label="route" value={out?.route || 'local'} tone="ok" />
+          <Metric label="saved" value={out?.savings ? `${out.savings.tokens_saved_estimate}` : '--'} tone="warn" />
         </View>
+
+        <Field
+          label="Prompt"
+          placeholder="Ask your private memory"
+          value={prompt}
+          onChangeText={setPrompt}
+          multiline
+        />
+
+        <View style={styles.meta}>
+          {PROMPTS.map((item) => (
+            <Button key={item} title={item} kind="ghost" onPress={() => setPrompt(item)} />
+          ))}
+        </View>
+
+        <View style={{ marginTop: 14 }}>
+          <SegmentedControl items={['Local', 'Cloud']} value={mode} onChange={setMode} />
+        </View>
+
+        <View style={[styles.row, { justifyContent: 'flex-end', marginTop: 14 }]}>
+          <Button title={busy ? 'Thinking' : 'Ask Shadow'} onPress={ask} disabled={busy} />
+        </View>
+
         {out?.error ? <Text style={[styles.answer, { borderColor: theme.bad }]}>{out.error}</Text> : null}
         {out && !out.error ? (
           <View>
             <Text style={styles.answer}>{out.answer}</Text>
             <View style={styles.meta}>
-              <Pill text={`${out.route === 'frontier' ? 'frontier' : 'on-device'} · ${out.model_used}`} />
+              <Pill tone="accent" text={`${out.route === 'frontier' ? 'frontier' : 'on-device'} / ${out.model_used}`} />
               <Pill text={`${(out.sources || []).length} sources`} />
               {out.savings ? <Pill tone="ok" text={`~${out.savings.tokens_saved_estimate} tokens saved`} /> : null}
               {typeof out.grounding === 'number' ? <Pill text={`grounding ${out.grounding}`} /> : null}
             </View>
           </View>
         ) : null}
-      </Card>
+      </GlassCard>
     </Screen>
   );
 }
 
 export function MemoryScreen() {
-  const [title, setTitle] = useState('');
-  const [text, setText] = useState('');
+  const [title, setTitle] = useState('Recruiter demo note');
+  const [text, setText] = useState('Project Aurora ships in March; lead is Dana.');
   const [q, setQ] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  const [status, setStatus] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const store = async () => { if (!text.trim()) return; await api.ingest(text, title || 'Mobile Import'); setText(''); };
-  // Debounce so fast typing doesn't hammer the node (and trip its rate limiter).
+
+  const store = async () => {
+    if (!text.trim()) return;
+    await api.ingest(text, title || 'Mobile Import');
+    setStatus('Memory stored');
+  };
+
   const search = (query: string) => {
     setQ(query);
     if (timer.current) clearTimeout(timer.current);
-    if (!query.trim()) { setResults([]); return; }
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
     timer.current = setTimeout(async () => {
-      try { setResults(await api.search(query)); } catch { setResults([]); }
+      try {
+        setResults(await api.search(query));
+      } catch {
+        setResults([]);
+      }
     }, 300);
   };
+
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
   return (
     <Screen>
-      <Card title="Ingest memory" hint="Stored encrypted on the node. Sensitive content is auto-flagged.">
-        <Field label="Source title" placeholder="Project notes" value={title} onChangeText={setTitle} />
-        <Field placeholder="Paste text to remember…" value={text} onChangeText={setText} multiline />
-        <Button title="Store" onPress={store} />
-      </Card>
-      <Card title="Search">
-        <Field placeholder="Search your memory…" value={q} onChangeText={search} />
-        {results.length === 0 ? <Text style={styles.empty}>Results appear here.</Text> : results.map((r, i) => (
-          <View key={i} style={styles.item}>
+      <GlassCard eyebrow="Capture" title="Memory capsule" right={<Pill tone="ok" text={status || 'encrypted'} />}>
+        <Field label="Source" placeholder="Project notes" value={title} onChangeText={setTitle} />
+        <Field
+          label="Memory"
+          placeholder="Paste a short note"
+          value={text}
+          onChangeText={setText}
+          multiline
+        />
+        <Button title="Store memory" onPress={store} />
+      </GlassCard>
+
+      <GlassCard eyebrow="Recall" title="Search memory">
+        <Field placeholder="Search Aurora, Dana, March..." value={q} onChangeText={search} />
+        {results.length === 0 ? <Text style={styles.empty}>No matching memory yet.</Text> : results.map((r, i) => (
+          <View key={`${r.item?.id || 'memory'}-${i}`} style={styles.item}>
             <Text style={styles.itemTitle}>{r.item.source.title}</Text>
             <Text style={styles.itemDesc}>{r.item.text}</Text>
-            <View style={styles.meta}><Pill text={`conf ${(r.item.confidence || 0).toFixed(2)}`} /><Pill text={r.item.category} /></View>
+            <View style={styles.meta}>
+              <Pill tone="ok" text={`conf ${(r.item.confidence || 0).toFixed(2)}`} />
+              <Pill text={r.item.category} />
+            </View>
           </View>
         ))}
-      </Card>
+      </GlassCard>
     </Screen>
   );
 }
 
 const TOOLS = [
-  { tool: 'note.create', fields: [['title', 'Title'], ['body', 'Body']] },
-  { tool: 'reminder.create', fields: [['text', 'Reminder'], ['when', 'When']] },
-  { tool: 'http.get', fields: [['url', 'https://example.com']] },
-];
+  { tool: 'note.create', label: 'Note', fields: [['title', 'Title'], ['body', 'Body']] },
+  { tool: 'reminder.create', label: 'Reminder', fields: [['text', 'Reminder'], ['when', 'When']] },
+  { tool: 'http.get', label: 'Fetch', fields: [['url', 'URL']] },
+] as const;
 
 export function ActionsScreen() {
   const [sel, setSel] = useState(0);
   const [params, setParams] = useState<Record<string, string>>({});
   const [out, setOut] = useState<any>(null);
-  const run = async () => { try { setOut(await api.execute(TOOLS[sel].tool, params)); } catch (e: any) { setOut({ error: String(e.message || e) }); } };
+  const tool = TOOLS[sel];
+
+  const run = async () => {
+    try {
+      setOut(await api.execute(tool.tool, params));
+    } catch (e: any) {
+      setOut({ error: String(e.message || e) });
+    }
+  };
+
   return (
     <Screen>
-      <Card title="Run an action" hint="Real, sandboxed actions behind the approval gate.">
-        <View style={[styles.meta, { marginBottom: 12 }]}>
-          {TOOLS.map((t, i) => <Button key={t.tool} title={t.tool} kind={i === sel ? 'primary' : 'ghost'} onPress={() => { setSel(i); setParams({}); }} />)}
+      <GlassCard eyebrow="Approval gate" title="Sandboxed action">
+        <SegmentedControl items={TOOLS.map((item) => item.label)} value={tool.label} onChange={(label) => {
+          const index = TOOLS.findIndex((item) => item.label === label);
+          setSel(index);
+          setParams({});
+          setOut(null);
+        }} />
+
+        <View style={{ marginTop: 14 }}>
+          {tool.fields.map(([key, label]) => (
+            <Field
+              key={key}
+              label={label}
+              placeholder={label}
+              value={params[key] || ''}
+              onChangeText={(value) => setParams({ ...params, [key]: value })}
+            />
+          ))}
         </View>
-        {TOOLS[sel].fields.map(([k, ph]) => (
-          <Field key={k} label={ph} placeholder={ph} value={params[k] || ''} onChangeText={(v) => setParams({ ...params, [k]: v })} />
-        ))}
-        <Button title="Execute" onPress={run} />
+
+        <Button title="Execute once" onPress={run} />
         {out ? <Text style={[styles.answer, out.error && { borderColor: theme.bad }]}>{JSON.stringify(out, null, 2)}</Text> : null}
-      </Card>
+      </GlassCard>
     </Screen>
   );
 }
@@ -116,13 +200,32 @@ export function ActionsScreen() {
 export function ModelsScreen() {
   const [data, setData] = useState<any>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
-  const load = async () => { try { setData(await api.providers()); } catch (e: any) { setData({ error: String(e.message || e) }); } };
+
+  const load = async () => {
+    try {
+      setData(await api.providers());
+    } catch (e: any) {
+      setData({ error: String(e.message || e) });
+    }
+  };
+
   useEffect(() => { load(); }, []);
-  const connect = async (name: string) => { if (!keys[name]) return; await api.connectProvider(name, keys[name]); setKeys({ ...keys, [name]: '' }); load(); };
-  const disconnect = async (name: string) => { await api.disconnectProvider(name); load(); };
+
+  const connect = async (name: string) => {
+    if (!keys[name]) return;
+    await api.connectProvider(name, keys[name]);
+    setKeys({ ...keys, [name]: '' });
+    load();
+  };
+
+  const disconnect = async (name: string) => {
+    await api.disconnectProvider(name);
+    load();
+  };
+
   return (
     <Screen>
-      <Card title="Models" hint="Hybrid local + frontier. Connect a provider with an API key. Consumer chat subscriptions cannot power third-party inference.">
+      <GlassCard eyebrow="Frontier routing" title="Provider keys">
         {data?.providers?.length ? data.providers.map((p: any) => (
           <View key={p.provider} style={styles.item}>
             <View style={[styles.row, { justifyContent: 'space-between' }]}>
@@ -131,28 +234,48 @@ export function ModelsScreen() {
             </View>
             <Text style={styles.itemDesc}>{p.note}</Text>
             {p.connected ? (
-              <View style={{ marginTop: 10 }}><Button title="Disconnect" kind="danger" onPress={() => disconnect(p.provider)} /></View>
+              <View style={{ marginTop: 10 }}>
+                <Button title="Disconnect" kind="danger" onPress={() => disconnect(p.provider)} />
+              </View>
             ) : (
               <View style={{ marginTop: 10 }}>
-                <Field placeholder="Paste API key" secureTextEntry value={keys[p.provider] || ''} onChangeText={(v) => setKeys({ ...keys, [p.provider]: v })} />
+                <Field
+                  placeholder="API key"
+                  secureTextEntry
+                  value={keys[p.provider] || ''}
+                  onChangeText={(value) => setKeys({ ...keys, [p.provider]: value })}
+                />
                 <Button title="Connect" onPress={() => connect(p.provider)} />
               </View>
             )}
           </View>
-        )) : <Text style={styles.empty}>Connect to a node to manage providers.</Text>}
-      </Card>
+        )) : <Text style={styles.empty}>Pair with a node to load providers.</Text>}
+      </GlassCard>
     </Screen>
   );
 }
 
 export function ApprovalsScreen() {
   const [items, setItems] = useState<any[]>([]);
-  const load = async () => { try { setItems((await api.approvals()).filter((a: any) => a.status === 'pending')); } catch { setItems([]); } };
+
+  const load = async () => {
+    try {
+      setItems((await api.approvals()).filter((a: any) => a.status === 'pending'));
+    } catch {
+      setItems([]);
+    }
+  };
+
   useEffect(() => { load(); }, []);
-  const decide = async (id: string, ok: boolean) => { await api.decide(id, ok); load(); };
+
+  const decide = async (id: string, ok: boolean) => {
+    await api.decide(id, ok);
+    load();
+  };
+
   return (
     <Screen>
-      <Card title="Pending approvals" hint="High-impact actions wait for your explicit decision.">
+      <GlassCard eyebrow="Decisions" title="Pending approvals">
         {items.length === 0 ? <Text style={styles.empty}>Nothing waiting.</Text> : items.map((a) => (
           <View key={a.id} style={styles.item}>
             <View style={[styles.row, { justifyContent: 'space-between' }]}>
@@ -161,29 +284,39 @@ export function ApprovalsScreen() {
             </View>
             <Text style={styles.itemDesc}>{a.action.description}</Text>
             <View style={[styles.row, { marginTop: 10 }]}>
-              <Button title="Approve" onPress={() => decide(a.id, true)} />
-              <Button title="Deny" kind="danger" onPress={() => decide(a.id, false)} />
+              <Button title="Approve" onPress={() => decide(a.id, true)} wide />
+              <Button title="Deny" kind="danger" onPress={() => decide(a.id, false)} wide />
             </View>
           </View>
         ))}
-      </Card>
+      </GlassCard>
     </Screen>
   );
 }
 
 export function AuditScreen() {
   const [items, setItems] = useState<any[]>([]);
-  useEffect(() => { (async () => { try { setItems((await api.audit()).slice(-40).reverse()); } catch { setItems([]); } })(); }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setItems((await api.audit()).slice(-40).reverse());
+      } catch {
+        setItems([]);
+      }
+    })();
+  }, []);
+
   return (
     <Screen>
-      <Card title="Audit log" hint="Every decision the node makes is recorded here.">
+      <GlassCard eyebrow="Trace" title="Audit log">
         {items.length === 0 ? <Text style={styles.empty}>No events yet.</Text> : items.map((e, i) => (
-          <View key={i} style={[styles.row, { justifyContent: 'space-between', borderBottomColor: theme.line, borderBottomWidth: 1, paddingVertical: 8 }]}>
-            <Text style={{ color: theme.txt, fontSize: 13, fontWeight: '500' }}>{e.event_type}</Text>
+          <View key={`${e.id || 'audit'}-${i}`} style={[styles.row, { justifyContent: 'space-between', paddingVertical: 9 }]}>
+            <Text style={[styles.itemTitle, { flex: 1 }]} numberOfLines={1}>{e.event_type}</Text>
             <Pill tone={e.status === 'blocked' ? 'bad' : e.status === 'answered' || e.status === 'allowed' ? 'ok' : undefined} text={e.status} />
           </View>
         ))}
-      </Card>
+      </GlassCard>
     </Screen>
   );
 }
@@ -192,29 +325,59 @@ export function SettingsScreen() {
   const [url, setUrl] = useState(getBaseUrl());
   const [paired, setPaired] = useState(isPaired());
   const [status, setStatus] = useState<string>('');
-  const save = async () => { await setBaseUrl(url); setStatus('Saved'); };
+
+  const save = async () => {
+    const saved = await setBaseUrl(url);
+    setUrl(saved);
+    setStatus('Saved');
+  };
+
   const test = async () => {
-    try { const h = await api.health(); setStatus(`Connected · node ${h.version}${h.auth_required ? ' · auth on' : ''}`); }
-    catch (e: any) { setStatus('Cannot reach node: ' + String(e.message || e)); }
+    try {
+      const h = await api.health();
+      setStatus(`Connected to node ${h.version}`);
+    } catch (e: any) {
+      setStatus('Cannot reach node: ' + String(e.message || e));
+    }
   };
+
   const doPair = async () => {
-    try { await setBaseUrl(url); await pairDevice('Shadow Native'); setPaired(true); setStatus('Paired — signed requests enabled'); }
-    catch (e: any) { setStatus('Pairing failed: ' + String(e.message || e)); }
+    try {
+      await setBaseUrl(url);
+      await pairDevice('Shadow Native');
+      setPaired(true);
+      setStatus('Paired with signed requests');
+    } catch (e: any) {
+      setStatus('Pairing failed: ' + String(e.message || e));
+    }
   };
-  const doUnpair = async () => { await unpair(); setPaired(false); setStatus('Unpaired'); };
+
+  const doUnpair = async () => {
+    await unpair();
+    setPaired(false);
+    setStatus('Unpaired');
+  };
+
+  const summary = useMemo(() => paired ? 'Signed transport enabled' : 'Pairing required for protected routes', [paired]);
+
   return (
     <Screen>
-      <Card title="Node connection" hint="Point the app at your Shadow Node and pair. Pairing is required when the node enforces authentication. On a device use the node's LAN address (e.g. http://192.168.1.20:8787).">
-        <Field label="Base URL" placeholder="http://localhost:8787" autoCapitalize="none" autoCorrect={false} value={url} onChangeText={setUrl} />
+      <GlassCard eyebrow="Connection" title="Shadow Node" right={<Pill tone={paired ? 'ok' : undefined} text={paired ? 'paired' : 'not paired'} />}>
+        <Field
+          label="Base URL"
+          placeholder="http://localhost:8787"
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={url}
+          onChangeText={setUrl}
+        />
         <View style={[styles.row, { flexWrap: 'wrap' }]}>
           <Button title="Save" onPress={save} />
           <Button title="Test" kind="ghost" onPress={test} />
           {paired ? <Button title="Unpair" kind="danger" onPress={doUnpair} /> : <Button title="Pair device" onPress={doPair} />}
         </View>
-        <View style={styles.meta}><Pill tone={paired ? 'ok' : undefined} text={paired ? 'paired' : 'not paired'} /></View>
-        {status ? <Text style={[styles.itemDesc, { marginTop: 10 }]}>{status}</Text> : null}
-      </Card>
-      <Card title="About" hint="Shadow — local-first personal AI agent. Your memory stays encrypted on your node; the cloud is used only with your explicit approval." />
+        <StatusLine ok={paired} text={status || summary} />
+      </GlassCard>
     </Screen>
   );
 }

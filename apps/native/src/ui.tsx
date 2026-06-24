@@ -1,30 +1,106 @@
 import React from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ViewStyle } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleProp,
+  StyleSheet,
+  Text,
+  TextInput,
+  TextStyle,
+  View,
+  ViewStyle,
+} from 'react-native';
 import { theme } from './theme';
 
-export function Card({ title, hint, children }: { title?: string; hint?: string; children?: React.ReactNode }) {
+export function AmbientBackground() {
   return (
-    <View style={styles.card}>
-      {title ? <Text style={styles.cardTitle}>{title}</Text> : null}
-      {hint ? <Text style={styles.cardHint}>{hint}</Text> : null}
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <View style={[styles.orb, styles.orbCyan]} />
+      <View style={[styles.orb, styles.orbViolet]} />
+      <View style={[styles.orb, styles.orbRose]} />
+      <View style={styles.noiseVeil} />
+    </View>
+  );
+}
+
+export function Screen({ children }: { children: React.ReactNode }) {
+  return (
+    <View style={styles.screen}>
+      <AmbientBackground />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled">
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
+
+export function GlassCard({
+  title,
+  eyebrow,
+  right,
+  children,
+  style,
+}: {
+  title?: string;
+  eyebrow?: string;
+  right?: React.ReactNode;
+  children?: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[styles.card, style]}>
+      <View pointerEvents="none" style={styles.glassHighlight} />
+      {(title || eyebrow || right) ? (
+        <View style={styles.cardHeader}>
+          <View style={{ flex: 1 }}>
+            {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
+            {title ? <Text style={styles.cardTitle}>{title}</Text> : null}
+          </View>
+          {right}
+        </View>
+      ) : null}
       {children}
     </View>
   );
 }
 
+export const Card = GlassCard;
+
 export function Field(props: React.ComponentProps<typeof TextInput> & { label?: string }) {
   const { label, style, ...rest } = props;
   return (
-    <View>
+    <View style={styles.fieldWrap}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <TextInput placeholderTextColor={theme.faint} style={[styles.input, style as ViewStyle]} {...rest} />
+      <TextInput
+        placeholderTextColor={theme.faint}
+        selectionColor={theme.cyan}
+        style={[styles.input, style as StyleProp<TextStyle>]}
+        {...rest}
+      />
     </View>
   );
 }
 
-export function Button({ title, onPress, kind = 'primary', disabled }: { title: string; onPress?: () => void; kind?: 'primary' | 'ghost' | 'danger'; disabled?: boolean }) {
+export function Button({
+  title,
+  onPress,
+  kind = 'primary',
+  disabled,
+  wide,
+}: {
+  title: string;
+  onPress?: () => void;
+  kind?: 'primary' | 'ghost' | 'danger' | 'quiet';
+  disabled?: boolean;
+  wide?: boolean;
+}) {
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
       disabled={disabled}
       style={({ pressed }) => [
@@ -32,36 +108,186 @@ export function Button({ title, onPress, kind = 'primary', disabled }: { title: 
         kind === 'primary' && styles.btnPrimary,
         kind === 'ghost' && styles.btnGhost,
         kind === 'danger' && styles.btnDanger,
-        pressed && { opacity: 0.85 },
-        disabled && { opacity: 0.5 },
+        kind === 'quiet' && styles.btnQuiet,
+        wide && { flex: 1 },
+        pressed && styles.pressed,
+        disabled && styles.disabled,
       ]}>
-      <Text style={[styles.btnText, kind !== 'primary' && { color: kind === 'danger' ? theme.bad : theme.muted }]}>{title}</Text>
+      <Text style={[styles.btnText, kind !== 'primary' && styles.btnTextMuted]} numberOfLines={1}>
+        {title}
+      </Text>
     </Pressable>
   );
 }
 
-export function Pill({ text, tone }: { text: string; tone?: 'ok' | 'warn' | 'bad' }) {
-  const color = tone === 'ok' ? theme.ok : tone === 'warn' ? theme.warn : tone === 'bad' ? theme.bad : theme.muted;
-  return <Text style={[styles.pill, { color }]}>{text}</Text>;
+export function Pill({ text, tone }: { text: string; tone?: 'ok' | 'warn' | 'bad' | 'accent' }) {
+  const color =
+    tone === 'ok' ? theme.ok :
+    tone === 'warn' ? theme.warn :
+    tone === 'bad' ? theme.bad :
+    tone === 'accent' ? theme.cyan :
+    theme.muted;
+  return (
+    <Text style={[styles.pill, { color, borderColor: color + '55' }]} numberOfLines={1}>
+      {text}
+    </Text>
+  );
+}
+
+export function Metric({ label, value, tone = 'accent' }: { label: string; value: string; tone?: 'accent' | 'ok' | 'warn' }) {
+  const color = tone === 'ok' ? theme.ok : tone === 'warn' ? theme.warn : theme.cyan;
+  return (
+    <View style={styles.metric}>
+      <Text style={[styles.metricValue, { color }]} numberOfLines={1}>{value}</Text>
+      <Text style={styles.metricLabel} numberOfLines={1}>{label}</Text>
+    </View>
+  );
+}
+
+export function SegmentedControl({
+  items,
+  value,
+  onChange,
+}: {
+  items: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <View style={styles.segment}>
+      {items.map((item) => {
+        const active = item === value;
+        return (
+          <Pressable key={item} onPress={() => onChange(item)} style={[styles.segmentItem, active && styles.segmentActive]}>
+            <Text style={[styles.segmentText, active && styles.segmentTextActive]} numberOfLines={1}>{item}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 export const styles = StyleSheet.create({
-  card: { backgroundColor: theme.panel, borderColor: theme.line, borderWidth: 1, borderRadius: theme.radius, padding: 18, marginBottom: theme.gap },
-  cardTitle: { color: theme.txt, fontSize: 15, fontWeight: '600', marginBottom: 2 },
-  cardHint: { color: theme.faint, fontSize: 12.5, marginBottom: 12 },
-  label: { color: theme.muted, fontSize: 12, marginBottom: 6, fontWeight: '500' },
-  input: { backgroundColor: theme.panel2, borderColor: theme.line, borderWidth: 1, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 11, color: theme.txt, marginBottom: 12 },
-  btnBase: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: 10, alignItems: 'center' },
-  btnPrimary: { backgroundColor: theme.accent },
-  btnGhost: { borderWidth: 1, borderColor: theme.line },
-  btnDanger: { borderWidth: 1, borderColor: 'rgba(240,100,100,0.35)' },
-  btnText: { color: '#fff', fontWeight: '600' },
-  pill: { fontSize: 11, color: theme.muted, borderColor: theme.line, borderWidth: 1, borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3, overflow: 'hidden' },
-  answer: { color: theme.txt, backgroundColor: theme.panel2, borderColor: theme.accent, borderLeftWidth: 2, borderWidth: 1, borderRadius: 10, padding: 14, marginTop: 6 },
-  item: { borderColor: theme.line, borderWidth: 1, borderRadius: 11, padding: 13, marginBottom: 10, backgroundColor: theme.panel2 },
-  itemTitle: { color: theme.txt, fontWeight: '500' },
-  itemDesc: { color: theme.muted, fontSize: 13, marginTop: 2 },
+  screen: { flex: 1, backgroundColor: theme.bg, overflow: 'hidden' },
+  scroll: { flex: 1, overflow: 'hidden' },
+  scrollContent: { padding: 18, paddingBottom: 110 },
+  orb: { position: 'absolute', width: 260, height: 260, borderRadius: 130, opacity: 0.22 },
+  orbCyan: { backgroundColor: theme.cyan, top: -90, right: -80 },
+  orbViolet: { backgroundColor: theme.violet, top: 190, left: -130 },
+  orbRose: { backgroundColor: theme.rose, bottom: 40, right: -150, opacity: 0.14 },
+  noiseVeil: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(5, 7, 10, 0.58)' },
+  card: {
+    backgroundColor: theme.glass,
+    borderColor: theme.stroke,
+    borderWidth: 1,
+    borderRadius: theme.radius,
+    padding: 18,
+    marginBottom: theme.gap,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.28, shadowRadius: 24, shadowOffset: { width: 0, height: 18 } },
+      android: { elevation: 7 },
+      web: { boxShadow: '0 22px 60px rgba(0,0,0,0.32)' } as any,
+    }),
+  },
+  glassHighlight: {
+    position: 'absolute',
+    left: 1,
+    right: 1,
+    top: 1,
+    height: 56,
+    borderTopLeftRadius: theme.radius,
+    borderTopRightRadius: theme.radius,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
+  eyebrow: { color: theme.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 0, textTransform: 'uppercase', marginBottom: 4 },
+  cardTitle: { color: theme.txt, fontSize: 20, fontWeight: '700', letterSpacing: 0 },
+  label: { color: theme.muted, fontSize: 12, marginBottom: 7, fontWeight: '600' },
+  fieldWrap: { marginBottom: 12 },
+  input: {
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderColor: theme.stroke,
+    borderWidth: 1,
+    borderRadius: theme.radiusSm,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: theme.txt,
+    minHeight: 46,
+  },
+  btnBase: {
+    minHeight: 44,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: theme.radiusSm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.stroke,
+  },
+  btnPrimary: { backgroundColor: theme.violet, borderColor: 'rgba(255, 255, 255, 0.24)' },
+  btnGhost: { backgroundColor: 'rgba(255, 255, 255, 0.06)' },
+  btnDanger: { backgroundColor: 'rgba(255, 111, 145, 0.10)', borderColor: 'rgba(255, 111, 145, 0.36)' },
+  btnQuiet: { backgroundColor: 'transparent', borderColor: 'transparent' },
+  pressed: { transform: [{ scale: 0.985 }], opacity: 0.9 },
+  disabled: { opacity: 0.5 },
+  btnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  btnTextMuted: { color: theme.muted },
+  pill: {
+    fontSize: 11,
+    borderWidth: 1,
+    borderRadius: 99,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    maxWidth: 190,
+  },
+  metric: {
+    flex: 1,
+    minWidth: 92,
+    borderRadius: theme.radiusSm,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: theme.stroke,
+    borderWidth: 1,
+    padding: 12,
+  },
+  metricValue: { fontSize: 18, fontWeight: '800', letterSpacing: 0 },
+  metricLabel: { color: theme.faint, fontSize: 11, marginTop: 2 },
+  segment: {
+    flexDirection: 'row',
+    padding: 4,
+    borderRadius: theme.radiusSm,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    gap: 4,
+  },
+  segmentItem: { flex: 1, minHeight: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 11, paddingHorizontal: 8 },
+  segmentActive: { backgroundColor: 'rgba(141, 133, 255, 0.26)', borderWidth: 1, borderColor: 'rgba(141, 133, 255, 0.36)' },
+  segmentText: { color: theme.muted, fontSize: 12, fontWeight: '700' },
+  segmentTextActive: { color: theme.txt },
+  answer: {
+    color: theme.txt,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderColor: 'rgba(79, 216, 255, 0.45)',
+    borderWidth: 1,
+    borderRadius: theme.radiusSm,
+    padding: 14,
+    marginTop: 12,
+    lineHeight: 20,
+  },
+  item: {
+    borderColor: theme.stroke,
+    borderWidth: 1,
+    borderRadius: theme.radiusSm,
+    padding: 13,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.055)',
+  },
+  itemTitle: { color: theme.txt, fontWeight: '700', fontSize: 14 },
+  itemDesc: { color: theme.muted, fontSize: 13, marginTop: 4, lineHeight: 18 },
   row: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   empty: { color: theme.faint, fontSize: 13, textAlign: 'center', paddingVertical: 22 },
-  meta: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  meta: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
 });

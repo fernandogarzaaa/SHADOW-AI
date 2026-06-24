@@ -1,14 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Modal } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { theme } from './src/theme';
 import { api, loadBaseUrl } from './src/api';
+import { theme } from './src/theme';
+import { AmbientBackground, Pill } from './src/ui';
 import {
-  AskScreen, MemoryScreen, ActionsScreen, ModelsScreen,
-  ApprovalsScreen, AuditScreen, SettingsScreen,
+  ActionsScreen,
+  ApprovalsScreen,
+  AskScreen,
+  AuditScreen,
+  MemoryScreen,
+  ModelsScreen,
+  SettingsScreen,
 } from './src/screens';
 
 const Tab = createBottomTabNavigator();
@@ -18,17 +24,21 @@ const navTheme = {
   dark: true,
   colors: {
     ...DefaultTheme.colors,
-    primary: theme.accent,
+    primary: theme.cyan,
     background: theme.bg,
-    card: theme.panel,
+    card: theme.glass,
     text: theme.txt,
-    border: theme.line,
-    notification: theme.accent,
+    border: theme.stroke,
+    notification: theme.violet,
   },
 };
 
-function Dot({ color }: { color: string }) {
-  return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />;
+function TabMark({ focused, label }: { focused: boolean; label: string }) {
+  return (
+    <View style={[s.tabMark, focused && s.tabMarkActive]}>
+      <Text style={[s.tabMarkText, focused && s.tabMarkTextActive]}>{label.slice(0, 1)}</Text>
+    </View>
+  );
 }
 
 export default function App() {
@@ -54,22 +64,25 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <SafeAreaView style={s.app} edges={['top']}>
+        <AmbientBackground />
         <View style={s.header}>
           <View style={s.brand}>
-            <View style={s.glyph} />
-            <View>
+            <View style={s.glyph}>
+              <View style={s.glyphCore} />
+            </View>
+            <View style={{ flex: 1 }}>
               <Text style={s.brandName}>Shadow</Text>
-              <Text style={s.brandSub}>{status.online ? `node ${status.version || ''}` : 'offline — set node in settings'}</Text>
+              <Text style={s.brandSub} numberOfLines={1}>
+                {status.online ? `node ${status.version || 'ready'}` : 'offline'}
+              </Text>
             </View>
           </View>
           <View style={s.headerRight}>
             <Pressable onPress={async () => { await api.emergencyPause(!status.paused).catch(() => {}); refresh(); }}>
-              <Text style={[s.chip, status.paused && { color: theme.bad, borderColor: theme.bad }]}>
-                {status.paused ? '⏸ paused' : 'pause'}
-              </Text>
+              <Pill tone={status.paused ? 'bad' : undefined} text={status.paused ? 'paused' : 'pause'} />
             </Pressable>
             <Pressable onPress={() => setShowSettings(true)}>
-              <Text style={s.chip}>⚙</Text>
+              <Text style={s.settingsButton}>Settings</Text>
             </Pressable>
           </View>
         </View>
@@ -80,9 +93,10 @@ export default function App() {
               headerShown: false,
               tabBarActiveTintColor: theme.txt,
               tabBarInactiveTintColor: theme.muted,
-              tabBarStyle: { backgroundColor: theme.panel, borderTopColor: theme.line },
-              tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
-              tabBarIcon: ({ focused }) => <Dot color={focused ? theme.accent : theme.faint} />,
+              tabBarStyle: s.tabBar,
+              tabBarLabelStyle: s.tabLabel,
+              tabBarItemStyle: s.tabItem,
+              tabBarIcon: ({ focused }) => <TabMark focused={focused} label={route.name} />,
             })}>
             <Tab.Screen name="Ask" component={AskScreen} />
             <Tab.Screen name="Memory" component={MemoryScreen} />
@@ -95,9 +109,10 @@ export default function App() {
 
         <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
           <SafeAreaView style={s.app}>
+            <AmbientBackground />
             <View style={s.header}>
               <Text style={s.brandName}>Settings</Text>
-              <Pressable onPress={() => setShowSettings(false)}><Text style={s.chip}>Done</Text></Pressable>
+              <Pressable onPress={() => setShowSettings(false)}><Text style={s.settingsButton}>Done</Text></Pressable>
             </View>
             <SettingsScreen />
           </SafeAreaView>
@@ -108,12 +123,69 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  app: { flex: 1, backgroundColor: theme.bg },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 12, borderBottomColor: theme.line, borderBottomWidth: 1 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  glyph: { width: 26, height: 26, borderRadius: 8, backgroundColor: theme.accent },
-  brandName: { color: theme.txt, fontWeight: '600', fontSize: 16 },
-  brandSub: { color: theme.faint, fontSize: 11 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  chip: { color: theme.muted, fontSize: 12, borderColor: theme.line, borderWidth: 1, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 6, overflow: 'hidden' },
+  app: { flex: 1, backgroundColor: theme.bg, overflow: 'hidden' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomColor: theme.stroke,
+    borderBottomWidth: 1,
+    backgroundColor: 'rgba(5, 7, 10, 0.72)',
+  },
+  brand: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 },
+  glyph: {
+    width: 38,
+    height: 38,
+    borderRadius: 15,
+    backgroundColor: 'rgba(141, 133, 255, 0.26)',
+    borderColor: theme.strokeStrong,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glyphCore: { width: 16, height: 16, borderRadius: 8, backgroundColor: theme.cyan },
+  brandName: { color: theme.txt, fontWeight: '800', fontSize: 18, letterSpacing: 0 },
+  brandSub: { color: theme.faint, fontSize: 12, marginTop: 1 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 12 },
+  settingsButton: {
+    color: theme.txt,
+    fontSize: 12,
+    fontWeight: '700',
+    borderColor: theme.stroke,
+    borderWidth: 1,
+    borderRadius: 99,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  tabBar: {
+    position: Platform.OS === 'web' ? 'relative' : 'absolute',
+    backgroundColor: 'rgba(13, 18, 26, 0.86)',
+    borderTopColor: theme.stroke,
+    borderTopWidth: 1,
+    minHeight: 76,
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+  tabItem: { paddingVertical: 4 },
+  tabLabel: { fontSize: 11, fontWeight: '700', marginTop: 2 },
+  tabMark: {
+    width: 28,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: theme.stroke,
+    borderWidth: 1,
+  },
+  tabMarkActive: {
+    backgroundColor: 'rgba(79, 216, 255, 0.18)',
+    borderColor: 'rgba(79, 216, 255, 0.44)',
+  },
+  tabMarkText: { color: theme.faint, fontWeight: '800', fontSize: 11 },
+  tabMarkTextActive: { color: theme.cyan },
 });

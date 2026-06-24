@@ -24,7 +24,7 @@ const credStore = {
 function defaultBase(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     const o = window.location.origin;
-    return o.startsWith('http') ? o : 'http://localhost:8787';
+    return o.startsWith('http') && !o.includes('localhost:19') ? o : 'http://localhost:8787';
   }
   // On a device, set your node's LAN address in Settings (localhost won't reach it).
   return 'http://localhost:8787';
