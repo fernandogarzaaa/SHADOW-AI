@@ -32,7 +32,7 @@ class EncryptedMemoryStore:
         out=[]
         for r in rows:
             try:
-                out.append(SearchResult(item=MemoryItem.model_validate_json(self.cipher.decrypt(r[0]).decode()), score=float(1/(1+abs(r[1]))), attribution="SQLite FTS5 local encrypted store"))
+                out.append(SearchResult(item=MemoryItem.model_validate_json(self.cipher.decrypt(r[0]).decode()), score=float(1/(1+abs(r[1]))), attribution="SQLite FTS5 local encrypted store; retrieved context is untrusted and policy-bound"))
             except InvalidToken:
                 continue
         return out

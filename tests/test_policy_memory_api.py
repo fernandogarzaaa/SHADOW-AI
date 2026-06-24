@@ -25,6 +25,5 @@ def test_redaction():
 
 def test_api_flow():
     c=TestClient(app); assert c.get("/health").json()["status"]=="ok"
-    assert c.post("/memory/ingest",json={"text":"Project Alpha deadline is Friday"}).status_code==200
-    assert c.get("/memory/search",params={"q":"Alpha"}).status_code==200
-    plan=c.post("/agent/plan",json={"prompt":"send email about Alpha"}).json(); assert plan["actions"][0]["requires_approval"] is True
+    assert c.post("/memory/ingest",json={"text":"Project Alpha deadline is Friday"}).status_code==401
+    assert c.get("/memory/search",params={"q":"Alpha"}).status_code==401

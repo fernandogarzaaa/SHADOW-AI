@@ -15,3 +15,7 @@ Shadow Agent defaults to local-first, explicit consent, auditability, emergency 
 
 ## Remaining hardening
 Use SQLCipher/encrypted indexes, transport mTLS, OS keychains, signed iOS app groups, prompt-injection filters, and real sandboxed desktop execution in the next phase.
+
+## RC1 transport and privacy hardening
+
+Protected node endpoints require Ed25519 signed requests from a trusted paired device. Signatures cover method, path, body, nonce, and timestamp; replay, clock-skew, invalid-signature, and revoked-device failures are audited without logging secrets. Emergency pause blocks execution and ingestion paths, and cloud model routing remains disabled unless a consent grant and explicit request approval are both present.

@@ -43,3 +43,4 @@ class PairingService:
 class DemoDeviceIdentity:
     def __init__(self): self.private=Ed25519PrivateKey.generate(); self.public=public_key_text(self.private.public_key())
     def sign_confirmation(self, pairing_id: str, challenge: str, nonce: str) -> str: return b64(self.private.sign(f"{pairing_id}:{challenge}:{nonce}".encode()))
+    def sign_raw(self, payload: bytes) -> str: return b64(self.private.sign(payload))

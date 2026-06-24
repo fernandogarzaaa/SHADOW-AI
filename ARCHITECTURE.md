@@ -21,3 +21,7 @@ Pair device, ingest approved memory, search/ask, package context, propose action
 
 ## Security defaults
 Emergency pause, blocked action classes, critical double confirmation, outbound approval, cloud consent, redaction, device revocation, and no-secret logging are enforced in the node flow.
+
+## RC1 architecture delta
+
+The node now has an authenticated transport layer (`shadow_node.auth`) between public pairing/health routes and all personal-data routes. iOS has a Keychain-backed signing identity seam for protected requests, while model, AXIOM, and GHOST abstractions stay policy-gated.

@@ -1,4 +1,4 @@
-# IOS APP
+# LOCAL NODE OPERATIONS
 
 Shadow Agent RC1 is local-first and privacy-sensitive. The production baseline keeps health and pairing public; all personal-data and execution routes require Ed25519 signed requests from a trusted paired device. Signatures cover method, path, body, nonce, and timestamp; replayed nonces, expired timestamps, invalid signatures, and revoked devices are rejected and audited.
 
@@ -64,7 +64,7 @@ tests/test_production_rc.py:66: AssertionError
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
 FAILED tests/test_production_rc.py::test_memory_ingest_search_ask_and_audit
-1 failed, 150 passed, 1 warning in 3.36s, Listing 'apps/shadow-node'...
+1 failed, 150 passed, 1 warning in 3.06s, Listing 'apps/shadow-node'...
 Listing 'apps/shadow-node/shadow_node'...
 Listing 'packages'...
 Listing 'packages/agent-core'...
@@ -76,15 +76,15 @@ Listing 'packages/ghost-adapter/ghost_adapter'...
 Listing 'packages/memory-engine'...
 Listing 'packages/memory-engine/memory_engine'..., and PYTHONPATH=apps/shadow-node:packages/agent-core:packages/memory-engine:packages/axiom-adapter:packages/ghost-adapter python scripts/demo_e2e.py
 1 health {'status': 'ok', 'version': '0.2.0-alpha', 'local_first': True, 'emergency_paused': False}
-2 paired dev_4d3f4366f8cc4ff4abe17c31196bbac9
+2 paired dev_733b260c4baf43039cb5d5ec90133921
 3 ingest 1
 4 answer Local answer based on approved context: 
-5 approval apr_38c858d84c7a44a9a939f3914d3e11cb
-6 execute {'ok': True, 'ghost': {'status': 'completed', 'result': 'Safe mock local task executed by Ghost adapter.', 'ir': {'objective': 'Demo safe local action', 'steps': [{'tool': 'create_local_reminder', 'risk': 'RiskClass.LOW', 'description': 'Create a safe local reminder draft for Project Alpha Friday review', 'params': {'title': 'Review Project Alpha', 'due': 'Friday'}}], 'safety_profile': 'approval_gated'}, 'telemetry': {'status': 'completed', 'backend': 'mock-ghost', 'started_at': '2026-06-24T05:49:54.149783+00:00', 'finished_at': '2026-06-24T05:49:54.149795+00:00', 'steps_executed': 1, 'error': None}}}
+5 approval apr_d637e8d08c0f4aafa01d756944a10114
+6 execute {'ok': True, 'ghost': {'status': 'completed', 'result': 'Safe mock local task executed by Ghost adapter.', 'ir': {'objective': 'Demo safe local action', 'steps': [{'tool': 'create_local_reminder', 'risk': 'RiskClass.LOW', 'description': 'Create a safe local reminder draft for Project Alpha Friday review', 'params': {'title': 'Review Project Alpha', 'due': 'Friday'}}], 'safety_profile': 'approval_gated'}, 'telemetry': {'status': 'completed', 'backend': 'mock-ghost', 'started_at': '2026-06-24T05:49:35.115312+00:00', 'finished_at': '2026-06-24T05:49:35.115336+00:00', 'steps_executed': 1, 'error': None}}}
 7 audit events 6
 [
   {
-    "id": "aud_d705f0c151434b5bbee1801225fd6f96",
+    "id": "aud_a295bb72fa8645828f844035986957ab",
     "actor": "user",
     "event_type": "memory_ingest",
     "data_used": [
@@ -95,10 +95,10 @@ Listing 'packages/memory-engine/memory_engine'..., and PYTHONPATH=apps/shadow-no
     "proposed_action": null,
     "status": "stored",
     "result": null,
-    "timestamp": "2026-06-24T05:49:54.091667Z"
+    "timestamp": "2026-06-24T05:49:35.055734Z"
   },
   {
-    "id": "aud_6f579b06e010421aac1b5e4b973553a0",
+    "id": "aud_89614d31138a46189664c58fc724081b",
     "actor": "shadow_node",
     "event_type": "agent_ask",
     "data_used": [],
@@ -107,10 +107,10 @@ Listing 'packages/memory-engine/memory_engine'..., and PYTHONPATH=apps/shadow-no
     "proposed_action": null,
     "status": "answered",
     "result": null,
-    "timestamp": "2026-06-24T05:49:54.105846Z"
+    "timestamp": "2026-06-24T05:49:35.066194Z"
   },
   {
-    "id": "aud_06f2b3702d92404c9a33f31c27f593d5",
+    "id": "aud_89cbd0434aeb4b0986f5e8be00f8a152",
     "actor": "shadow_node",
     "event_type": "approval_requested",
     "data_used": [],
@@ -119,10 +119,10 @@ Listing 'packages/memory-engine/memory_engine'..., and PYTHONPATH=apps/shadow-no
     "proposed_action": "Create a safe local reminder draft for Project Alpha Friday review",
     "status": "recorded",
     "result": null,
-    "timestamp": "2026-06-24T05:49:54.121933Z"
+    "timestamp": "2026-06-24T05:49:35.080226Z"
   },
   {
-    "id": "aud_536c127be88e4f5ab03570cc68cce655",
+    "id": "aud_524a3f0e6f914ee5a7bd135fbf7da52f",
     "actor": "shadow_node",
     "event_type": "approval_decided",
     "data_used": [],
@@ -131,10 +131,10 @@ Listing 'packages/memory-engine/memory_engine'..., and PYTHONPATH=apps/shadow-no
     "proposed_action": "Create a safe local reminder draft for Project Alpha Friday review",
     "status": "approved",
     "result": null,
-    "timestamp": "2026-06-24T05:49:54.137787Z"
+    "timestamp": "2026-06-24T05:49:35.101526Z"
   },
   {
-    "id": "aud_b4642d8f093d457c924bdc826b6fb78a",
+    "id": "aud_4a648fd643f649c3ae4bdad66198ac57",
     "actor": "shadow_node",
     "event_type": "ghost_execute",
     "data_used": [],
@@ -142,8 +142,8 @@ Listing 'packages/memory-engine/memory_engine'..., and PYTHONPATH=apps/shadow-no
     "permission_checked": null,
     "proposed_action": "Create a safe local reminder draft for Project Alpha Friday review",
     "status": "completed",
-    "result": "{'status': 'completed', 'backend': 'mock-ghost', 'started_at': '2026-06-24T05:49:54.149783+00:00', 'finished_at': '2026-06-24T05:49:54.149795+00:00', 'steps_executed': 1, 'error': None}",
-    "timestamp": "2026-06-24T05:49:54.149914Z"
+    "result": "{'status': 'completed', 'backend': 'mock-ghost', 'started_at': '2026-06-24T05:49:35.115312+00:00', 'finished_at': '2026-06-24T05:49:35.115336+00:00', 'steps_executed': 1, 'error': None}",
+    "timestamp": "2026-06-24T05:49:35.115558Z"
   }
 ]. iOS validation must be completed on macOS by opening  in Xcode, selecting an iOS simulator or device, and building/running the ShadowAgent target.
 

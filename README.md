@@ -38,3 +38,7 @@ pytest -q
 - `packages/axiom-adapter` redaction/compression/fingerprint/skeleton context packaging.
 - `packages/ghost-adapter` approval-gated safe mock execution and telemetry.
 - `docs/` alpha specifications and demo documentation.
+
+## Production RC1 quickstart
+
+Shadow Agent RC1 runs as a local-first node plus iOS client scaffold. Use `make run` for the local node, `make demo` for the authenticated end-to-end demo, and open `apps/ios-shadow/Package.swift` in Xcode for simulator/device validation. Personal-data APIs require a paired device and signed requests; cloud providers are disabled unless consent and explicit approval are present.

@@ -21,3 +21,7 @@ AI power users, founders, developers, operators, professionals with high context
 
 ## Non-goals
 No covert monitoring, hidden keylogging, iOS sandbox bypass, silent chat reading, silent microphone/camera recording, auto-sending messages, or cloud use without explicit consent.
+
+## RC1 acceptance posture
+
+RC1 prioritizes local-first memory, signed iOS-to-node transport, approval-gated actions, auditability, emergency pause, and safe provider routing. Live cloud and OAuth features remain opt-in integration work rather than default behavior.

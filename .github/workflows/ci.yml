@@ -1,0 +1,15 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  rc-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m compileall apps/shadow-node packages
+      - run: pytest -q
+      - run: make demo
+      - run: rg -n "(sk-[A-Za-z0-9]{20,}|OPENAI_API_KEY=.+|api[_-]?key\s*=\s*['\"][^'\"]+)" . --glob '!.git/**' && exit 1 || exit 0
