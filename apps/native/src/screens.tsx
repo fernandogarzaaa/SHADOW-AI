@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView } from 'react-native';
-import { api, getBaseUrl, setBaseUrl } from './api';
+import { api, getBaseUrl, setBaseUrl, pairDevice, isPaired, unpair } from './api';
 import { theme } from './theme';
 import { Card, Field, Button, Pill, styles } from './ui';
 
@@ -190,20 +190,28 @@ export function AuditScreen() {
 
 export function SettingsScreen() {
   const [url, setUrl] = useState(getBaseUrl());
+  const [paired, setPaired] = useState(isPaired());
   const [status, setStatus] = useState<string>('');
   const save = async () => { await setBaseUrl(url); setStatus('Saved'); };
   const test = async () => {
-    try { const h = await api.health(); setStatus(`Connected · node ${h.version}`); }
+    try { const h = await api.health(); setStatus(`Connected · node ${h.version}${h.auth_required ? ' · auth on' : ''}`); }
     catch (e: any) { setStatus('Cannot reach node: ' + String(e.message || e)); }
   };
+  const doPair = async () => {
+    try { await setBaseUrl(url); await pairDevice('Shadow Native'); setPaired(true); setStatus('Paired — signed requests enabled'); }
+    catch (e: any) { setStatus('Pairing failed: ' + String(e.message || e)); }
+  };
+  const doUnpair = async () => { await unpair(); setPaired(false); setStatus('Unpaired'); };
   return (
     <Screen>
-      <Card title="Node connection" hint="Point the app at your Shadow Node. On a device, use the node's LAN address (e.g. http://192.168.1.20:8787).">
+      <Card title="Node connection" hint="Point the app at your Shadow Node and pair. Pairing is required when the node enforces authentication. On a device use the node's LAN address (e.g. http://192.168.1.20:8787).">
         <Field label="Base URL" placeholder="http://localhost:8787" autoCapitalize="none" autoCorrect={false} value={url} onChangeText={setUrl} />
-        <View style={styles.row}>
+        <View style={[styles.row, { flexWrap: 'wrap' }]}>
           <Button title="Save" onPress={save} />
-          <Button title="Test connection" kind="ghost" onPress={test} />
+          <Button title="Test" kind="ghost" onPress={test} />
+          {paired ? <Button title="Unpair" kind="danger" onPress={doUnpair} /> : <Button title="Pair device" onPress={doPair} />}
         </View>
+        <View style={styles.meta}><Pill tone={paired ? 'ok' : undefined} text={paired ? 'paired' : 'not paired'} /></View>
         {status ? <Text style={[styles.itemDesc, { marginTop: 10 }]}>{status}</Text> : null}
       </Card>
       <Card title="About" hint="Shadow — local-first personal AI agent. Your memory stays encrypted on your node; the cloud is used only with your explicit approval." />
