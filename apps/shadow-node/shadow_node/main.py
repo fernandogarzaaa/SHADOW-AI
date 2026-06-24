@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from agent_core import *
 from memory_engine import *
 from axiom_adapter import AxiomAdapter
-from ghost_adapter import GhostAdapter
+from ghost_adapter import GhostAdapter, LocalActionExecutor
 from .connectors import read_local_document
 from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
@@ -23,6 +23,9 @@ def _build_memory_store():
         return EncryptedMemoryStore(path=db, key=key)
     return EncryptedMemoryStore(path=tempfile.gettempdir()+f"/shadow_memory_beta_{uuid.uuid4().hex}.db")
 profile=UserProfile(); core=AgentCore(profile); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); pairing={}; consents:list[ConsentGrant]=[]
+# Register real, sandboxed action handlers so approved /agent/execute calls run for real.
+action_executor=LocalActionExecutor()
+for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params)))(_tool))
 AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "false").lower()=="true"
 class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
@@ -118,6 +121,8 @@ def set_emergency_pause(req:EmergencyPauseRequest):
 def get_audit(): return audit + core.audit + sessions.audit
 @app.get("/model/providers")
 def model_providers(): return model_config.safe_summary()
+@app.get("/tools")
+def tools(): return {"tools":action_executor.names(),"ghost_mode":ghost.mode,"workspace":os.getenv("SHADOW_WORKSPACE_DIR","data/workspace")}
 @app.websocket("/ws/tasks")
 async def ws_tasks(ws:WebSocket):
     await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":APP_VERSION})
