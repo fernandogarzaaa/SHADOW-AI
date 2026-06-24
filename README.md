@@ -36,6 +36,13 @@ pytest
 - `packages/ghost-adapter` — GHOST-Chimera-compatible action layer.
 - `docs` — product, security, architecture, API, and delivery docs.
 
+## Clients
+- **Web dashboard** — served by the node at `/` (zero-build, vanilla JS).
+- **PWA / mobile** — `apps/pwa`: an installable Progressive Web App built from a
+  single React Native (Expo) codebase via react-native-web. `cd apps/pwa && npm
+  install && npx expo export -p web`. See `apps/pwa/README.md`.
+- **iOS** — `apps/ios-shadow`: native SwiftUI app (build locally, see BUILD_NOTES).
+
 ## Beta demo flow
 ```bash
 make demo
