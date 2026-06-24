@@ -9,6 +9,9 @@ from ghost_adapter import GhostAdapter, LocalActionExecutor
 from .connectors import read_local_document
 from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
+from .providers import build_frontier, CATALOG
+from .hybrid import HybridRouter
+from . import provider_auth
 import tempfile, hashlib, uuid, os
 APP_VERSION="1.0.0-rc"
 app=FastAPI(title="Shadow Node", version=APP_VERSION)
@@ -33,6 +36,9 @@ else:
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
 for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params)))(_tool))
+# Hybrid local+frontier router and provider credential store.
+hybrid=HybridRouter(model, axiom)
+credentials=provider_auth.CredentialStore()
 AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "false").lower()=="true"
 class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
@@ -43,6 +49,8 @@ class ExecuteRequest(BaseModel): action:AgentAction; approved:bool=False; double
 class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User requested approval"
 class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
 class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:str="local_only"
+class ProviderConnectRequest(BaseModel): api_key:str
+class OAuthExchangeRequest(BaseModel): code:str; code_verifier:str; redirect_uri:str
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request:Request, exc:HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error":{"code":str(exc.detail),"message":str(exc.detail),"path":request.url.path}})
@@ -95,16 +103,23 @@ def export_memory(include_sensitive:bool=False): return memory.export(include_se
 def ask(req:AskRequest):
     if is_suspicious_user_request(req.prompt):
         audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
-    results=memory.search(req.prompt,5,include_sensitive=False); context="\n".join(mark_untrusted(r.item.text) for r in results); packaged=axiom.package_context(context); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
+    results=memory.search(req.prompt,5,include_sensitive=False); raw_context="\n".join(mark_untrusted(r.item.text) for r in results); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
     if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
-    # Real cloud model only when the user explicitly approved cloud AND a key-backed provider is ready; otherwise stay fully local.
-    cloud_model=model_config.cloud_model() if req.allow_cloud else None
-    model_used=model_config.provider if cloud_model else "local_mock"; cloud_used=False
+    # Hybrid routing: build a frontier provider only when cloud is approved AND a credential resolves; else fully local.
+    frontier=None
+    if req.allow_cloud:
+        cred=credentials.resolve(model_config.provider)
+        if cred is not None:
+            cred={**cred,"endpoint":model_config.endpoint}
+            frontier=build_frontier(model_config.provider, cred, model_config.model_name)
     try:
-        answer=(cloud_model or model).complete(req.prompt, packaged["context"]); cloud_used=cloud_model is not None
+        out=hybrid.run(req.prompt, raw_context, frontier=frontier)
     except Exception as e:
-        answer=model.complete(req.prompt, packaged["context"]); model_used="local_mock"; audit.append(AuditEvent(actor="agent",event_type="cloud_model_error",model_used=model_config.provider,status="fallback_local",result=str(e)[:200]))
-    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=model_used,status="answered")); return {"answer":answer,"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":model_used,"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":packaged,"plan":plan}
+        audit.append(AuditEvent(actor="agent",event_type="cloud_model_error",model_used=model_config.provider,status="fallback_local",result=str(e)[:200]))
+        out=hybrid.run(req.prompt, raw_context, frontier=None)
+    cloud_used=out["route"]=="frontier"
+    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=out["provider"],status="answered",metadata={"route":out["route"],"tokens_saved":out["savings"]["tokens_saved_estimate"]}))
+    return {"answer":out["answer"],"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":out["provider"],"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":out["context_package"],"plan":plan,"route":out["route"],"routing_reason":out["reason"],"savings":out["savings"]}
 @app.post("/agent/plan")
 def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
@@ -131,6 +146,26 @@ def set_emergency_pause(req:EmergencyPauseRequest):
 def get_audit(): return audit + core.audit + sessions.audit
 @app.get("/model/providers")
 def model_providers(): return model_config.safe_summary()
+@app.get("/providers")
+def providers_status(): return {"active_provider":model_config.provider,"providers":credentials.status()}
+@app.post("/providers/{name}/connect")
+def provider_connect(name:str, req:ProviderConnectRequest):
+    if name not in CATALOG: raise HTTPException(404,"unknown provider")
+    if not req.api_key: raise HTTPException(400,"api_key required")
+    credentials.set(name,{"type":"api_key","api_key":req.api_key,"source":"stored"}); audit.append(AuditEvent(actor="user",event_type="provider_connected",data_used=[name],status="connected")); return {"connected":True,"provider":name}
+@app.delete("/providers/{name}")
+def provider_disconnect(name:str):
+    credentials.delete(name); audit.append(AuditEvent(actor="user",event_type="provider_disconnected",data_used=[name],status="disconnected")); return {"connected":False,"provider":name}
+@app.get("/providers/{name}/oauth/start")
+def provider_oauth_start(name:str, redirect_uri:str):
+    try: return provider_auth.start_oauth(name, redirect_uri)
+    except ValueError as e: raise HTTPException(400,str(e))
+@app.post("/providers/{name}/oauth/exchange")
+def provider_oauth_exchange(name:str, req:OAuthExchangeRequest):
+    try: cred=provider_auth.exchange_code(name, req.code, req.code_verifier, req.redirect_uri)
+    except ValueError as e: raise HTTPException(400,str(e))
+    except Exception as e: raise HTTPException(502,f"token exchange failed: {e}")
+    credentials.set(name,cred); audit.append(AuditEvent(actor="user",event_type="provider_oauth_connected",data_used=[name],status="connected")); return {"connected":True,"provider":name,"type":"oauth"}
 @app.get("/tools")
 def tools(): return {"tools":action_executor.names(),"ghost_mode":ghost.mode,"workspace":os.getenv("SHADOW_WORKSPACE_DIR","data/workspace")}
 @app.websocket("/ws/tasks")

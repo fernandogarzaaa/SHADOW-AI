@@ -100,6 +100,7 @@
       <a data-view="ask" class="active"><span class="dot"></span>Ask</a>
       <a data-view="memory"><span class="dot"></span>Memory</a>
       <a data-view="actions"><span class="dot"></span>Actions</a>
+      <a data-view="models"><span class="dot"></span>Models</a>
       <a data-view="approvals"><span class="dot"></span>Approvals</a>
       <a data-view="audit"><span class="dot"></span>Audit</a>
     </nav>
@@ -166,6 +167,20 @@
       </div>
     </section>
 
+    <!-- MODELS -->
+    <section class="view" id="view-models">
+      <div class="card">
+        <h3>Hybrid routing</h3>
+        <div class="hint">Simple questions are answered fully on-device (zero frontier tokens). Hard questions send only AXIOM-compressed context to a frontier model — so you pay for far fewer tokens.</div>
+        <div id="savingsBox" class="meta"><span class="pill">ask something to see live savings</span></div>
+      </div>
+      <div class="card">
+        <h3>Providers</h3>
+        <div class="hint">Connect with an API key, or OAuth where the provider supports it. Note: consumer chat subscriptions (ChatGPT Plus, Claude Pro, Gemini Advanced) cannot power third-party API calls — API key or cloud OAuth only.</div>
+        <div id="providersOut"><div class="empty">Loading…</div></div>
+      </div>
+    </section>
+
     <!-- APPROVALS -->
     <section class="view" id="view-approvals">
       <div class="card">
@@ -192,14 +207,14 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const api=async(p,opt={})=>{const r=await fetch(p,{headers:{'Content-Type':'application/json'},...opt});const t=await r.text();let j;try{j=t?JSON.parse(t):{}}catch{j={raw:t}}if(!r.ok)throw (j.error?.message||j.detail||r.status);return j;};
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('show'),2200);};
-const titles={ask:['Ask Shadow','Question your private memory, locally.'],memory:['Memory','Everything Shadow knows, encrypted on-device.'],actions:['Actions','Real actions, behind the approval gate.'],approvals:['Approvals','Your explicit yes or no.'],audit:['Audit','A complete, honest record.']};
+const titles={ask:['Ask Shadow','Question your private memory, locally.'],memory:['Memory','Everything Shadow knows, encrypted on-device.'],actions:['Actions','Real actions, behind the approval gate.'],models:['Models','Hybrid local + frontier. Connect a provider to escalate hard questions.'],approvals:['Approvals','Your explicit yes or no.'],audit:['Audit','A complete, honest record.']};
 
 // nav
 $$('#nav a').forEach(a=>a.onclick=()=>{
   $$('#nav a').forEach(x=>x.classList.remove('active'));a.classList.add('active');
   const v=a.dataset.view;$$('.view').forEach(s=>s.classList.remove('on'));$('#view-'+v).classList.add('on');
   $('#title').textContent=titles[v][0];$('#subtitle').textContent=titles[v][1];
-  if(v==='approvals')loadApprovals();if(v==='audit')loadAudit();
+  if(v==='approvals')loadApprovals();if(v==='audit')loadAudit();if(v==='models')loadModels();
 });
 
 // theme
@@ -220,9 +235,11 @@ $('#askBtn').onclick=async()=>{
   const prompt=$('#askInput').value.trim();if(!prompt)return;
   const btn=$('#askBtn');btn.textContent='…';btn.disabled=true;
   try{const r=await api('/agent/ask',{method:'POST',body:JSON.stringify({prompt,allow_cloud:$('#askCloud').checked,cloud_approval:$('#askCloud').checked})});
-    let h=`<div class="answer">${esc(r.answer)}</div><div class="meta"><span class="pill">model · ${esc(r.model_used)}</span><span class="pill">${r.cloud_allowed?'cloud':'local-only'}</span><span class="pill">${(r.sources||[]).length} sources</span></div>`;
+    const sv=r.savings||{};
+    let h=`<div class="answer">${esc(r.answer)}</div><div class="meta"><span class="pill">${r.route==='frontier'?'frontier':'on-device'} · ${esc(r.model_used)}</span><span class="pill">${r.cloud_allowed?'cloud':'local-only'}</span><span class="pill">${(r.sources||[]).length} sources</span>${sv.tokens_saved_estimate!=null?`<span class="pill low">~${sv.tokens_saved_estimate} tokens saved${sv.saved_pct?` (${sv.saved_pct}%)`:''}</span>`:''}</div>`;
     (r.why||[]).forEach(w=>h+=`<div class="src">${esc(w)}</div>`);
     $('#askOut').innerHTML=h;
+    if(sv.tokens_saved_estimate!=null)$('#savingsBox').innerHTML=`<span class="pill">route · ${esc(r.route)}</span><span class="pill">raw ctx ${sv.raw_context_tokens}t</span><span class="pill">sent ${sv.frontier_tokens_sent}t</span><span class="pill low">saved ~${sv.tokens_saved_estimate}t (${sv.saved_pct||0}%)</span>`;
   }catch(e){$('#askOut').innerHTML=`<div class="answer" style="border-color:var(--bad)">${esc(e)}</div>`;}
   btn.textContent='Ask';btn.disabled=false;
 };
@@ -259,6 +276,25 @@ async function loadApprovals(){
   }catch(e){toast(e);}
 }
 window.decide=async(id,ok)=>{try{await api(`/approvals/${id}/${ok?'approve':'deny'}`,{method:'POST',body:JSON.stringify({reason:'from dashboard'})});toast(ok?'Approved':'Denied');loadApprovals();loadAudit();}catch(e){toast(e);}};
+
+// models / providers
+async function loadModels(){
+  try{const d=await api('/providers');
+    $('#providersOut').innerHTML=d.providers.map(p=>{
+      const badge=p.connected?`<span class="pill low">connected${p.credential_source==='env'?' · env':''}</span>`:`<span class="pill">not connected</span>`;
+      const active=p.provider===d.active_provider?'<span class="pill">active</span>':'';
+      const oauth=p.oauth_supported?`<button class="ghost sm" onclick="oauthStart('${p.provider}')">Sign in with OAuth</button>`:'';
+      const dis=p.connected?`<button class="ghost danger" onclick="providerDisconnect('${p.provider}')">Disconnect</button>`:'';
+      return `<div class="item"><div class="t">${esc(p.label)} ${badge} ${active}</div><div class="d">${esc(p.note)}</div>
+        <div class="row" style="margin-top:10px"><input id="key-${p.provider}" placeholder="Paste API key" type="password"><button class="go sm" onclick="providerConnect('${p.provider}')">Connect</button></div>
+        <div class="acts">${oauth}${dis}</div></div>`;
+    }).join('');
+  }catch(e){toast(e);}
+}
+window.providerConnect=async(name)=>{const k=$('#key-'+name).value.trim();if(!k){toast('Enter an API key');return;}
+  try{await api('/providers/'+name+'/connect',{method:'POST',body:JSON.stringify({api_key:k})});toast(name+' connected');loadModels();}catch(e){toast(e);}};
+window.providerDisconnect=async(name)=>{try{await api('/providers/'+name,{method:'DELETE'});toast(name+' disconnected');loadModels();}catch(e){toast(e);}};
+window.oauthStart=async(name)=>{try{const u=location.origin+'/';const r=await api('/providers/'+name+'/oauth/start?redirect_uri='+encodeURIComponent(u));window.open(r.authorization_url,'_blank');toast('Opened provider sign-in');}catch(e){toast(e);}};
 
 // audit
 async function loadAudit(){
