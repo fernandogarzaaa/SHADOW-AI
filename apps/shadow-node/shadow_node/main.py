@@ -22,7 +22,14 @@ def _build_memory_store():
         os.makedirs(os.path.dirname(os.path.abspath(db)), exist_ok=True)
         return EncryptedMemoryStore(path=db, key=key)
     return EncryptedMemoryStore(path=tempfile.gettempdir()+f"/shadow_memory_beta_{uuid.uuid4().hex}.db")
-profile=UserProfile(); core=AgentCore(profile); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); pairing={}; consents:list[ConsentGrant]=[]
+profile=UserProfile(); core=AgentCore(profile); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
+# Persistent encrypted runtime state when SHADOW_RUNTIME_DB is set; in-memory otherwise.
+_runtime_db=os.getenv("SHADOW_RUNTIME_DB")
+if _runtime_db:
+    from .runtime_store import build_runtime
+    _runtime_store, audit, consents, sessions = build_runtime(_runtime_db)
+else:
+    audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); consents:list[ConsentGrant]=[]
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
 for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params)))(_tool))
