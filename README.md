@@ -28,6 +28,7 @@ pytest
 ```
 
 ## Repository tree
+- `apps/native` — React Native (Expo) iOS/Android app (this branch); store-ready.
 - `apps/ios-shadow` — SwiftUI iOS app foundation.
 - `apps/shadow-node` — local desktop/server runtime.
 - `packages/memory-engine` — encrypted personal memory and local RAG baseline.
@@ -39,8 +40,7 @@ pytest
 ## Beta demo flow
 ```bash
 make demo
-```
-The demo grants local-only consent, ingests `examples/sample_project_context.md`, asks a memory-backed question, creates approvals as needed, and prints audit counts.
+```The demo grants local-only consent, ingests `examples/sample_project_context.md`, asks a memory-backed question, creates approvals as needed, and prints audit counts.
 
 ## Secure pairing/auth testing
 Pair with `POST /pair/start` then `POST /pair/confirm`. Authenticated mode validates `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, and `x-shadow-timestamp` using per-device session secrets, timestamp skew checks, replay protection, revocation, and audit logging.
