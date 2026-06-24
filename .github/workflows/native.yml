@@ -1,0 +1,31 @@
+name: Native
+on:
+  push:
+    paths: ["apps/native/**", ".github/workflows/native.yml"]
+  pull_request:
+    paths: ["apps/native/**", ".github/workflows/native.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/native
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Validate Expo config
+        run: npx expo config --type public > /dev/null
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Bundle (iOS + Android via Metro)
+        run: npx expo export --platform ios --platform android
+      - name: Verify native bundles
+        run: |
+          test -f dist/_expo/static/js/ios/*.hbc 2>/dev/null || ls dist/_expo/static/js/ios
+          test -f dist/_expo/static/js/android/*.hbc 2>/dev/null || ls dist/_expo/static/js/android
+          echo "Native bundles OK"

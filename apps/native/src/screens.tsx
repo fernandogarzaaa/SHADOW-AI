@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView } from 'react-native';
 import { api, getBaseUrl, setBaseUrl } from './api';
 import { theme } from './theme';
@@ -53,8 +53,18 @@ export function MemoryScreen() {
   const [text, setText] = useState('');
   const [q, setQ] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const store = async () => { if (!text.trim()) return; await api.ingest(text, title || 'Mobile Import'); setText(''); };
-  const search = async (query: string) => { setQ(query); if (!query.trim()) return setResults([]); try { setResults(await api.search(query)); } catch { setResults([]); } };
+  // Debounce so fast typing doesn't hammer the node (and trip its rate limiter).
+  const search = (query: string) => {
+    setQ(query);
+    if (timer.current) clearTimeout(timer.current);
+    if (!query.trim()) { setResults([]); return; }
+    timer.current = setTimeout(async () => {
+      try { setResults(await api.search(query)); } catch { setResults([]); }
+    }, 300);
+  };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   return (
     <Screen>
       <Card title="Ingest memory" hint="Stored encrypted on the node. Sensitive content is auto-flagged.">
@@ -113,7 +123,7 @@ export function ModelsScreen() {
   return (
     <Screen>
       <Card title="Models" hint="Hybrid local + frontier. Connect a provider with an API key. Consumer chat subscriptions cannot power third-party inference.">
-        {data?.providers?.map((p: any) => (
+        {data?.providers?.length ? data.providers.map((p: any) => (
           <View key={p.provider} style={styles.item}>
             <View style={[styles.row, { justifyContent: 'space-between' }]}>
               <Text style={styles.itemTitle}>{p.label}</Text>
@@ -129,7 +139,7 @@ export function ModelsScreen() {
               </View>
             )}
           </View>
-        )) || <Text style={styles.empty}>Connect to a node to manage providers.</Text>}
+        )) : <Text style={styles.empty}>Connect to a node to manage providers.</Text>}
       </Card>
     </Screen>
   );
