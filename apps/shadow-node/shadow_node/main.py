@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, WebSocket, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent_core import *
@@ -41,12 +41,15 @@ async def http_exception_handler(request:Request, exc:HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error":{"code":str(exc.detail),"message":str(exc.detail),"path":request.url.path}})
 @app.middleware("http")
 async def auth_middleware(request:Request, call_next):
-    exempt=request.url.path in {"/health","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
+    exempt=request.url.path in {"/","/health","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
     if AUTH_REQUIRED and not exempt:
         body=(await request.body()).decode()
         ok,reason=sessions.verify(request.headers.get("x-shadow-device-id"),request.headers.get("x-shadow-signature"),request.headers.get("x-shadow-nonce"),request.headers.get("x-shadow-timestamp"),request.method,request.url.path,body)
         if not ok: return JSONResponse(status_code=401, content={"detail":reason})
     return await call_next(request)
+WEB_INDEX=os.path.join(os.path.dirname(__file__),"web","index.html")
+@app.get("/", include_in_schema=False)
+def dashboard(): return FileResponse(WEB_INDEX)
 @app.get("/health")
 def health(): return {"status":"ok","version":APP_VERSION,"local_first":True,"emergency_paused":profile.emergency_paused,"auth_required":AUTH_REQUIRED}
 @app.post("/pair/start")

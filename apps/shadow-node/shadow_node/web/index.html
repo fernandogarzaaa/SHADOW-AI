@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Shadow</title>
+<style>
+  :root{
+    --bg:#0b0c0e; --panel:#121317; --panel-2:#16181d; --line:#23262d;
+    --txt:#e7e9ee; --muted:#8b909b; --faint:#5b606b;
+    --accent:#7c7bff; --accent-soft:rgba(124,123,255,.14);
+    --ok:#3ecf8e; --warn:#e6a23c; --bad:#f06464;
+    --radius:14px; --gap:18px;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  [data-theme="light"]{
+    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#fbfbfc; --line:#e7e9ee;
+    --txt:#15171c; --muted:#6b7280; --faint:#9aa0ac; --accent-soft:rgba(124,123,255,.10);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--txt);font-family:var(--font);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  button,input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+  ::selection{background:var(--accent-soft)}
+
+  .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+  /* Sidebar */
+  aside{border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:11px;padding:4px 8px 22px}
+  .glyph{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,var(--accent),#4f4ed1);box-shadow:0 4px 14px var(--accent-soft)}
+  .brand b{font-weight:600;letter-spacing:.2px}
+  .brand span{color:var(--faint);font-size:11px;display:block;font-weight:500;letter-spacing:.4px}
+  nav a{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:10px;color:var(--muted);text-decoration:none;cursor:pointer;font-weight:500;transition:.15s}
+  nav a:hover{background:var(--panel);color:var(--txt)}
+  nav a.active{background:var(--accent-soft);color:var(--txt)}
+  nav a .dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.5}
+  .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:12px;padding:8px}
+  .pause{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted)}
+  .switch{position:relative;width:38px;height:22px;border-radius:99px;background:var(--line);cursor:pointer;transition:.2s;flex:none}
+  .switch.on{background:var(--bad)}
+  .switch i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+  .switch.on i{left:18px}
+  .theme-btn{background:none;border:1px solid var(--line);border-radius:9px;padding:7px;color:var(--muted);cursor:pointer}
+  .theme-btn:hover{color:var(--txt)}
+
+  /* Main */
+  main{padding:34px 40px;max-width:920px;width:100%}
+  .head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:26px}
+  h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.2px}
+  .sub{color:var(--muted);font-size:13px;margin-top:3px}
+  .status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .status .live{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(62,207,142,.16)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:var(--gap)}
+  .card h3{margin:0 0 4px;font-size:14px;font-weight:600}
+  .card .hint{color:var(--faint);font-size:12.5px;margin-bottom:14px}
+  label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px;font-weight:500}
+  input,textarea,select{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:11px 13px;outline:none;transition:.15s;margin-bottom:13px}
+  input:focus,textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  textarea{resize:vertical;min-height:84px;line-height:1.5}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  button.go{background:var(--accent);border:none;color:#fff;font-weight:600;padding:11px 18px;border-radius:10px;cursor:pointer;transition:.15s}
+  button.go:hover{filter:brightness(1.08)}button.go:active{transform:translateY(1px)}
+  button.go.sm{padding:7px 13px;font-size:13px}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--muted);padding:7px 13px;border-radius:9px;cursor:pointer;font-weight:500}
+  button.ghost:hover{color:var(--txt);border-color:var(--faint)}
+  button.danger{color:var(--bad);border-color:rgba(240,100,100,.35)}
+
+  .answer{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-left:2px solid var(--accent);border-radius:10px;padding:15px;margin-top:4px}
+  .meta{font-size:12px;color:var(--faint);margin-top:10px;display:flex;gap:14px;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 9px;border-radius:99px;background:var(--panel-2);border:1px solid var(--line);color:var(--muted)}
+  .pill.low{color:var(--ok)}.pill.medium{color:var(--warn)}.pill.high,.pill.blocked{color:var(--bad)}
+
+  .item{border:1px solid var(--line);border-radius:11px;padding:13px 15px;margin-bottom:10px;background:var(--panel-2)}
+  .item .t{font-weight:500}
+  .item .d{color:var(--muted);font-size:13px;margin-top:2px}
+  .item .acts{display:flex;gap:8px;margin-top:11px}
+  .src{font-size:12.5px;color:var(--muted);padding:8px 0;border-top:1px solid var(--line)}
+  .src b{color:var(--txt);font-weight:500}
+  .empty{color:var(--faint);font-size:13px;text-align:center;padding:26px 0}
+  pre.json{font-family:var(--mono);font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:13px;overflow:auto;color:var(--muted);max-height:280px;white-space:pre-wrap}
+  .audit-row{display:flex;gap:12px;align-items:center;font-size:13px;padding:9px 0;border-bottom:1px solid var(--line)}
+  .audit-row:last-child{border:none}
+  .audit-row time{color:var(--faint);font-size:11px;font-family:var(--mono);flex:none;width:64px}
+  .audit-row .ev{font-weight:500;flex:none;width:190px}
+  .audit-row .st{margin-left:auto;font-size:11px}
+  .view{display:none}.view.on{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 18px;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,.4);opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @media(max-width:720px){.app{grid-template-columns:1fr}aside{display:none}main{padding:24px 18px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><div class="glyph"></div><div><b>Shadow</b><span id="ver">local node</span></div></div>
+    <nav id="nav">
+      <a data-view="ask" class="active"><span class="dot"></span>Ask</a>
+      <a data-view="memory"><span class="dot"></span>Memory</a>
+      <a data-view="actions"><span class="dot"></span>Actions</a>
+      <a data-view="approvals"><span class="dot"></span>Approvals</a>
+      <a data-view="audit"><span class="dot"></span>Audit</a>
+    </nav>
+    <div class="side-foot">
+      <div class="pause"><span>Emergency pause</span><div id="pauseSw" class="switch"><i></i></div></div>
+      <button class="theme-btn" id="themeBtn">Toggle theme</button>
+    </div>
+  </aside>
+
+  <main>
+    <div class="head">
+      <div>
+        <h1 id="title">Ask Shadow</h1>
+        <div class="sub" id="subtitle">Question your private memory, locally.</div>
+      </div>
+      <div class="status"><span class="live" id="liveDot"></span><span id="statusTxt">connecting…</span></div>
+    </div>
+
+    <!-- ASK -->
+    <section class="view on" id="view-ask">
+      <div class="card">
+        <h3>Ask</h3>
+        <div class="hint">Answers are grounded in your local memory. Retrieved context is treated as untrusted.</div>
+        <textarea id="askInput" placeholder="What did I note about the Aurora project?"></textarea>
+        <div class="row" style="align-items:center">
+          <label style="display:flex;align-items:center;gap:8px;margin:0;flex:none"><input type="checkbox" id="askCloud" style="width:auto;margin:0"> use cloud model (if approved)</label>
+          <div style="text-align:right"><button class="go" id="askBtn">Ask</button></div>
+        </div>
+        <div id="askOut"></div>
+      </div>
+    </section>
+
+    <!-- MEMORY -->
+    <section class="view" id="view-memory">
+      <div class="card">
+        <h3>Ingest memory</h3>
+        <div class="hint">Stored encrypted on this device. Sensitive content is auto-flagged.</div>
+        <input id="memTitle" placeholder="Source title — e.g. Project notes" />
+        <textarea id="memText" placeholder="Paste text to remember…"></textarea>
+        <div style="text-align:right"><button class="go" id="memBtn">Store</button></div>
+      </div>
+      <div class="card">
+        <h3>Search</h3>
+        <input id="memQuery" placeholder="Search your memory…" />
+        <div id="memOut"><div class="empty">Results appear here.</div></div>
+      </div>
+    </section>
+
+    <!-- ACTIONS -->
+    <section class="view" id="view-actions">
+      <div class="card">
+        <h3>Run an action</h3>
+        <div class="hint">Real, sandboxed actions — file notes, reminders, public web fetch. Every action passes the policy + approval gate.</div>
+        <label>Tool</label>
+        <select id="actTool">
+          <option value="note.create">note.create — save a note</option>
+          <option value="note.append">note.append — add to a note</option>
+          <option value="reminder.create">reminder.create — set a reminder</option>
+          <option value="http.get">http.get — fetch a public URL</option>
+        </select>
+        <div id="actFields"></div>
+        <div style="text-align:right"><button class="go" id="actBtn">Execute</button></div>
+        <div id="actOut"></div>
+      </div>
+    </section>
+
+    <!-- APPROVALS -->
+    <section class="view" id="view-approvals">
+      <div class="card">
+        <h3>Pending approvals</h3>
+        <div class="hint">High-impact actions wait here for your explicit decision.</div>
+        <div id="apprOut"><div class="empty">Nothing waiting.</div></div>
+      </div>
+    </section>
+
+    <!-- AUDIT -->
+    <section class="view" id="view-audit">
+      <div class="card">
+        <h3>Audit log</h3>
+        <div class="hint">Every decision the node makes is recorded here.</div>
+        <div id="auditOut"><div class="empty">No events yet.</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const api=async(p,opt={})=>{const r=await fetch(p,{headers:{'Content-Type':'application/json'},...opt});const t=await r.text();let j;try{j=t?JSON.parse(t):{}}catch{j={raw:t}}if(!r.ok)throw (j.error?.message||j.detail||r.status);return j;};
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('show'),2200);};
+const titles={ask:['Ask Shadow','Question your private memory, locally.'],memory:['Memory','Everything Shadow knows, encrypted on-device.'],actions:['Actions','Real actions, behind the approval gate.'],approvals:['Approvals','Your explicit yes or no.'],audit:['Audit','A complete, honest record.']};
+
+// nav
+$$('#nav a').forEach(a=>a.onclick=()=>{
+  $$('#nav a').forEach(x=>x.classList.remove('active'));a.classList.add('active');
+  const v=a.dataset.view;$$('.view').forEach(s=>s.classList.remove('on'));$('#view-'+v).classList.add('on');
+  $('#title').textContent=titles[v][0];$('#subtitle').textContent=titles[v][1];
+  if(v==='approvals')loadApprovals();if(v==='audit')loadAudit();
+});
+
+// theme
+$('#themeBtn').onclick=()=>{const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';localStorage.theme=h.dataset.theme;};
+if(localStorage.theme)document.documentElement.dataset.theme=localStorage.theme;
+
+// status + pause
+async function refreshStatus(){
+  try{const h=await api('/health');$('#statusTxt').textContent='node '+h.version+(h.auth_required?' · auth on':'');$('#ver').textContent=h.version;
+    $('#pauseSw').classList.toggle('on',h.emergency_paused);$('#liveDot').style.background=h.emergency_paused?'var(--bad)':'var(--ok)';
+  }catch{$('#statusTxt').textContent='offline';$('#liveDot').style.background='var(--bad)';}
+}
+$('#pauseSw').onclick=async()=>{const on=!$('#pauseSw').classList.contains('on');
+  try{await api('/emergency_pause',{method:'POST',body:JSON.stringify({paused:on,reason:'toggled from dashboard'})});toast(on?'Paused':'Resumed');refreshStatus();}catch(e){toast(e);}};
+
+// ask
+$('#askBtn').onclick=async()=>{
+  const prompt=$('#askInput').value.trim();if(!prompt)return;
+  const btn=$('#askBtn');btn.textContent='…';btn.disabled=true;
+  try{const r=await api('/agent/ask',{method:'POST',body:JSON.stringify({prompt,allow_cloud:$('#askCloud').checked,cloud_approval:$('#askCloud').checked})});
+    let h=`<div class="answer">${esc(r.answer)}</div><div class="meta"><span class="pill">model · ${esc(r.model_used)}</span><span class="pill">${r.cloud_allowed?'cloud':'local-only'}</span><span class="pill">${(r.sources||[]).length} sources</span></div>`;
+    (r.why||[]).forEach(w=>h+=`<div class="src">${esc(w)}</div>`);
+    $('#askOut').innerHTML=h;
+  }catch(e){$('#askOut').innerHTML=`<div class="answer" style="border-color:var(--bad)">${esc(e)}</div>`;}
+  btn.textContent='Ask';btn.disabled=false;
+};
+
+// memory
+$('#memBtn').onclick=async()=>{
+  const text=$('#memText').value.trim();if(!text)return;
+  try{await api('/memory/ingest',{method:'POST',body:JSON.stringify({text,source_title:$('#memTitle').value||'Manual Import'})});
+    toast('Stored to memory');$('#memText').value='';if($('#memQuery').value)searchMem();}catch(e){toast(e);}
+};
+let memT;$('#memQuery').oninput=()=>{clearTimeout(memT);memT=setTimeout(searchMem,250);};
+async function searchMem(){const q=$('#memQuery').value.trim();if(!q){$('#memOut').innerHTML='<div class="empty">Results appear here.</div>';return;}
+  try{const r=await api('/memory/search?q='+encodeURIComponent(q));
+    $('#memOut').innerHTML=r.length?r.map(x=>`<div class="item"><div class="t">${esc(x.item.source.title)}</div><div class="d">${esc(x.item.text)}</div><div class="meta"><span class="pill">conf ${(x.item.confidence||0).toFixed(2)}</span><span class="pill">${esc(x.item.category)}</span></div></div>`).join(''):'<div class="empty">No matches.</div>';
+  }catch(e){toast(e);}
+}
+
+// actions
+const fields={'note.create':[['title','Title'],['body','Body','area']],'note.append':[['title','Title'],['body','Text to append','area']],'reminder.create':[['text','Reminder'],['when','When (optional)']],'http.get':[['url','https://example.com']]};
+function renderFields(){const t=$('#actTool').value;$('#actFields').innerHTML=fields[t].map(([k,ph,ty])=>ty==='area'?`<label>${ph}</label><textarea data-k="${k}" placeholder="${ph}"></textarea>`:`<label>${ph}</label><input data-k="${k}" placeholder="${ph}">`).join('');}
+$('#actTool').onchange=renderFields;renderFields();
+$('#actBtn').onclick=async()=>{
+  const tool=$('#actTool').value,params={};$$('#actFields [data-k]').forEach(el=>params[el.dataset.k]=el.value);
+  const action={tool_name:tool,description:'Dashboard action: '+tool,params,requires_approval:true};
+  try{const r=await api('/agent/execute',{method:'POST',body:JSON.stringify({action,approved:true,double_confirmed:true})});
+    $('#actOut').innerHTML=`<pre class="json">${esc(JSON.stringify(r,null,2))}</pre>`;toast(r.ok===false?'Blocked by policy':'Executed');loadAudit();
+  }catch(e){$('#actOut').innerHTML=`<pre class="json" style="border-color:var(--bad)">${esc(e)}</pre>`;}
+};
+
+// approvals
+async function loadApprovals(){
+  try{const r=await api('/approvals');const pend=r.filter(a=>a.status==='pending');
+    $('#apprOut').innerHTML=pend.length?pend.map(a=>`<div class="item"><div class="t">${esc(a.action.tool_name)} <span class="pill ${a.risk_label}">${a.risk_label}</span></div><div class="d">${esc(a.action.description)}</div><div class="acts"><button class="go sm" onclick="decide('${a.id}',true)">Approve</button><button class="ghost danger" onclick="decide('${a.id}',false)">Deny</button></div></div>`).join(''):'<div class="empty">Nothing waiting.</div>';
+  }catch(e){toast(e);}
+}
+window.decide=async(id,ok)=>{try{await api(`/approvals/${id}/${ok?'approve':'deny'}`,{method:'POST',body:JSON.stringify({reason:'from dashboard'})});toast(ok?'Approved':'Denied');loadApprovals();loadAudit();}catch(e){toast(e);}};
+
+// audit
+async function loadAudit(){
+  try{const r=await api('/audit');const last=r.slice(-40).reverse();
+    $('#auditOut').innerHTML=last.length?last.map(e=>{const c=e.status==='blocked'?'var(--bad)':e.status==='answered'||e.status==='allowed'||e.status==='stored'||e.status==='approved'?'var(--ok)':'var(--muted)';const tm=(e.timestamp||'').slice(11,19);return `<div class="audit-row"><time>${tm}</time><span class="ev">${esc(e.event_type)}</span><span class="d">${esc(e.proposed_action||e.result||'')}</span><span class="st" style="color:${c}">${esc(e.status)}</span></div>`;}).join(''):'<div class="empty">No events yet.</div>';
+  }catch(e){toast(e);}
+}
+
+refreshStatus();setInterval(refreshStatus,8000);
+</script>
+</body>
+</html>
