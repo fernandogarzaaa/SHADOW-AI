@@ -28,6 +28,7 @@ pytest
 ```
 
 ## Repository tree
+- `apps/native` — React Native (Expo) iOS/Android app (this branch); store-ready.
 - `apps/ios-shadow` — SwiftUI iOS app foundation.
 - `apps/shadow-node` — local desktop/server runtime.
 - `packages/memory-engine` — encrypted personal memory and local RAG baseline.
