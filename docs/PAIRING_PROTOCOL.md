@@ -1,2 +1,0 @@
-# Pairing Protocol v1
-Node generates Ed25519 identity key, one-time pairing id, nonce, challenge, expiration, and short display code. The iOS device owns an Ed25519 identity key and signs `pairing_id:challenge:nonce`. Node verifies signature, marks the challenge used, pins the device public-key fingerprint, stores the device encrypted in SQLite, and rejects expired, replayed, invalid, or revoked devices.

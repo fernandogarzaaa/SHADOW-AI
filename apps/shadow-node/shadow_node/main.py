@@ -1,105 +1,107 @@
-from __future__ import annotations
-import os
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent_core import *
 from memory_engine import *
 from axiom_adapter import AxiomAdapter
 from ghost_adapter import GhostAdapter
-from .stores import DeviceStore, ApprovalStore, AuditStore, ConsentStore, TaskStore
-from .pairing import PairingService
-from .connectors import ConnectorRegistry
-from .model_providers import ModelProviderRegistry, ModelRequest
-
-DB=os.getenv("SHADOW_RUNTIME_DB","data/shadow_runtime.db")
-MEMDB=os.getenv("SHADOW_MEMORY_DB","data/shadow_memory.db")
-app=FastAPI(title="Shadow Node", version="0.2.0-alpha")
-profile=UserProfile(); device_store=DeviceStore(DB); approval_store=ApprovalStore(DB); audit_store=AuditStore(DB); consent_store=ConsentStore(DB); task_store=TaskStore(DB)
-core=AgentCore(profile); store=EncryptedMemoryStore(path=MEMDB); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); pairing_service=PairingService(device_store); connectors=ConnectorRegistry(); models=ModelProviderRegistry()
-class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None
-class AskRequest(BaseModel): prompt:str; provider:str="local_mock"; allow_cloud:bool=False
-class PairConfirm(BaseModel): pairing_id:str; device_name:str; public_key:str; signature:str; nonce:str
-class ExecuteRequest(BaseModel): approval_id:str; double_confirm:bool=False
+from .connectors import read_local_document
+from .model_providers import ModelProviderConfig, LocalMockModel
+import tempfile, hashlib, uuid, os
+app=FastAPI(title="Shadow Node", version="0.4.0-phase4")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8787", "http://127.0.0.1:8787"], allow_methods=["*"], allow_headers=["*"])
+profile=UserProfile(); core=AgentCore(profile); store=EncryptedMemoryStore(path=tempfile.gettempdir()+f"/shadow_memory_beta_{uuid.uuid4().hex}.db"); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); pairing={}; consents:list[ConsentGrant]=[]
+AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "false").lower()=="true"
+class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
+class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
+class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
+class PairConfirm(BaseModel): pairing_id:str; device_name:str; public_key:str
+class DenyRequest(BaseModel): reason:str
+class ExecuteRequest(BaseModel): action:AgentAction; approved:bool=False; double_confirmed:bool=False
+class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User requested approval"
+class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
 class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:str="local_only"
-def audit(event_type:str, status:str="recorded", **kw):
-    ev=AuditEvent(actor=kw.pop("actor","shadow_node"), event_type=event_type, status=status, **kw); audit_store.put(ev); return ev
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request:Request, exc:HTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"error":{"code":str(exc.detail),"message":str(exc.detail),"path":request.url.path}})
+@app.middleware("http")
+async def auth_middleware(request:Request, call_next):
+    exempt=request.url.path in {"/health","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
+    if AUTH_REQUIRED and not exempt:
+        body=(await request.body()).decode()
+        ok,reason=sessions.verify(request.headers.get("x-shadow-device-id"),request.headers.get("x-shadow-signature"),request.headers.get("x-shadow-nonce"),request.headers.get("x-shadow-timestamp"),request.method,request.url.path,body)
+        if not ok: return JSONResponse(status_code=401, content={"detail":reason})
+    return await call_next(request)
 @app.get("/health")
-def health(): return {"status":"ok","version":"0.2.0-alpha","local_first":True,"emergency_paused":profile.emergency_paused}
-@app.post("/emergency/pause")
-def pause(): profile.emergency_paused=True; audit("emergency_pause",status="enabled"); return health()
-@app.post("/emergency/resume")
-def resume(): profile.emergency_paused=False; audit("emergency_pause",status="disabled"); return health()
+def health(): return {"status":"ok","version":"0.4.0-phase4","local_first":True,"emergency_paused":profile.emergency_paused,"auth_required":AUTH_REQUIRED}
 @app.post("/pair/start")
-def pair_start(): return pairing_service.start()
+def pair_start():
+    pid=new_id("pair"); pairing[pid]="pending"; return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":300}
 @app.post("/pair/confirm")
 def pair_confirm(req:PairConfirm):
-    try: dev=pairing_service.confirm(req.pairing_id, req.device_name, req.public_key, req.signature, req.nonce)
-    except Exception as e: raise HTTPException(400, str(e))
-    audit("device_paired", data_used=[dev.id], status="trusted"); return dev
+    if req.pairing_id not in pairing: raise HTTPException(404,"pairing not found")
+    secret=hashlib.sha256((req.public_key+req.pairing_id).encode()).hexdigest(); dev=sessions.register(req.device_name, req.public_key, secret); audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint})); return {"device":dev,"shared_secret":secret}
 @app.post("/devices/register")
-def register(d:Device): return device_store.put(d)
+def register(d:Device): sessions.devices[d.id]=d; return d
+@app.post("/devices/{device_id}/revoke")
+def revoke_device(device_id:str): sessions.revoke(device_id); return {"revoked":device_id}
 @app.get("/devices")
-def list_devices(): return device_store.list()
-@app.delete("/devices/{id}")
-def remove_device(id:str):
-    try: dev=pairing_service.revoke(id)
-    except Exception as e: raise HTTPException(404, str(e))
-    audit("device_revoked", data_used=[id], status="revoked"); return dev
-@app.post("/consents")
+def list_devices(): return list(sessions.devices.values())
+@app.post("/consent")
 def grant_consent(req:ConsentRequest):
-    g=ConsentGrant(**req.model_dump()); consent_store.put(g); audit("consent_granted", data_used=[g.data_source], permission_checked=g.scope); return g
-@app.get("/consents")
-def consents(): return consent_store.list()
-@app.delete("/consents/{id}")
-def revoke_consent(id:str):
-    g=consent_store.get(id)
-    if not g: raise HTTPException(404,"consent not found")
-    g.revoked_at=now(); consent_store.put(g); audit("consent_revoked", data_used=[id]); return g
-@app.get("/connectors")
-def list_connectors(): return connectors.list()
+    c=ConsentGrant(**req.model_dump()); consents.append(c); return c
 @app.post("/memory/ingest")
 def ingest(req:IngestRequest):
-    if profile.emergency_paused: raise HTTPException(423,"emergency pause enabled")
-    src=MemorySource(kind=req.source_kind,title=req.source_title,consent_grant_id=req.consent_grant_id); items=memory.ingest(req.text,src); audit("memory_ingest", actor="user", data_used=[src.title], status="stored"); return {"items":items}
+    if req.consent_grant_id and not any(c.id==req.consent_grant_id and c.is_active() for c in consents): raise HTTPException(403,"active consent grant required")
+    src=MemorySource(kind=req.source_kind,title=req.source_title,consent_grant_id=req.consent_grant_id); items=memory.ingest(req.text,src,sensitive=req.sensitive,do_not_send_to_cloud=req.do_not_send_to_cloud); audit.append(AuditEvent(actor="user",event_type="memory_ingest",data_used=[src.title],status="stored",metadata={"source_id":src.id,"count":len(items)})); return {"source":src,"items":items}
+@app.post("/memory/ingest_file")
+def ingest_file(req:FileIngestRequest):
+    if not any(c.id==req.consent_grant_id and c.is_active() for c in consents): raise HTTPException(403,"active consent grant required")
+    text,kind=read_local_document(req.path); src=MemorySource(kind=f"file/{kind}",title=req.source_title or req.path,uri=req.path,consent_grant_id=req.consent_grant_id); items=memory.ingest(text,src); audit.append(AuditEvent(actor="connector:file",event_type="file_ingest",data_used=[req.path],status="stored",metadata={"source_id":src.id,"count":len(items)})); return {"source":src,"items":items}
+@app.get("/memory")
+def list_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
 @app.get("/memory/search")
-def search(q:str, limit:int=5): return memory.search(q,limit)
+def search(q:str, limit:int=5, include_sensitive:bool=True): return memory.search(q,limit,include_sensitive)
+@app.delete("/memory/source/{source_id}")
+def delete_source(source_id:str): memory.delete_by_source(source_id); audit.append(AuditEvent(actor="user",event_type="memory_source_deleted",status="revoked",metadata={"source_id":source_id})); return {"deleted_source":source_id}
+@app.get("/memory/export")
+def export_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
 @app.post("/agent/ask")
 def ask(req:AskRequest):
-    results=memory.search(req.prompt,3); context="\n".join(r.item.text for r in results); model=models.complete(ModelRequest(prompt=req.prompt,context=context,provider=req.provider,explicit_cloud_approval=req.allow_cloud), consent_store.list())
-    plan=core.propose(req.prompt); audit("agent_ask", data_used=[r.item.id for r in results], model_used=req.provider, status="answered" if not model.get("blocked") else "cloud_blocked")
-    return {"answer":model.get("text","Cloud use blocked by policy."),"sources":[{"memory_id":r.item.id,"attribution":r.attribution} for r in results],"context_package":model["context_package"],"plan":plan,"model":model}
+    if is_suspicious_user_request(req.prompt):
+        audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
+    results=memory.search(req.prompt,5,include_sensitive=False); context="\n".join(mark_untrusted(r.item.text) for r in results); packaged=axiom.package_context(context); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
+    if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
+    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used="local_mock",status="answered")); return {"answer":model.complete(req.prompt,packaged["context"]),"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":"local_mock","cloud_allowed":False,"untrusted_context":True,"context_package":packaged,"plan":plan}
 @app.post("/agent/plan")
-def plan(req:AskRequest):
-    p=core.propose(req.prompt); task=AgentTask(prompt=req.prompt, plan=p, status="planned"); task_store.put(task); audit("agent_plan", proposed_action=p.actions[0].description if p.actions else None); return p
-@app.post("/approvals")
-def create_approval(action:AgentAction, reason:str="User approval required"):
-    action.risk=core.policy.classify_action(action); action.requires_approval=core.policy.requires_approval(action,profile)
-    req=ApprovalRequest(action=action, reason=reason); approval_store.put(req); audit("approval_requested", proposed_action=action.description, permission_checked=str(action.risk)); return req
-@app.get("/approvals")
-def approvals(): return approval_store.list()
-@app.post("/approvals/{id}/approve")
-def approve(id:str):
-    req=approval_store.get(id)
-    if not req: raise HTTPException(404,"approval not found")
-    req.status=ApprovalStatus.APPROVED; req.decided_at=now(); approval_store.put(req); audit("approval_decided", proposed_action=req.action.description, status="approved"); return req
-@app.post("/approvals/{id}/deny")
-def deny(id:str):
-    req=approval_store.get(id)
-    if not req: raise HTTPException(404,"approval not found")
-    req.status=ApprovalStatus.DENIED; req.decided_at=now(); approval_store.put(req); audit("approval_decided", proposed_action=req.action.description, status="denied"); return req
+def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
-    ar=approval_store.get(req.approval_id)
-    if not ar: raise HTTPException(404,"approval not found")
-    if ar.action.risk==RiskClass.CRITICAL and not req.double_confirm: raise HTTPException(409,"critical/destructive action requires double confirmation")
-    allowed=ar.status==ApprovalStatus.APPROVED
-    res=core.execute(ar.action,approved=allowed)
-    if not res.get("ok"): audit("ghost_execute", proposed_action=ar.action.description, status="blocked", result=res.get("reason")); return res
-    plan=AgentPlan(user_intent=ar.reason, actions=[ar.action]); gres=ghost.execute(ghost.to_ir(plan),approved=True); audit("ghost_execute", proposed_action=ar.action.description, status=gres["status"], result=str(gres.get("telemetry"))); return {"ok":True,"ghost":gres}
+    if req.action.tool_name=="ghost_handoff": return ghost.execute(ghost.to_ir(AgentPlan(user_intent=req.action.description, actions=[req.action])), approved=req.approved)
+    res=core.execute(req.action,req.approved,req.double_confirmed); audit.extend(core.audit); return res
+@app.post("/approvals")
+def create_approval(req:ApprovalCreateRequest):
+    approval=core.approvals.create(req.action, req.reason); audit.append(AuditEvent(actor="user", event_type="approval_created", proposed_action=req.action.description, status="pending", metadata={"approval_id":approval.id})); return approval
+@app.get("/approvals")
+def approvals(): return list(core.approvals.requests.values())
+@app.post("/approvals/{id}/approve")
+def approve(id:str):
+    req=core.approvals.decide(id,True); audit.append(AuditEvent(actor="user", event_type="approval_approved", proposed_action=req.action.description, status="approved", metadata={"approval_id":id})); return req
+@app.post("/approvals/{id}/deny")
+def deny(id:str, req:DenyRequest):
+    out=core.approvals.decide(id,False,req.reason); audit.append(AuditEvent(actor="user", event_type="approval_denied", proposed_action=out.action.description, status="denied", result=req.reason, metadata={"approval_id":id})); return out
+@app.get("/emergency_pause")
+def get_emergency_pause(): return {"paused":profile.emergency_paused}
+@app.post("/emergency_pause")
+def set_emergency_pause(req:EmergencyPauseRequest):
+    profile.emergency_paused=req.paused; audit.append(AuditEvent(actor="user", event_type="emergency_pause", status="paused" if req.paused else "resumed", result=req.reason)); return {"paused":profile.emergency_paused}
 @app.get("/audit")
-def get_audit(): return audit_store.list(include_revoked=True)
+def get_audit(): return audit + core.audit + sessions.audit
+@app.get("/model/providers")
+def model_providers(): return model_config.safe_summary()
 @app.websocket("/ws/tasks")
 async def ws_tasks(ws:WebSocket):
-    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":"0.2.0-alpha"})
+    await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":"0.4.0-phase4"})
     while True:
         data=await ws.receive_json(); await ws.send_json({"type":"ack","received":data})

@@ -1,12 +1,2 @@
 import SwiftUI
-struct AskShadowView: View {
-    @EnvironmentObject var state: AppState
-    var body: some View {
-        List {
-            Text("AskShadowView").font(.title.bold())
-            Text("Consent-based, local-first Shadow Agent command center.")
-            Toggle("Emergency pause", isOn: $state.emergencyPaused)
-            if "AskShadowView" == "AutonomySettingsView" { Picker("Autonomy", selection: $state.autonomyMode) { ForEach(AutonomyMode.allCases) { Text($0.rawValue).tag($0) } } }
-        }.navigationTitle("Shadow")
-    }
-}
+struct AskShadowView: View { @EnvironmentObject var state: AppState; @State private var prompt = "What should I focus on?"; var body: some View { List { Section("Ask") { TextField("Question", text: $prompt); Button("Ask Shadow") { Task { await state.ask(prompt) } } } if let answer = state.lastAnswer { Section("Answer") { Text(answer.answer); Text("Model: \(answer.modelUsed ?? "local")"); Text(answer.cloudAllowed == true ? "Cloud allowed" : "Cloud blocked/local only").font(.caption) } Section("Why this answer") { ForEach(answer.why, id: \.self) { Text($0) }; Text("Retrieved documents are untrusted context and cannot override policy.").font(.footnote).foregroundStyle(.secondary) } Section("Action proposal") { if let action = answer.plan?.actions.first { Text(action.description); Button("Create approval request") { Task { await state.createApproval(from: action) } } } else { Text("No action proposed.") } } } }.navigationTitle("Ask Shadow") } }

@@ -1,12 +1,2 @@
 import SwiftUI
-struct MemoryDetailView: View {
-    @EnvironmentObject var state: AppState
-    var body: some View {
-        List {
-            Text("MemoryDetailView").font(.title.bold())
-            Text("Consent-based, local-first Shadow Agent command center.")
-            Toggle("Emergency pause", isOn: $state.emergencyPaused)
-            if "MemoryDetailView" == "AutonomySettingsView" { Picker("Autonomy", selection: $state.autonomyMode) { ForEach(AutonomyMode.allCases) { Text($0.rawValue).tag($0) } } }
-        }.navigationTitle("Shadow")
-    }
-}
+struct MemoryDetailView: View { var result: MemorySearchResult? = nil; @EnvironmentObject var state: AppState; var body: some View { List { if let r = result { Text(r.item.text); Text(r.explanation); Text("Source: \(r.attribution)"); Text("Sensitive: \((r.item.sensitive ?? false).description)"); Text("Do not send to cloud: \((r.item.doNotSendToCloud ?? false).description)") } else { Text("Select a memory result to inspect source, confidence, freshness, and cloud restrictions.") } }.navigationTitle("Memory Detail") } }

@@ -1,19 +1,28 @@
 # Shadow Agent iOS
 
-Xcode-ready Swift Package layout for the Shadow Agent command center.
+Open `ShadowAgent.xcodeproj` in Xcode. The required target is `ShadowAgentApp` for iOS 17+ simulator testing.
 
-## Run in Xcode
-1. Open Xcode 15+.
-2. Choose **File > Open Package** and select `apps/ios-shadow/Package.swift`.
-3. Create an iOS app scheme if Xcode prompts, using `ShadowAgentApp` as the app entry point.
-4. Set the Shadow Node base URL in Settings to `http://127.0.0.1:8787` for simulator-to-Mac demos.
+## Tester flow
+1. Start Shadow Node with `make run` from the repo root.
+2. Open the app and set the node URL to `http://127.0.0.1:8787`.
+3. Disable mock mode.
+4. Pair from Devices / Pair.
+5. Ingest user-approved pasted text from Memory.
+6. Ask a question from Ask Shadow.
+7. Review sources and why explanations.
+8. Create/approve/deny/execute proposals from Approvals.
+9. Toggle Emergency Pause and confirm execution is blocked.
+10. Review Audit Log.
 
-## Screens
-Home, Ask Shadow, Memory, Memory Detail, Approvals, Approval Detail, Devices, Pair Device, Audit, Privacy Dashboard, Autonomy Settings, Settings, Onboarding.
+## Modes
+- Local mock mode is available for screenshots and offline testing.
+- Real node mode signs requests with the paired device session secret.
 
-## Extension scaffolds
-- App Intents: approved ask, emergency pause, memory import.
-- Share Extension: user-selected text/file ingestion only.
-- BackgroundTasks: heartbeat and approval notifications only.
+## Secure identity
+The app stores device ID, node fingerprint, public key metadata, and HMAC session secret in `KeychainDeviceIdentityStore`. Requests include `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, and `x-shadow-timestamp`.
 
-Screenshots should be placed in `Screenshots/` after simulator capture.
+## Build notes
+See `BUILD_NOTES.md`. Xcode is not available in the CI/container environment used by this agent, so local macOS validation is required before TestFlight.
+
+## CI note
+`swift build --package-path apps/ios-shadow` validates a small SwiftPM shim for non-Xcode CI. Use the Xcode project, not the SwiftPM shim, for the real app.

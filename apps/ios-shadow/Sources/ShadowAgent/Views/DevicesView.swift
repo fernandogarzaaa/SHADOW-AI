@@ -1,12 +1,2 @@
 import SwiftUI
-struct DevicesView: View {
-    @EnvironmentObject var state: AppState
-    var body: some View {
-        List {
-            Text("DevicesView").font(.title.bold())
-            Text("Consent-based, local-first Shadow Agent command center.")
-            Toggle("Emergency pause", isOn: $state.emergencyPaused)
-            if "DevicesView" == "AutonomySettingsView" { Picker("Autonomy", selection: $state.autonomyMode) { ForEach(AutonomyMode.allCases) { Text($0.rawValue).tag($0) } } }
-        }.navigationTitle("Shadow")
-    }
-}
+struct DevicesView: View { @EnvironmentObject var state: AppState; var body: some View { List { NavigationLink("Pair this iPhone", destination: PairDeviceView()); Button("Refresh devices") { Task { await state.loadDevices() } }; ForEach(state.devices) { d in VStack(alignment: .leading) { Text(d.name).font(.headline); Text(d.fingerprint ?? d.id).font(.caption); Text(d.revoked == true ? "Revoked" : "Trusted: \(d.trusted.description)") } } }.navigationTitle("Devices") } }
