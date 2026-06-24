@@ -76,7 +76,7 @@ async def observability_middleware(request:Request, call_next):
     return response
 @app.middleware("http")
 async def auth_middleware(request:Request, call_next):
-    exempt=request.url.path in {"/","/health","/ready","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
+    exempt=request.method=="OPTIONS" or request.url.path in {"/","/health","/ready","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
     if AUTH_REQUIRED and not exempt:
         body=(await request.body()).decode()
         ok,reason=sessions.verify(request.headers.get("x-shadow-device-id"),request.headers.get("x-shadow-signature"),request.headers.get("x-shadow-nonce"),request.headers.get("x-shadow-timestamp"),request.method,request.url.path,body)

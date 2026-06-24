@@ -81,6 +81,25 @@ def test_cors_origins_configurable(monkeypatch):
     importlib.reload(m)
 
 
+def test_auth_required_allows_cors_preflight(monkeypatch):
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "true")
+    import shadow_node.main as m
+    importlib.reload(m)
+    c = TestClient(m.app)
+    r = c.options(
+        "/memory/ingest",
+        headers={
+            "origin": "http://localhost:19006",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type,x-shadow-device-id,x-shadow-signature,x-shadow-nonce,x-shadow-timestamp",
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers["access-control-allow-origin"] == "http://localhost:19006"
+    monkeypatch.delenv("SHADOW_AUTH_REQUIRED", raising=False)
+    importlib.reload(m)
+
+
 def test_rate_limit_middleware_returns_429(monkeypatch):
     monkeypatch.setenv("SHADOW_RATE_LIMIT_RPM", "1")
     monkeypatch.delenv("SHADOW_AUTH_REQUIRED", raising=False)
