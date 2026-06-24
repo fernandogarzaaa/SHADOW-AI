@@ -33,7 +33,7 @@ async function main() {
   const exec = await call(creds, 'POST', '/agent/execute', { action: { tool_name: 'note.create', description: 'sim note', params: { title: 'Native Sim Note', body: 'created by native sim' }, requires_approval: true }, approved: true, double_confirmed: true });
   check('real action executes through approval gate', exec.status === 200 && exec.json.ok === true, exec.json.result?.path || '');
   const ts = Math.floor(Date.now() / 1000).toString();
-  const nonce = 'native-fixed-nonce-replay-test';
+  const nonce = `native-replay-${Date.now()}`;
   const msg = ['GET', '/audit', '', nonce, ts].join('\n');
   const { hmac } = await import('js-sha256').then((m: any) => ({ hmac: m.sha256.hmac }));
   const sig = hmac(creds.secret, msg);

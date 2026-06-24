@@ -33,10 +33,19 @@ const navTheme = {
   },
 };
 
+const TAB_GLYPHS: Record<string, string> = {
+  Ask: '?',
+  Memory: 'M',
+  Actions: '>',
+  Models: 'AI',
+  Approvals: 'Y',
+  Audit: '#',
+};
+
 function TabMark({ focused, label }: { focused: boolean; label: string }) {
   return (
     <View style={[s.tabMark, focused && s.tabMarkActive]}>
-      <Text style={[s.tabMarkText, focused && s.tabMarkTextActive]}>{label.slice(0, 1)}</Text>
+      <Text style={[s.tabMarkText, focused && s.tabMarkTextActive]}>{TAB_GLYPHS[label] || label.slice(0, 1)}</Text>
     </View>
   );
 }

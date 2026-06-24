@@ -144,6 +144,34 @@ export function Metric({ label, value, tone = 'accent' }: { label: string; value
   );
 }
 
+export function GlassListItem({
+  title,
+  subtitle,
+  right,
+}: {
+  title: string;
+  subtitle?: string;
+  right?: React.ReactNode;
+}) {
+  return (
+    <View style={styles.listItem}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.itemTitle} numberOfLines={1}>{title}</Text>
+        {subtitle ? <Text style={styles.itemDesc} numberOfLines={2}>{subtitle}</Text> : null}
+      </View>
+      {right}
+    </View>
+  );
+}
+
+export function LoadingBar({ active }: { active: boolean }) {
+  return (
+    <View style={[styles.loadingTrack, !active && { opacity: 0 }]}>
+      <View style={styles.loadingFill} />
+    </View>
+  );
+}
+
 export function SegmentedControl({
   items,
   value,
@@ -285,9 +313,33 @@ export const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.055)',
   },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderColor: theme.stroke,
+    borderWidth: 1,
+    borderRadius: theme.radiusSm,
+    padding: 13,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.055)',
+  },
   itemTitle: { color: theme.txt, fontWeight: '700', fontSize: 14 },
   itemDesc: { color: theme.muted, fontSize: 13, marginTop: 4, lineHeight: 18 },
   row: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   empty: { color: theme.faint, fontSize: 13, textAlign: 'center', paddingVertical: 22 },
   meta: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  loadingTrack: {
+    height: 3,
+    overflow: 'hidden',
+    borderRadius: 99,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginTop: 14,
+  },
+  loadingFill: {
+    width: '58%',
+    height: 3,
+    borderRadius: 99,
+    backgroundColor: theme.cyan,
+  },
 });

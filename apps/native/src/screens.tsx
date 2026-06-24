@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { api, getBaseUrl, isPaired, pairDevice, setBaseUrl, unpair } from './api';
 import { theme } from './theme';
-import { Button, Field, GlassCard, Metric, Pill, Screen, SegmentedControl, styles } from './ui';
+import { Button, Field, GlassCard, GlassListItem, LoadingBar, Metric, Pill, Screen, SegmentedControl, styles } from './ui';
 
 const PROMPTS = [
   'What did I note about Aurora?',
@@ -24,16 +24,35 @@ export function AskScreen() {
   const [mode, setMode] = useState('Local');
   const [out, setOut] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [lastAction, setLastAction] = useState('Ready');
 
   const ask = async () => {
     if (!prompt.trim()) return;
     setBusy(true);
     try {
+      setLastAction('Asking private memory');
       setOut(await api.ask(prompt, mode === 'Cloud'));
     } catch (e: any) {
       setOut({ error: String(e.message || e) });
     } finally {
       setBusy(false);
+      setLastAction('Ready');
+    }
+  };
+
+  const runDemo = async () => {
+    setBusy(true);
+    try {
+      setLastAction('Seeding demo memory');
+      await api.ingest('Project Aurora ships in March; lead is Dana. Mention the launch date and owner when asked.', 'Recruiter demo note');
+      setPrompt('When does Aurora ship and who leads it?');
+      setLastAction('Building brief');
+      setOut(await api.ask('When does Aurora ship and who leads it?', mode === 'Cloud'));
+    } catch (e: any) {
+      setOut({ error: String(e.message || e) });
+    } finally {
+      setBusy(false);
+      setLastAction('Ready');
     }
   };
 
@@ -64,9 +83,12 @@ export function AskScreen() {
           <SegmentedControl items={['Local', 'Cloud']} value={mode} onChange={setMode} />
         </View>
 
-        <View style={[styles.row, { justifyContent: 'flex-end', marginTop: 14 }]}>
+        <View style={[styles.row, { justifyContent: 'space-between', marginTop: 14 }]}>
+          <Button title="Run demo" kind="ghost" onPress={runDemo} disabled={busy} />
           <Button title={busy ? 'Thinking' : 'Ask Shadow'} onPress={ask} disabled={busy} />
         </View>
+        <LoadingBar active={busy} />
+        <StatusLine ok={!busy} text={lastAction} />
 
         {out?.error ? <Text style={[styles.answer, { borderColor: theme.bad }]}>{out.error}</Text> : null}
         {out && !out.error ? (
@@ -78,6 +100,14 @@ export function AskScreen() {
               {out.savings ? <Pill tone="ok" text={`~${out.savings.tokens_saved_estimate} tokens saved`} /> : null}
               {typeof out.grounding === 'number' ? <Pill text={`grounding ${out.grounding}`} /> : null}
             </View>
+            {(out.sources || []).slice(0, 3).map((source: any, index: number) => (
+              <GlassListItem
+                key={`${source.item?.id || 'source'}-${index}`}
+                title={source.attribution || source.item?.source?.title || 'Retrieved source'}
+                subtitle={source.item?.text || source.explanation}
+                right={<Pill tone="ok" text={`${Math.round((source.item?.confidence || 0) * 100)}%`} />}
+              />
+            ))}
           </View>
         ) : null}
       </GlassCard>
@@ -129,19 +159,21 @@ export function MemoryScreen() {
           multiline
         />
         <Button title="Store memory" onPress={store} />
+        <View style={[styles.row, { marginTop: 12, alignItems: 'stretch' }]}>
+          <Metric label="privacy" value="local" tone="ok" />
+          <Metric label="store" value="sealed" />
+        </View>
       </GlassCard>
 
       <GlassCard eyebrow="Recall" title="Search memory">
         <Field placeholder="Search Aurora, Dana, March..." value={q} onChangeText={search} />
         {results.length === 0 ? <Text style={styles.empty}>No matching memory yet.</Text> : results.map((r, i) => (
-          <View key={`${r.item?.id || 'memory'}-${i}`} style={styles.item}>
-            <Text style={styles.itemTitle}>{r.item.source.title}</Text>
-            <Text style={styles.itemDesc}>{r.item.text}</Text>
-            <View style={styles.meta}>
-              <Pill tone="ok" text={`conf ${(r.item.confidence || 0).toFixed(2)}`} />
-              <Pill text={r.item.category} />
-            </View>
-          </View>
+          <GlassListItem
+            key={`${r.item?.id || 'memory'}-${i}`}
+            title={r.item.source.title}
+            subtitle={r.item.text}
+            right={<Pill tone="ok" text={`${Math.round((r.item.confidence || 0) * 100)}%`} />}
+          />
         ))}
       </GlassCard>
     </Screen>
@@ -170,7 +202,7 @@ export function ActionsScreen() {
 
   return (
     <Screen>
-      <GlassCard eyebrow="Approval gate" title="Sandboxed action">
+      <GlassCard eyebrow="Approval gate" title="Sandboxed action" right={<Pill tone="warn" text="explicit" />}>
         <SegmentedControl items={TOOLS.map((item) => item.label)} value={tool.label} onChange={(label) => {
           const index = TOOLS.findIndex((item) => item.label === label);
           setSel(index);
@@ -225,7 +257,7 @@ export function ModelsScreen() {
 
   return (
     <Screen>
-      <GlassCard eyebrow="Frontier routing" title="Provider keys">
+      <GlassCard eyebrow="Frontier routing" title="Provider keys" right={<Pill text={data?.active_provider || 'local'} />}>
         {data?.providers?.length ? data.providers.map((p: any) => (
           <View key={p.provider} style={styles.item}>
             <View style={[styles.row, { justifyContent: 'space-between' }]}>
@@ -275,7 +307,7 @@ export function ApprovalsScreen() {
 
   return (
     <Screen>
-      <GlassCard eyebrow="Decisions" title="Pending approvals">
+      <GlassCard eyebrow="Decisions" title="Pending approvals" right={<Pill text={`${items.length} pending`} />}>
         {items.length === 0 ? <Text style={styles.empty}>Nothing waiting.</Text> : items.map((a) => (
           <View key={a.id} style={styles.item}>
             <View style={[styles.row, { justifyContent: 'space-between' }]}>
