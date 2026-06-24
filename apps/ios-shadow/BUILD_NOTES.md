@@ -14,3 +14,6 @@ This Linux container does not include Xcode or `xcodebuild`, so simulator build/
 - The project file is maintained manually in this repository and may be rewritten by Xcode on first open.
 - Production signing, entitlements, privacy manifests, and asset catalog icons still require macOS/Xcode validation.
 - Document picker upload is described and manual paste ingestion is wired; full security-scoped document picker upload should be validated on simulator/device.
+
+## SwiftPM CI shim
+`Package.swift` intentionally builds `ShadowAgentPackageShim` only. This keeps Linux CI merge checks from trying to compile iOS-only frameworks such as SwiftUI, Security, and CryptoKit. The simulator-runnable app remains the `ShadowAgentApp` target in `ShadowAgent.xcodeproj`.

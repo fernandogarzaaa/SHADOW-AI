@@ -23,3 +23,6 @@ The app stores device ID, node fingerprint, public key metadata, and HMAC sessio
 
 ## Build notes
 See `BUILD_NOTES.md`. Xcode is not available in the CI/container environment used by this agent, so local macOS validation is required before TestFlight.
+
+## CI note
+`swift build --package-path apps/ios-shadow` validates a small SwiftPM shim for non-Xcode CI. Use the Xcode project, not the SwiftPM shim, for the real app.
