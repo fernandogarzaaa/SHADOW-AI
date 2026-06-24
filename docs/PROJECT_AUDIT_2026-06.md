@@ -23,13 +23,21 @@ below was confirmed by running the code, not by reading documentation.
 | **Real Claude model provider** | ✅ **New** | `AnthropicProvider` (httpx) gated behind cloud consent + API key; local mock fallback |
 | Audit log | ✅ Real | Append-only event stream surfaced at `/audit` |
 
+## Update — production hardening (this branch)
+These were the gaps in the first audit; they are now real:
+
+| Area | Was | Now |
+|---|---|---|
+| GHOST action execution | Mock only | ✅ **Real** sandboxed actions (`note.*`, `reminder.create`, SSRF-guarded `http.get`) behind the approval gate; `local` mode executes, `mock` retained for tests |
+| Runtime state (audit/consents/devices) | In-memory, lost on restart | ✅ **Persistent** encrypted SQLite via `SHADOW_RUNTIME_DB` |
+| Operator UI | None | ✅ **Minimalist web dashboard** at `/` |
+
 ## What is still scaffolding (known gaps)
 
 | Area | State | Impact |
 |---|---|---|
-| GHOST action execution | ⚠️ Mock | `mode=mock` returns simulated results; no real desktop actions yet |
-| AXIOM context adapter | ⚠️ Thin | Deterministic packaging seam, not a full context router |
-| Runtime state (devices/consents/approvals) | ⚠️ In-memory | Lost on node restart; memory itself now persists. Encrypted SQLite stores are designed but not yet the default runtime backend |
+| AXIOM context adapter | ⚠️ Thin | Real redaction/compression/fingerprinting, but not a full semantic router |
+| Approvals persistence | ⚠️ In-memory | Short-lived by design (15-min expiry); audit/consents/devices now persist |
 | iOS app | ⚠️ Unverified here | Cannot build without Xcode; validate per `apps/ios-shadow/BUILD_NOTES.md` |
 | Ed25519 device keys | ⚠️ Enhancement | Transport auth uses HMAC today; asymmetric keys are a follow-up |
 
@@ -39,15 +47,15 @@ below was confirmed by running the code, not by reading documentation.
 - Cloud model is **opt-in** and key-gated; the node is fully functional offline.
 
 ## Honest bottom line
-The node is a genuinely working, well-tested local-first service with real
-encryption, real authenticated transport, real privacy controls, and now a real
-model seam and persistence. The remaining gap to a *complete* product is real
-action execution (GHOST) and durable runtime state. It is deployable today as a
-private personal-memory + Q&A node with `SHADOW_AUTH_REQUIRED=true`; it is not
-yet an autonomous action-taking agent.
+The node is a genuinely working, well-tested local-first agent: real encryption,
+real authenticated transport, real privacy controls, a real model seam, durable
+encrypted memory **and** runtime state, **real sandboxed action execution behind
+the approval gate**, and a minimalist web UI. It takes real actions now — it is
+no longer just a Q&A node. Deployable with `SHADOW_AUTH_REQUIRED=true`,
+`GHOST_RUNTIME_MODE=local`, and persistent volumes (see PRODUCTION_RUNBOOK.md).
 
 ## Recommended next steps (priority order)
-1. Make encrypted SQLite the default runtime store (devices/consents/approvals/audit).
-2. Implement one real GHOST action end-to-end behind the approval gate.
-3. Promote transport auth to Ed25519 device keys (Keychain-backed on iOS).
-4. Add rate limiting + structured request logging for the networked deployment.
+1. Promote transport auth to Ed25519 device keys (Keychain-backed on iOS).
+2. Persist approvals + add expiry sweeping for the durable store.
+3. Expand the real action catalog (calendar, email draft) behind per-tool consent.
+4. Add rate limiting + structured request logging for networked deployments.
