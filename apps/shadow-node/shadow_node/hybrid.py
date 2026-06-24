@@ -12,6 +12,7 @@ The router reports an estimated token saving for every request so the UI can
 show the user what the hybrid approach saved.
 """
 from __future__ import annotations
+import re
 from dataclasses import dataclass
 from axiom_adapter import AxiomAdapter, TokenBudgetEstimator
 
@@ -52,14 +53,37 @@ class ComplexityRouter:
         return RouteDecision("frontier", f"complexity ({c:.2f}) routed to frontier", c)
 
 
+class GroundingVerifier:
+    """Lexical grounding check, in the spirit of AXIOM-AETHER's hallucination.rs.
+
+    Scores how much of an answer's content vocabulary is actually supported by the
+    supplied context. Used to decide whether a low-grounding frontier answer
+    should be retried against the full (uncompressed) context.
+    """
+    _WORD = re.compile(r"[a-z0-9]+")
+
+    def _content_words(self, text: str) -> set[str]:
+        return {w for w in self._WORD.findall((text or "").lower()) if len(w) > 3}
+
+    def score(self, answer: str, context: str) -> float:
+        a = self._content_words(answer)
+        if not a:
+            return 1.0  # nothing to ground (e.g. a refusal or empty answer)
+        ctx = self._content_words(context)
+        return len(a & ctx) / len(a)
+
+
 class HybridRouter:
-    def __init__(self, local, axiom: AxiomAdapter | None = None, router: ComplexityRouter | None = None):
+    def __init__(self, local, axiom: AxiomAdapter | None = None, router: ComplexityRouter | None = None,
+                 verifier: GroundingVerifier | None = None):
         self.local = local
         self.axiom = axiom or AxiomAdapter()
         self.router = router or ComplexityRouter()
+        self.verifier = verifier or GroundingVerifier()
         self.estimator = TokenBudgetEstimator()
 
-    def run(self, prompt: str, raw_context: str, frontier=None, threshold: float = 0.5) -> dict:
+    def run(self, prompt: str, raw_context: str, frontier=None, threshold: float = 0.5,
+            verify: bool = False, grounding_threshold: float = 0.3) -> dict:
         raw_tokens = self.estimator.estimate(raw_context) if raw_context else 0
         packaged = self.axiom.package_context(raw_context or "")
         compressed_context = packaged["context"]
@@ -69,6 +93,7 @@ class HybridRouter:
         # Routing keys off RAW context size (how much information there is);
         # compression affects cost/savings, not complexity.
         decision = self.router.decide(prompt, raw_tokens, frontier is not None, threshold)
+        regrounded = False
 
         if decision.route == "local" or frontier is None:
             answer = self.local.complete(prompt, compressed_context)
@@ -84,13 +109,23 @@ class HybridRouter:
             # Frontier handled it, but on compressed context: saving is the
             # difference vs sending the raw context.
             tokens_saved = max(0, raw_tokens - compressed_tokens)
+            # Draft-then-verify: if the compressed-context answer is poorly grounded,
+            # retry once against the full uncompressed context (AXIOM-style expansion).
+            if verify and raw_context and self.verifier.score(answer, raw_context) < grounding_threshold:
+                answer = frontier.complete(prompt, raw_context)
+                frontier_tokens = raw_tokens
+                tokens_saved = 0
+                regrounded = True
 
+        grounding = round(self.verifier.score(answer, raw_context), 3) if raw_context else 1.0
         return {
             "answer": answer,
             "route": decision.route,
             "provider": provider,
             "reason": decision.reason,
             "complexity": round(decision.complexity, 3),
+            "grounding": grounding,
+            "regrounded": regrounded,
             "untrusted_context": True,
             "context_package": packaged,
             "savings": {

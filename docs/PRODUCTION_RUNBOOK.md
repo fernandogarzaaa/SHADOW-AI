@@ -34,9 +34,20 @@ Mount a persistent volume for `SHADOW_MEMORY_DB` and the key file so memory and
 the encryption key survive restarts.
 
 ## 3. Verify
-- `GET /health` → `{"auth_required": true, "version": "1.0.0-rc"}`.
+- `GET /health` → liveness `{"auth_required": true, "version": "1.0.0-rc"}`.
+- `GET /ready` → readiness probe (200 ready / 503 degraded) with effective config:
+  `rate_limit_rpm`, `grounding_verify`, `providers_ready`. Wire this to your
+  orchestrator's readiness check (the Docker image also ships a `HEALTHCHECK`).
 - `GET /model/providers` → confirm `cloud_model_ready` matches intent.
 - With auth on, unsigned requests to protected routes return `401`.
+
+## Operational hardening (built in)
+- **Rate limiting:** `SHADOW_RATE_LIMIT_RPM` (per-client token bucket; `/health`
+  and `/ready` exempt). Over-limit requests get `429`.
+- **Structured logging:** every request logs one JSON line (`method`, `path`,
+  `status`, `ms`, `client`) to stdout — scrape with your log pipeline.
+- **Draft-then-verify:** `SHADOW_GROUNDING_VERIFY=true` retries a poorly-grounded
+  frontier answer once against the full context before returning it.
 
 ## 4. Security checklist before exposing publicly
 - [ ] `SHADOW_AUTH_REQUIRED=true`

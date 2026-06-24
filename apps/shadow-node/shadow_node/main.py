@@ -12,7 +12,7 @@ from .crypto_config import load_fernet_key
 from .providers import build_frontier, CATALOG
 from .hybrid import HybridRouter
 from . import provider_auth
-import tempfile, hashlib, uuid, os
+import tempfile, hashlib, uuid, os, time
 APP_VERSION="1.0.0-rc"
 app=FastAPI(title="Shadow Node", version=APP_VERSION)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8787", "http://127.0.0.1:8787"], allow_methods=["*"], allow_headers=["*"])
@@ -40,6 +40,11 @@ for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lam
 hybrid=HybridRouter(model, axiom)
 credentials=provider_auth.CredentialStore()
 AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "false").lower()=="true"
+GROUNDING_VERIFY=os.getenv("SHADOW_GROUNDING_VERIFY", "true").lower()=="true"
+RATE_LIMIT_RPM=int(os.getenv("SHADOW_RATE_LIMIT_RPM", "0"))  # 0 disables
+from .obs import RateLimiter, configure_logging, client_key
+log=configure_logging()
+rate_limiter=RateLimiter(RATE_LIMIT_RPM) if RATE_LIMIT_RPM>0 else None
 class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
 class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
@@ -55,8 +60,18 @@ class OAuthExchangeRequest(BaseModel): code:str; code_verifier:str; redirect_uri
 async def http_exception_handler(request:Request, exc:HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error":{"code":str(exc.detail),"message":str(exc.detail),"path":request.url.path}})
 @app.middleware("http")
+async def observability_middleware(request:Request, call_next):
+    start=time.perf_counter()
+    if rate_limiter is not None and request.url.path not in {"/health","/ready"}:
+        if not rate_limiter.allow(client_key(request)):
+            log.warning("rate_limited", extra={"path":request.url.path,"client":client_key(request),"status":429})
+            return JSONResponse(status_code=429, content={"error":{"code":"rate_limited","message":"too many requests"}})
+    response=await call_next(request)
+    log.info("request", extra={"method":request.method,"path":request.url.path,"status":response.status_code,"ms":round((time.perf_counter()-start)*1000,1),"client":client_key(request)})
+    return response
+@app.middleware("http")
 async def auth_middleware(request:Request, call_next):
-    exempt=request.url.path in {"/","/health","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
+    exempt=request.url.path in {"/","/health","/ready","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
     if AUTH_REQUIRED and not exempt:
         body=(await request.body()).decode()
         ok,reason=sessions.verify(request.headers.get("x-shadow-device-id"),request.headers.get("x-shadow-signature"),request.headers.get("x-shadow-nonce"),request.headers.get("x-shadow-timestamp"),request.method,request.url.path,body)
@@ -67,6 +82,15 @@ WEB_INDEX=os.path.join(os.path.dirname(__file__),"web","index.html")
 def dashboard(): return FileResponse(WEB_INDEX)
 @app.get("/health")
 def health(): return {"status":"ok","version":APP_VERSION,"local_first":True,"emergency_paused":profile.emergency_paused,"auth_required":AUTH_REQUIRED}
+@app.get("/ready")
+def ready():
+    # Readiness probe: the node can serve memory + routing.
+    try:
+        memory.search("ready", 1); ok=True
+    except Exception:
+        ok=False
+    status="ready" if ok else "degraded"
+    return JSONResponse(status_code=200 if ok else 503, content={"status":status,"version":APP_VERSION,"auth_required":AUTH_REQUIRED,"rate_limit_rpm":RATE_LIMIT_RPM,"grounding_verify":GROUNDING_VERIFY,"providers_ready":model_config.cloud_model_ready()})
 @app.post("/pair/start")
 def pair_start():
     pid=new_id("pair"); pairing[pid]="pending"; return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":300}
@@ -113,13 +137,13 @@ def ask(req:AskRequest):
             cred={**cred,"endpoint":model_config.endpoint}
             frontier=build_frontier(model_config.provider, cred, model_config.model_name)
     try:
-        out=hybrid.run(req.prompt, raw_context, frontier=frontier)
+        out=hybrid.run(req.prompt, raw_context, frontier=frontier, verify=GROUNDING_VERIFY)
     except Exception as e:
         audit.append(AuditEvent(actor="agent",event_type="cloud_model_error",model_used=model_config.provider,status="fallback_local",result=str(e)[:200]))
         out=hybrid.run(req.prompt, raw_context, frontier=None)
     cloud_used=out["route"]=="frontier"
-    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=out["provider"],status="answered",metadata={"route":out["route"],"tokens_saved":out["savings"]["tokens_saved_estimate"]}))
-    return {"answer":out["answer"],"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":out["provider"],"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":out["context_package"],"plan":plan,"route":out["route"],"routing_reason":out["reason"],"savings":out["savings"]}
+    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=out["provider"],status="answered",metadata={"route":out["route"],"tokens_saved":out["savings"]["tokens_saved_estimate"],"grounding":out["grounding"]}))
+    return {"answer":out["answer"],"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":out["provider"],"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":out["context_package"],"plan":plan,"route":out["route"],"routing_reason":out["reason"],"grounding":out["grounding"],"regrounded":out["regrounded"],"savings":out["savings"]}
 @app.post("/agent/plan")
 def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
