@@ -1,0 +1,30 @@
+name: PWA
+on:
+  push:
+    paths: ["apps/pwa/**", ".github/workflows/pwa.yml"]
+  pull_request:
+    paths: ["apps/pwa/**", ".github/workflows/pwa.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/pwa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Build PWA
+        run: npx expo export -p web
+      - name: Verify PWA artifacts
+        run: |
+          test -f dist/index.html
+          test -f dist/manifest.json
+          test -f dist/sw.js
+          echo "PWA build OK"
