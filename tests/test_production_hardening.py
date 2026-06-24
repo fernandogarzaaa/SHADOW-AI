@@ -67,6 +67,20 @@ def test_ready_endpoint_reports_config(monkeypatch):
     assert "rate_limit_rpm" in body and "providers_ready" in body
 
 
+def test_cors_origins_configurable(monkeypatch):
+    monkeypatch.setenv("SHADOW_CORS_ORIGINS", "https://app.example.com, https://shadow.example.com")
+    import shadow_node.main as m
+    importlib.reload(m)
+    assert "https://app.example.com" in m.CORS_ORIGINS
+    assert "https://shadow.example.com" in m.CORS_ORIGINS
+    assert "http://localhost" in m.CORS_ORIGINS  # defaults preserved
+    monkeypatch.setenv("SHADOW_CORS_ORIGINS", "*")
+    importlib.reload(m)
+    assert m.CORS_ORIGINS == ["*"]
+    monkeypatch.delenv("SHADOW_CORS_ORIGINS", raising=False)
+    importlib.reload(m)
+
+
 def test_rate_limit_middleware_returns_429(monkeypatch):
     monkeypatch.setenv("SHADOW_RATE_LIMIT_RPM", "1")
     monkeypatch.delenv("SHADOW_AUTH_REQUIRED", raising=False)
