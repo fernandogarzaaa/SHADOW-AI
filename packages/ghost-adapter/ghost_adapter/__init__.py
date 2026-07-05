@@ -26,21 +26,39 @@ class LocalActionExecutor:
     approval gate.
     """
 
+    # Tools requiring per-tool consent beyond the global approval gate.
+    CONSENT_REQUIRED = {"calendar.create", "email.draft"}
+
     def __init__(self):
         self.handlers = {
             "note.create": self.note_create,
             "note.append": self.note_append,
             "note.list": self.note_list,
             "reminder.create": self.reminder_create,
+            "calendar.create": self.calendar_create,
+            "email.draft": self.email_draft,
             "http.get": self.http_get,
         }
+
+    def tool_metadata(self) -> list[dict]:
+        """Return metadata for each tool, including consent requirements."""
+        return [
+            {
+                "name": name,
+                "needs_explicit_consent": name in self.CONSENT_REQUIRED,
+                "description": getattr(handler, "__doc__", ""),
+            }
+            for name, handler in sorted(self.handlers.items())
+        ]
 
     def names(self) -> list[str]:
         return sorted(self.handlers)
 
-    def run(self, tool: str, params: dict | None) -> dict:
+    def run(self, tool: str, params: dict | None, explicit_consent: bool = False) -> dict:
         if tool not in self.handlers:
             raise KeyError(f"unknown tool: {tool}")
+        if tool in self.CONSENT_REQUIRED and not explicit_consent:
+            return {"ok": False, "reason": "explicit_consent_required", "action": tool}
         return self.handlers[tool](params or {})
 
     # --- notes ---
@@ -65,6 +83,41 @@ class LocalActionExecutor:
         with (workspace_dir() / "reminders.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
         return {"ok": True, "action": "reminder.create", "reminder": rec}
+
+    # --- calendar ---
+    def calendar_create(self, p: dict) -> dict:
+        """Create a calendar event. Saved as JSONL in the workspace."""
+        rec = {
+            "title": p.get("title", ""),
+            "start": p.get("start"),
+            "end": p.get("end"),
+            "description": p.get("description", ""),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with (workspace_dir() / "calendar_events.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+        return {"ok": True, "action": "calendar.create", "event": rec}
+
+    # --- email ---
+    def email_draft(self, p: dict) -> dict:
+        """Draft an email message. Saved as a Markdown file in the workspace."""
+        title = p.get("subject", "Draft Email")
+        safe = "".join(c for c in str(title) if c.isalnum() or c in (" ", "-", "_")).strip().replace(" ", "-").lower()
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        path = workspace_dir() / "drafts" / f"{safe or 'draft'}-{stamp}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = p.get("body", "")
+        content = f"""# Draft: {title}
+
+**To:** {p.get("to", "")}
+**Subject:** {title}
+
+---
+
+{body}
+"""
+        path.write_text(content, encoding="utf-8")
+        return {"ok": True, "action": "email.draft", "path": str(path), "bytes": path.stat().st_size}
 
     # --- network ---
     def http_get(self, p: dict) -> dict:
@@ -127,7 +180,7 @@ class GhostAdapter:
         for step in ir.steps:
             tool = step.get("tool", "")
             try:
-                results.append({"tool": tool, "result": self.executor.run(tool, step.get("params", {}))})
+                results.append({"tool": tool, "result": self.executor.run(tool, step.get("params", {}), explicit_consent=approved)})
             except KeyError:
                 results.append({"tool": tool, "skipped": "no real handler for this tool", "description": step.get("description", "")})
             except Exception as e:
@@ -146,7 +199,7 @@ class GhostAdapter:
 # Retained seams for compatibility; the real behavior lives in LocalActionExecutor.
 class DesktopActionAdapter:
     def __init__(self): self.executor = LocalActionExecutor()
-    def run(self, tool: str, params: dict | None = None): return self.executor.run(tool, params)
+    def run(self, tool: str, params: dict | None = None, explicit_consent: bool = False): return self.executor.run(tool, params, explicit_consent=explicit_consent)
 class ExecutionPolicyAdapter: pass
 class SafetyProfileAdapter: pass
 class TelemetryAdapter: pass

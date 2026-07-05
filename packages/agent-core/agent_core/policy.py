@@ -1,5 +1,5 @@
 from .models import *
-SENSITIVE_TOOLS={"send_email","send_message","write_file","device_control","cloud_model","ghost_handoff"}
+SENSITIVE_TOOLS={"send_email","send_message","write_file","device_control","cloud_model","ghost_handoff","calendar.create","email.draft"}
 DESTRUCTIVE_TOOLS={"delete_file","overwrite_file","shell_rm"}
 BLOCKED_TOOLS={"keylogger","covert_monitor","bypass_ios_sandbox","silent_microphone","silent_camera","leak_secret"}
 class PolicyEngine:
@@ -14,7 +14,7 @@ class PolicyEngine:
     def requires_approval(self, action: AgentAction, profile: UserProfile) -> bool:
         risk=self.classify_action(action)
         if profile.emergency_paused or profile.autonomy_mode in [AutonomyMode.OFF, AutonomyMode.SUGGEST_ONLY, AutonomyMode.DRAFT_ONLY]: return True
-        if action.tool_name in {"send_email","send_message","cloud_model"}: return True
+        if action.tool_name in SENSITIVE_TOOLS: return True
         if risk in [RiskClass.MEDIUM,RiskClass.HIGH,RiskClass.BLOCKED]: return True
         return profile.autonomy_mode != AutonomyMode.TRUSTED_WORKFLOW
     def can_execute(self, action: AgentAction, profile: UserProfile, approved: bool=False, double_confirmed: bool=False) -> tuple[bool,str]:
