@@ -153,17 +153,24 @@
     <section class="view" id="view-actions">
       <div class="card">
         <h3>Run an action</h3>
-        <div class="hint">Real, sandboxed actions — file notes, reminders, public web fetch. Every action passes the policy + approval gate.</div>
+        <div class="hint">Real, sandboxed actions — file notes, reminders, calendar events, email drafts, public web fetch. Every action passes the policy + approval gate. Tools marked 🔒 require explicit per-tool consent.</div>
         <label>Tool</label>
         <select id="actTool">
           <option value="note.create">note.create — save a note</option>
           <option value="note.append">note.append — add to a note</option>
           <option value="reminder.create">reminder.create — set a reminder</option>
+          <option value="calendar.create">🔒 calendar.create — add a calendar event</option>
+          <option value="email.draft">🔒 email.draft — draft an email</option>
           <option value="http.get">http.get — fetch a public URL</option>
         </select>
         <div id="actFields"></div>
         <div style="text-align:right"><button class="go" id="actBtn">Execute</button></div>
         <div id="actOut"></div>
+      </div>
+      <div class="card">
+        <h3>Tool catalog</h3>
+        <div class="hint">Available tools and their consent requirements.</div>
+        <div id="toolCatalogOut"><div class="empty">Loading…</div></div>
       </div>
     </section>
 
@@ -214,7 +221,7 @@ $$('#nav a').forEach(a=>a.onclick=()=>{
   $$('#nav a').forEach(x=>x.classList.remove('active'));a.classList.add('active');
   const v=a.dataset.view;$$('.view').forEach(s=>s.classList.remove('on'));$('#view-'+v).classList.add('on');
   $('#title').textContent=titles[v][0];$('#subtitle').textContent=titles[v][1];
-  if(v==='approvals')loadApprovals();if(v==='audit')loadAudit();if(v==='models')loadModels();
+  if(v==='approvals')loadApprovals();if(v==='audit')loadAudit();if(v==='models')loadModels();if(v==='actions')loadToolCatalog();
 });
 
 // theme
@@ -258,7 +265,12 @@ async function searchMem(){const q=$('#memQuery').value.trim();if(!q){$('#memOut
 }
 
 // actions
-const fields={'note.create':[['title','Title'],['body','Body','area']],'note.append':[['title','Title'],['body','Text to append','area']],'reminder.create':[['text','Reminder'],['when','When (optional)']],'http.get':[['url','https://example.com']]};
+const fields={'note.create':[['title','Title'],['body','Body','area']],'note.append':[['title','Title'],['body','Text to append','area']],'reminder.create':[['text','Reminder'],['when','When (optional)']],'calendar.create':[['title','Event Title'],['start','Start time (e.g. 2026-07-10T09:00)'],['end','End time (optional)'],['description','Description (optional)','area']],'email.draft':[['to','Recipient email'],['subject','Subject'],['body','Email body','area']],'http.get':[['url','https://example.com']]};
+async function loadToolCatalog(){
+  try{const r=await api('/tools');
+    $('#toolCatalogOut').innerHTML=r.tool_metadata.map(t=>`<div class="item"><div class="t">${esc(t.name)} ${t.needs_explicit_consent?'<span class="pill high">🔒 consent required</span>':'<span class="pill low">auto-approved</span>'}</span></div><div class="d">${esc(t.description||'')}</div></div>`).join('');
+  }catch(e){$('#toolCatalogOut').innerHTML='<div class="empty">Could not load tool catalog.</div>';}
+}
 function renderFields(){const t=$('#actTool').value;$('#actFields').innerHTML=fields[t].map(([k,ph,ty])=>ty==='area'?`<label>${ph}</label><textarea data-k="${k}" placeholder="${ph}"></textarea>`:`<label>${ph}</label><input data-k="${k}" placeholder="${ph}">`).join('');}
 $('#actTool').onchange=renderFields;renderFields();
 $('#actBtn').onclick=async()=>{

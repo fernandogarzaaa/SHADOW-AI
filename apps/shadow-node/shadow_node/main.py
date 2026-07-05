@@ -30,14 +30,15 @@ def _build_memory_store():
         os.makedirs(os.path.dirname(os.path.abspath(db)), exist_ok=True)
         return EncryptedMemoryStore(path=db, key=key)
     return EncryptedMemoryStore(path=tempfile.gettempdir()+f"/shadow_memory_beta_{uuid.uuid4().hex}.db")
-profile=UserProfile(); core=AgentCore(profile); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
 # Persistent encrypted runtime state when SHADOW_RUNTIME_DB is set; in-memory otherwise.
 _runtime_db=os.getenv("SHADOW_RUNTIME_DB")
 if _runtime_db:
     from .runtime_store import build_runtime
     _runtime_store, audit, consents, sessions = build_runtime(_runtime_db)
+    _approval_store=_runtime_store
 else:
-    audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); consents:list[ConsentGrant]=[]
+    audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); consents:list[ConsentGrant]=[]; _approval_store=None
+profile=UserProfile(); core=AgentCore(profile, approval_store=_approval_store); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
 for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params)))(_tool))
@@ -196,7 +197,22 @@ def provider_oauth_exchange(name:str, req:OAuthExchangeRequest):
     except Exception as e: raise HTTPException(502,f"token exchange failed: {e}")
     credentials.set(name,cred); audit.append(AuditEvent(actor="user",event_type="provider_oauth_connected",data_used=[name],status="connected")); return {"connected":True,"provider":name,"type":"oauth"}
 @app.get("/tools")
-def tools(): return {"tools":action_executor.names(),"ghost_mode":ghost.mode,"workspace":os.getenv("SHADOW_WORKSPACE_DIR","data/workspace")}
+def tools():
+    return {
+        "tools": action_executor.names(),
+        "tool_metadata": action_executor.tool_metadata(),
+        "ghost_mode": ghost.mode,
+        "workspace": os.getenv("SHADOW_WORKSPACE_DIR", "data/workspace"),
+        "consent_required_tools": list(action_executor.CONSENT_REQUIRED),
+    }
+
+@app.post("/approvals/sweep")
+def sweep_approvals():
+    """Expire pending approvals past their expiry threshold."""
+    expired_ids = core.approvals.sweep_expired()
+    for rid in expired_ids:
+        audit.append(AuditEvent(actor="system", event_type="approval_expired", status="expired", metadata={"approval_id": rid}))
+    return {"expired": expired_ids, "remaining_pending": len([r for r in core.approvals.requests.values() if r.status == ApprovalStatus.PENDING])}
 @app.websocket("/ws/tasks")
 async def ws_tasks(ws:WebSocket):
     await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":APP_VERSION})
