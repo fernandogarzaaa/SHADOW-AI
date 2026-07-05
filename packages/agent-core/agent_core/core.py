@@ -10,39 +10,44 @@ class ApprovalWorkflow:
             for req in store.all("approvals", ApprovalRequest):
                 self.requests[req.id]=req
 
-    def create(self, action: AgentAction, reason: str):
-        req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=action.destructive)
-        self.requests[req.id]=req
+    def _persist(self, req: ApprovalRequest):
         if self._store is not None:
             self._store.put("approvals", req.id, req)
+
+    def create(self, action: AgentAction, reason: str):
+        req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=action.destructive)
+        self._persist(req)
+        self.requests[req.id]=req
         return req
 
     def decide(self, approval_id:str, approve:bool, deny_reason:str|None=None):
-        req=self.requests[approval_id]
-        if req.status != ApprovalStatus.PENDING:
-            raise ValueError(f"approval is already {req.status}")
-        if now() > req.expires_at:
+        current=self.requests[approval_id]
+        if current.status != ApprovalStatus.PENDING:
+            raise ValueError(f"approval is already {current.status}")
+        req=current.model_copy(deep=True)
+        if now() > current.expires_at:
             req.status=ApprovalStatus.EXPIRED
             req.decided_at=now()
-            if self._store is not None:
-                self._store.put("approvals", req.id, req)
+            self._persist(req)
+            self.requests[approval_id]=req
             raise ValueError("approval is expired")
         req.status=ApprovalStatus.APPROVED if approve else ApprovalStatus.DENIED
         req.deny_reason=deny_reason
         req.decided_at=now()
-        if self._store is not None:
-            self._store.put("approvals", req.id, req)
+        self._persist(req)
+        self.requests[approval_id]=req
         return req
 
     def sweep_expired(self)->list[str]:
         """Expire and persist decisions older than 15 minutes. Returns expired IDs."""
         expired=[]
-        for rid, req in list(self.requests.items()):
-            if req.status==ApprovalStatus.PENDING and now() > req.expires_at:
+        for rid, current in list(self.requests.items()):
+            if current.status==ApprovalStatus.PENDING and now() > current.expires_at:
+                req=current.model_copy(deep=True)
                 req.status=ApprovalStatus.EXPIRED
                 req.decided_at=now()
-                if self._store is not None:
-                    self._store.put("approvals", req.id, req)
+                self._persist(req)
+                self.requests[rid]=req
                 expired.append(rid)
         return expired
 class ToolRegistry:

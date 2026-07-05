@@ -50,6 +50,11 @@ class FakeApprovalStore:
         return out
 
 
+class FailingApprovalStore(FakeApprovalStore):
+    def put(self, collection: str, id: str, obj) -> None:
+        raise RuntimeError("store unavailable")
+
+
 def test_approval_workflow_with_store():
     store = FakeApprovalStore()
     from agent_core import ApprovalWorkflow
@@ -65,6 +70,25 @@ def test_approval_workflow_with_store():
     # After decision, the updated record should be in store.
     stored_records = store.all("approvals", ApprovalRequest)
     assert any(r.status == ApprovalStatus.APPROVED for r in stored_records)
+
+
+def test_approval_create_does_not_commit_if_store_write_fails():
+    from agent_core import ApprovalWorkflow
+    wf = ApprovalWorkflow(store=FailingApprovalStore())
+    with pytest.raises(RuntimeError, match="store unavailable"):
+        wf.create(AgentAction(tool_name="x", description="not persisted"), "fail")
+    assert wf.requests == {}
+
+
+def test_approval_decide_does_not_commit_if_store_write_fails():
+    from agent_core import ApprovalWorkflow
+    store = FakeApprovalStore()
+    wf = ApprovalWorkflow(store=store)
+    req = wf.create(AgentAction(tool_name="x", description="pending"), "ok")
+    wf._store = FailingApprovalStore()
+    with pytest.raises(RuntimeError, match="store unavailable"):
+        wf.decide(req.id, True)
+    assert wf.requests[req.id].status == ApprovalStatus.PENDING
 
 
 def test_approval_decide_rejects_expired_requests():
