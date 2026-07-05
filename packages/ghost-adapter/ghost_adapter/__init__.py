@@ -54,9 +54,11 @@ class LocalActionExecutor:
     def names(self) -> list[str]:
         return sorted(self.handlers)
 
-    def run(self, tool: str, params: dict | None) -> dict:
+    def run(self, tool: str, params: dict | None, explicit_consent: bool = False) -> dict:
         if tool not in self.handlers:
             raise KeyError(f"unknown tool: {tool}")
+        if tool in self.CONSENT_REQUIRED and not explicit_consent:
+            return {"ok": False, "reason": "explicit_consent_required", "action": tool}
         return self.handlers[tool](params or {})
 
     # --- notes ---
@@ -101,13 +103,14 @@ class LocalActionExecutor:
         """Draft an email message. Saved as a Markdown file in the workspace."""
         title = p.get("subject", "Draft Email")
         safe = "".join(c for c in str(title) if c.isalnum() or c in (" ", "-", "_")).strip().replace(" ", "-").lower()
-        path = workspace_dir() / "drafts" / f"{safe or 'draft'}.md"
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        path = workspace_dir() / "drafts" / f"{safe or 'draft'}-{stamp}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         body = p.get("body", "")
         content = f"""# Draft: {title}
 
 **To:** {p.get("to", "")}
-**Subject:** {p.get("subject", "")}
+**Subject:** {title}
 
 ---
 
@@ -177,7 +180,7 @@ class GhostAdapter:
         for step in ir.steps:
             tool = step.get("tool", "")
             try:
-                results.append({"tool": tool, "result": self.executor.run(tool, step.get("params", {}))})
+                results.append({"tool": tool, "result": self.executor.run(tool, step.get("params", {}), explicit_consent=approved)})
             except KeyError:
                 results.append({"tool": tool, "skipped": "no real handler for this tool", "description": step.get("description", "")})
             except Exception as e:
@@ -196,7 +199,7 @@ class GhostAdapter:
 # Retained seams for compatibility; the real behavior lives in LocalActionExecutor.
 class DesktopActionAdapter:
     def __init__(self): self.executor = LocalActionExecutor()
-    def run(self, tool: str, params: dict | None = None): return self.executor.run(tool, params)
+    def run(self, tool: str, params: dict | None = None, explicit_consent: bool = False): return self.executor.run(tool, params, explicit_consent=explicit_consent)
 class ExecutionPolicyAdapter: pass
 class SafetyProfileAdapter: pass
 class TelemetryAdapter: pass

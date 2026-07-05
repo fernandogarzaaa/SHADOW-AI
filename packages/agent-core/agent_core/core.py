@@ -19,6 +19,14 @@ class ApprovalWorkflow:
 
     def decide(self, approval_id:str, approve:bool, deny_reason:str|None=None):
         req=self.requests[approval_id]
+        if req.status != ApprovalStatus.PENDING:
+            raise ValueError(f"approval is already {req.status}")
+        if now() > req.expires_at:
+            req.status=ApprovalStatus.EXPIRED
+            req.decided_at=now()
+            if self._store is not None:
+                self._store.put("approvals", req.id, req)
+            raise ValueError("approval is expired")
         req.status=ApprovalStatus.APPROVED if approve else ApprovalStatus.DENIED
         req.deny_reason=deny_reason
         req.decided_at=now()

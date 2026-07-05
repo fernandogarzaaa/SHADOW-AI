@@ -67,6 +67,26 @@ def test_approval_workflow_with_store():
     assert any(r.status == ApprovalStatus.APPROVED for r in stored_records)
 
 
+def test_approval_decide_rejects_expired_requests():
+    from agent_core import ApprovalWorkflow
+    wf = ApprovalWorkflow()
+    req = wf.create(AgentAction(tool_name="x", description="old"), "old")
+    req.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    with pytest.raises(ValueError, match="expired"):
+        wf.decide(req.id, True)
+    assert wf.requests[req.id].status == ApprovalStatus.EXPIRED
+
+
+def test_approval_decide_rejects_terminal_requests():
+    from agent_core import ApprovalWorkflow
+    wf = ApprovalWorkflow()
+    req = wf.create(AgentAction(tool_name="x", description="one-shot"), "once")
+    wf.decide(req.id, True)
+    with pytest.raises(ValueError, match="already"):
+        wf.decide(req.id, False)
+    assert wf.requests[req.id].status == ApprovalStatus.APPROVED
+
+
 def test_approval_sweep_expires_old_requests():
     from agent_core import ApprovalWorkflow
     wf = ApprovalWorkflow()
@@ -94,7 +114,7 @@ def test_approval_sweep_leaves_fresh_requests():
 def test_calendar_create_writes_event(tmp_path, monkeypatch):
     monkeypatch.setenv("SHADOW_WORKSPACE_DIR", str(tmp_path))
     ex = LocalActionExecutor()
-    res = ex.run("calendar.create", {"title": "Team Standup", "start": "2026-07-10T09:00"})
+    res = ex.run("calendar.create", {"title": "Team Standup", "start": "2026-07-10T09:00"}, explicit_consent=True)
     assert res["ok"] and res["action"] == "calendar.create"
     assert "Team Standup" in (tmp_path / "calendar_events.jsonl").read_text()
 
@@ -102,9 +122,36 @@ def test_calendar_create_writes_event(tmp_path, monkeypatch):
 def test_email_draft_writes_file(tmp_path, monkeypatch):
     monkeypatch.setenv("SHADOW_WORKSPACE_DIR", str(tmp_path))
     ex = LocalActionExecutor()
-    res = ex.run("email.draft", {"to": "boss@example.com", "subject": "Update", "body": "Project is on track."})
+    res = ex.run("email.draft", {"to": "boss@example.com", "subject": "Update", "body": "Project is on track."}, explicit_consent=True)
     assert res["ok"] and res["action"] == "email.draft"
-    assert "boss@example.com" in (tmp_path / "drafts" / "update.md").read_text()
+    drafts = list((tmp_path / "drafts").glob("update-*.md"))
+    assert len(drafts) == 1
+    assert "boss@example.com" in drafts[0].read_text()
+
+
+def test_email_draft_duplicate_subjects_do_not_overwrite(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHADOW_WORKSPACE_DIR", str(tmp_path))
+    ex = LocalActionExecutor()
+    first = ex.run("email.draft", {"subject": "Update", "body": "first"}, explicit_consent=True)
+    second = ex.run("email.draft", {"subject": "Update", "body": "second"}, explicit_consent=True)
+    assert first["path"] != second["path"]
+    assert "first" in __import__("pathlib").Path(first["path"]).read_text()
+    assert "second" in __import__("pathlib").Path(second["path"]).read_text()
+
+
+def test_email_draft_subject_fallback_is_consistent(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHADOW_WORKSPACE_DIR", str(tmp_path))
+    ex = LocalActionExecutor()
+    res = ex.run("email.draft", {"to": "boss@example.com", "body": "No subject"}, explicit_consent=True)
+    body = __import__("pathlib").Path(res["path"]).read_text()
+    assert "# Draft: Draft Email" in body
+    assert "**Subject:** Draft Email" in body
+
+
+def test_consent_required_tools_block_direct_execution():
+    ex = LocalActionExecutor()
+    res = ex.run("email.draft", {"subject": "Blocked"})
+    assert res == {"ok": False, "reason": "explicit_consent_required", "action": "email.draft"}
 
 
 def test_tool_metadata_lists_consent_requirements():
@@ -134,6 +181,13 @@ def test_semantic_router_classifies_topics():
     scores = router.classify_topic("Project Aurora milestone deadline is Friday")
     assert scores["project"] >= 0.5
     assert scores["finance"] < 0.3
+
+
+def test_semantic_router_classifies_punctuated_keywords():
+    router = SemanticRouter()
+    scores = router.classify_topic("budget, deadline.")
+    assert scores["finance"] > 0
+    assert scores["project"] > 0
 
 
 def test_semantic_router_computes_relevance():
@@ -166,6 +220,14 @@ def test_axiom_analyze_for_routing():
     assert "topic_scores" in result
 
 
+def test_axiom_skeleton_entities_are_deterministic():
+    axiom = AxiomAdapter()
+    text = "Email z@example.com then a@example.com about Project Aurora."
+    first = axiom.package_context(text)["skeleton"]["entities"]
+    second = axiom.package_context(text)["skeleton"]["entities"]
+    assert first == second
+
+
 # ---------------------------------------------------------------------------
 # Ed25519 key support (when cryptography is available)
 # ---------------------------------------------------------------------------
@@ -189,6 +251,23 @@ def test_device_store_register_ed25519():
     dev = store.register_ed25519("iPhone", pub)
     assert dev.id in store.devices
     assert dev.id in store.ed25519_keys
+    assert dev.id not in store.secrets
+
+
+def test_device_store_ed25519_does_not_fallback_to_hmac():
+    import importlib
+    import os
+    import agent_core.security as sec_mod
+    os.environ["SHADOW_ED25519_KEYS"] = "false"
+    importlib.reload(sec_mod)
+    store = sec_mod.DeviceSessionStore()
+    _priv, pub = sec_mod.generate_ed25519_keypair()
+    dev = store.register_ed25519("iPhone", pub)
+    fake_secret = __import__("hashlib").sha256(pub).hexdigest()
+    sig = sec_mod.sign_request(fake_secret, "GET", "/health", "", "nonce-no-fallback", int(time.time()))
+    ok, reason = store.verify(dev.id, sig, "nonce-no-fallback", str(int(time.time())), "GET", "/health", "")
+    assert not ok
+    assert reason == "ed25519_disabled"
 
 
 def test_device_store_verify_ed25519_signature():

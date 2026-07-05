@@ -22,13 +22,13 @@ def fingerprint_for_key(public_key: str) -> str:
     return hashlib.sha256(public_key.encode()).hexdigest()[:32]
 
 
-def sign_request(secret: str, method: str, path: str, body: str, nonce: str, timestamp: int) -> str:
-    msg = "\n".join([method.upper(), path, body or "", nonce, str(timestamp)]).encode()
-    return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
-
-
 def _build_signed_message(method: str, path: str, body: str, nonce: str, timestamp: int) -> bytes:
     return "\n".join([method.upper(), path, body or "", nonce, str(timestamp)]).encode()
+
+
+def sign_request(secret: str, method: str, path: str, body: str, nonce: str, timestamp: int) -> str:
+    msg = _build_signed_message(method, path, body, nonce, timestamp)
+    return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +95,6 @@ class DeviceSessionStore:
         dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True)
         self.devices[dev.id] = dev
         self.ed25519_keys[dev.id] = ed25519_public_key
-        # Still generate a fallback secret for HMAC compatibility.
-        self.secrets[dev.id] = hashlib.sha256(ed25519_public_key).hexdigest()
         return dev
 
     def revoke(self, device_id: str):
@@ -144,8 +142,12 @@ class DeviceSessionStore:
         if abs(int(time.time()) - ts) > MAX_SKEW_SECONDS:
             return fail("expired_timestamp")
 
-        # Try Ed25519 first if enabled and key exists, else fall back to HMAC.
-        if ED25519_ENABLED and dev.id in self.ed25519_keys and _HAS_ED25519:
+        # Ed25519 devices must never fall back to HMAC: the Ed25519 public key is public.
+        if dev.id in self.ed25519_keys:
+            if not ED25519_ENABLED:
+                return fail("ed25519_disabled")
+            if not _HAS_ED25519:
+                return fail("ed25519_unavailable")
             ok, reason = self._verify_ed25519(dev, signature, nonce, timestamp, method, path, body)
         else:
             ok, reason = self._verify_hmac(dev, signature, nonce, timestamp, method, path, body)

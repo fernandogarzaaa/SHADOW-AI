@@ -41,7 +41,7 @@ else:
 profile=UserProfile(); core=AgentCore(profile, approval_store=_approval_store); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
-for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params)))(_tool))
+for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params, explicit_consent=t in action_executor.CONSENT_REQUIRED)))(_tool))
 # Hybrid local+frontier router and provider credential store.
 hybrid=HybridRouter(model, axiom)
 credentials=provider_auth.CredentialStore()
@@ -163,10 +163,18 @@ def create_approval(req:ApprovalCreateRequest):
 def approvals(): return list(core.approvals.requests.values())
 @app.post("/approvals/{id}/approve")
 def approve(id:str):
-    req=core.approvals.decide(id,True); audit.append(AuditEvent(actor="user", event_type="approval_approved", proposed_action=req.action.description, status="approved", metadata={"approval_id":id})); return req
+    try:
+        req=core.approvals.decide(id,True)
+    except ValueError as e:
+        raise HTTPException(409,str(e))
+    audit.append(AuditEvent(actor="user", event_type="approval_approved", proposed_action=req.action.description, status="approved", metadata={"approval_id":id})); return req
 @app.post("/approvals/{id}/deny")
 def deny(id:str, req:DenyRequest):
-    out=core.approvals.decide(id,False,req.reason); audit.append(AuditEvent(actor="user", event_type="approval_denied", proposed_action=out.action.description, status="denied", result=req.reason, metadata={"approval_id":id})); return out
+    try:
+        out=core.approvals.decide(id,False,req.reason)
+    except ValueError as e:
+        raise HTTPException(409,str(e))
+    audit.append(AuditEvent(actor="user", event_type="approval_denied", proposed_action=out.action.description, status="denied", result=req.reason, metadata={"approval_id":id})); return out
 @app.get("/emergency_pause")
 def get_emergency_pause(): return {"paused":profile.emergency_paused}
 @app.post("/emergency_pause")

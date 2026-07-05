@@ -1,5 +1,5 @@
 import os, re, hashlib
-from typing import Optional
+from typing import ClassVar, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -8,7 +8,7 @@ from typing import Optional
 class RedactionLayer:
     """Redact PII and sensitive tokens before any context leaves the device."""
 
-    patterns = [
+    patterns: ClassVar = [
         (re.compile(r"[\w.-]+@[\w.-]+"), "[EMAIL]"),
         (re.compile(r"\b\d{3}[-.]?\d{2}[-.]?\d{4}\b"), "[SSN]"),
         (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "[CARD]"),
@@ -43,14 +43,14 @@ class ContextCompressor:
 class SemanticSkeletonGenerator:
     """Extract a lightweight semantic skeleton from context for routing decisions."""
 
-    _ENTITY_PATTERNS = {
+    _ENTITY_PATTERNS: ClassVar = {
         "email": re.compile(r"[\w.-]+@[\w.-]+"),
         "url": re.compile(r"https?://[^\s]+"),
         "date": re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,\s+\d{4})?\b", re.I),
         "project_ref": re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b"),
     }
 
-    _INTENT_PATTERNS = {
+    _INTENT_PATTERNS: ClassVar = {
         "summarize": re.compile(r"\b(summarize|summary|tldr|overview|brief)\b", re.I),
         "compare": re.compile(r"\b(compare|versus|vs|difference|better|worse)\b", re.I),
         "explain": re.compile(r"\b(explain|why|how does|what is|what are)\b", re.I),
@@ -61,7 +61,7 @@ class SemanticSkeletonGenerator:
     def generate(self, text: str) -> dict:
         entities = {}
         for label, pattern in self._ENTITY_PATTERNS.items():
-            matches = list(set(pattern.findall(text)))
+            matches = sorted(set(pattern.findall(text)))
             if matches:
                 entities[label] = matches[:10]  # cap to avoid bloat
 
@@ -121,7 +121,7 @@ class SemanticRouter:
     """
 
     # Topic keywords for lightweight categorization.
-    _TOPIC_KEYWORDS = {
+    _TOPIC_KEYWORDS: ClassVar = {
         "project": ["project", "milestone", "deadline", "sprint", "ship", "launch"],
         "personal": ["preference", "like", "dislike", "style", "habit", "routine"],
         "contact": ["email", "phone", "contact", "meeting", "call", "spoke"],
@@ -131,7 +131,7 @@ class SemanticRouter:
 
     def classify_topic(self, text: str) -> dict[str, float]:
         """Return topic → relevance scores (0-1)."""
-        words = set(text.lower().split())
+        words = set(re.findall(r"[a-z0-9]+", text.lower()))
         scores = {}
         for topic, keywords in self._TOPIC_KEYWORDS.items():
             kw_set = set(keywords)
