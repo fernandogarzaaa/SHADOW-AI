@@ -8,17 +8,25 @@ from typing import ClassVar, Optional
 class RedactionLayer:
     """Redact PII and sensitive tokens before any context leaves the device."""
 
+    # NOTE: the email pattern bounds both sides ({1,64} / {1,253}) on purpose.
+    # The naive `[\w.-]+@[\w.-]+` backtracks quadratically on long inputs with
+    # no "@", turning a 64KB paste into a ~12s hang (found by EVE fuzzing).
+    # Bounded quantifiers keep matching linear; the limits cover real emails.
+    # Each entry may carry a literal trigger: when absent, the regex is skipped
+    # entirely, so the common no-PII case stays a cheap scan.
     patterns: ClassVar = [
-        (re.compile(r"[\w.-]+@[\w.-]+"), "[EMAIL]"),
-        (re.compile(r"\b\d{3}[-.]?\d{2}[-.]?\d{4}\b"), "[SSN]"),
-        (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "[CARD]"),
-        (re.compile(r"(?i)(api[_ -]?key|token|password)\s*[:=]\s*\S+"), "[SECRET]"),
-        (re.compile(r"(?i)(bearer\s+[a-z0-9_\-]{20,})"), "[TOKEN]"),
-        (re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"), "[IP]"),
+        (re.compile(r"[\w.-]{1,64}@[\w.-]{1,253}"), "[EMAIL]", "@"),
+        (re.compile(r"\b\d{3}[-.]?\d{2}[-.]?\d{4}\b"), "[SSN]", None),
+        (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "[CARD]", None),
+        (re.compile(r"(?i)(api[_ -]?key|token|password)\s*[:=]\s*\S+"), "[SECRET]", None),
+        (re.compile(r"(?i)(bearer\s+[a-z0-9_\-]{20,})"), "[TOKEN]", None),
+        (re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"), "[IP]", None),
     ]
 
     def redact(self, text: str) -> str:
-        for pat, replacement in self.patterns:
+        for pat, replacement, trigger in self.patterns:
+            if trigger is not None and trigger not in text:
+                continue
             text = pat.sub(replacement, text)
         return text
 
@@ -44,7 +52,9 @@ class SemanticSkeletonGenerator:
     """Extract a lightweight semantic skeleton from context for routing decisions."""
 
     _ENTITY_PATTERNS: ClassVar = {
-        "email": re.compile(r"[\w.-]+@[\w.-]+"),
+        # Bounded like RedactionLayer: the naive [\w.-]+@[\w.-]+ backtracks
+        # quadratically on long "@"-less inputs (EVE fuzz hang, ~11s/64KB).
+        "email": re.compile(r"[\w.-]{1,64}@[\w.-]{1,253}"),
         "url": re.compile(r"https?://[^\s]+"),
         "date": re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,\s+\d{4})?\b", re.I),
         "project_ref": re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b"),

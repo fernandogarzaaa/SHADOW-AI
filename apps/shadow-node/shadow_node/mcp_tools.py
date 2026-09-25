@@ -73,11 +73,20 @@ class RouteEngine:
         return {"active": self.config.provider, "providers": self.credentials.status()}
 
     # --- MCP plumbing (dependency-free description + dispatch) ---
+    # "annotations" follows the MCP tools/list annotation object
+    # (title, readOnlyHint, destructiveHint, idempotentHint, openWorldHint).
     def tool_specs(self) -> list[dict]:
         return [
             {
                 "name": "route_estimate",
                 "description": "Decide whether a prompt should be answered by the local on-device model or escalated to a frontier model, and estimate token savings. No inference is performed.",
+                "annotations": {
+                    "title": "Estimate routing",
+                    "readOnlyHint": True,
+                    "destructiveHint": False,
+                    "idempotentHint": True,
+                    "openWorldHint": False,
+                },
                 "schema": {
                     "type": "object",
                     "properties": {
@@ -91,6 +100,13 @@ class RouteEngine:
             {
                 "name": "compress_context",
                 "description": "AXIOM-compress text (redact + compress) and return a skeleton digest plus raw/compressed token counts. Use before sending context to a frontier model to cut token cost.",
+                "annotations": {
+                    "title": "Compress context",
+                    "readOnlyHint": True,
+                    "destructiveHint": False,
+                    "idempotentHint": True,
+                    "openWorldHint": False,
+                },
                 "schema": {
                     "type": "object",
                     "properties": {"text": {"type": "string", "description": "Text to compress."}},
@@ -100,14 +116,21 @@ class RouteEngine:
             {
                 "name": "route_complete",
                 "description": "Hybrid completion: simple prompts are answered fully on-device (zero frontier tokens); complex prompts are sent to a frontier model with only AXIOM-compressed context. Returns answer, route, and token savings.",
+                "annotations": {
+                    "title": "Hybrid completion",
+                    "readOnlyHint": True,
+                    "destructiveHint": False,
+                    "idempotentHint": False,
+                    "openWorldHint": True,
+                },
                 "schema": {
                     "type": "object",
                     "properties": {
-                        "prompt": {"type": "string"},
-                        "context": {"type": "string"},
+                        "prompt": {"type": "string", "description": "The user prompt to answer."},
+                        "context": {"type": "string", "description": "Optional retrieved context (AXIOM-compressed before any frontier call)."},
                         "allow_cloud": {"type": "boolean", "description": "Permit frontier escalation (requires a connected provider)."},
                         "provider": {"type": "string", "description": "anthropic | openai | gemini (defaults to configured provider)."},
-                        "threshold": {"type": "number"},
+                        "threshold": {"type": "number", "description": "Complexity threshold 0-1 (default 0.5)."},
                     },
                     "required": ["prompt"],
                 },
@@ -115,6 +138,13 @@ class RouteEngine:
             {
                 "name": "list_providers",
                 "description": "List frontier providers and whether each is connected (API key or OAuth).",
+                "annotations": {
+                    "title": "List providers",
+                    "readOnlyHint": True,
+                    "destructiveHint": False,
+                    "idempotentHint": True,
+                    "openWorldHint": False,
+                },
                 "schema": {"type": "object", "properties": {}},
             },
         ]
