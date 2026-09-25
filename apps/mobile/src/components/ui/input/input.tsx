@@ -1,0 +1,313 @@
+import { createContext, forwardRef, useContext, useState } from "react";
+import { Text, TextInput, View, type ViewStyle } from "react-native";
+import {
+  DesktopSizes,
+  FocusRingTokens,
+  InputTokens,
+  MobileSizes,
+  SemanticSpacing,
+  typography,
+  useTheme,
+} from "@/theme";
+import { withOpacity } from "@/utils/colors";
+import { inputStyles } from "./input.styles";
+import type {
+  InputContextValue,
+  InputHelperTextProps,
+  InputLabelProps,
+  InputProps,
+  InputSize,
+  InputState,
+} from "./input.types";
+import {
+  INPUT_DISPLAY_NAME,
+  INPUT_HELPER_TEXT_DISPLAY_NAME,
+  INPUT_LABEL_DISPLAY_NAME,
+} from "./input.constants";
+
+/**
+ * Input context for compound components
+ */
+const InputContext = createContext<InputContextValue | null>(null);
+
+function useInputContext(): InputContextValue | null {
+  return useContext(InputContext);
+}
+
+/**
+ * Input component
+ *
+ * A text input with label, error, and helper text support.
+ *
+ * @example
+ * <Input
+ *   label="Email"
+ *   placeholder="Enter your email"
+ *   error={errors.email}
+ * />
+ *
+ * @example
+ * // With icons
+ * <Input
+ *   leftIcon={<SearchIcon />}
+ *   placeholder="Search..."
+ * />
+ */
+const InputRoot = forwardRef<TextInput, InputProps>(
+  (
+    {
+      label,
+      error,
+      helperText,
+      size = "md",
+      prefix,
+      leftIcon,
+      rightIcon,
+      editable = true,
+      className,
+      inputClassName,
+      style,
+      inputStyle,
+      onFocus,
+      onBlur,
+      multiline,
+      numberOfLines,
+      ...props
+    },
+    ref
+  ) => {
+    const { colors, isDark } = useTheme();
+    const [isFocused, setIsFocused] = useState(false);
+
+    const hasError = !!error;
+    const isDisabled = !editable;
+
+    // Determine input state
+    const getState = (): InputState => {
+      if (isDisabled) return "disabled";
+      if (hasError) return "error";
+      if (isFocused) return "focused";
+      return "default";
+    };
+
+    const state = getState();
+
+    const containerTone: ViewStyle = {
+      backgroundColor: isDark
+        ? withOpacity(colors.input, InputTokens.darkBackgroundOpacity)
+        : "transparent",
+      borderColor: hasError ? colors.destructive : state === "focused" ? colors.primary : colors.border,
+      shadowColor: withOpacity(colors.foreground, 0.08),
+      shadowOffset: { width: 0, height: state === "focused" ? 10 : 6 },
+      shadowOpacity: state === "focused" ? 0.22 : 0.12,
+      shadowRadius: state === "focused" ? 14 : 9,
+      elevation: 3,
+    };
+
+    const inputTypography =
+      size === "sm" || size === "desktop"
+        ? typography.bodySmall
+        : size === "lg"
+          ? typography.uiHeader
+          : typography.body;
+
+    const contextValue: InputContextValue = {
+      size,
+      state,
+      hasError,
+    };
+
+    const wrapperClassName = inputStyles.wrapper({ className });
+    const containerClassName = inputStyles.container({ state, size, multiline });
+    const prefixClassName = inputStyles.prefix({ size });
+    const inputClassName_ = inputStyles.input({
+      size,
+      hasLeftIcon: !!leftIcon || !!prefix,
+      hasRightIcon: !!rightIcon,
+      multiline,
+      className: inputClassName,
+    });
+
+    const sizeHeights = {
+      sm: MobileSizes.inputSm,
+      md: MobileSizes.inputMd,
+      lg: MobileSizes.inputLg,
+      desktop: DesktopSizes.inputDefault,
+    } as const;
+
+    const paddingY = size === "desktop" ? DesktopSizes.inputPaddingY : MobileSizes.inputPaddingY;
+    const paddingX = size === "desktop" ? DesktopSizes.inputPaddingX : MobileSizes.inputPaddingX;
+    const minHeight = sizeHeights[size];
+
+    const handleFocus = (e: Parameters<NonNullable<typeof onFocus>>[0]) => {
+      setIsFocused(true);
+      onFocus?.(e);
+    };
+
+    const handleBlur = (e: Parameters<NonNullable<typeof onBlur>>[0]) => {
+      setIsFocused(false);
+      onBlur?.(e);
+    };
+
+    // Calculate min height for multiline based on numberOfLines
+    // Using line height of ~20px (body text) + padding
+    const multilineStyle = multiline
+      ? {
+          textAlignVertical: "top" as const,
+          minHeight: numberOfLines ? numberOfLines * 20 + 24 : 100,
+        }
+      : undefined;
+
+    // Focus ring styling matching PWA: focus-visible:ring-ring/50 focus-visible:ring-[3px]
+    const focusRingStyle: ViewStyle = isFocused && !isDisabled && !hasError
+      ? {
+          shadowColor: colors.primary,
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: FocusRingTokens.opacity,
+          shadowRadius: FocusRingTokens.width,
+        }
+      : {};
+
+    return (
+      <InputContext.Provider value={contextValue}>
+        <View className={wrapperClassName} style={style}>
+          {label && (
+            <InputLabel size={size}>{label}</InputLabel>
+          )}
+
+          <View
+            className={containerClassName}
+            style={[focusRingStyle, containerTone, { minHeight }]}
+          >
+            {prefix && (
+              <View className={prefixClassName} style={{ minHeight }}>
+                <Text style={[typography.uiLabel, { color: colors.mutedForeground }]}>
+                  {prefix}
+                </Text>
+              </View>
+            )}
+
+            {leftIcon && !prefix && (
+              <View className={inputStyles.iconWrapper({ position: "left" })}>
+                {leftIcon}
+              </View>
+            )}
+
+            <TextInput
+              ref={ref}
+              editable={editable}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              placeholderTextColor={colors.mutedForeground}
+              className={inputClassName_}
+              style={[
+                inputTypography,
+                {
+                  color: colors.foreground,
+                  paddingHorizontal: paddingX,
+                  paddingVertical: paddingY,
+                  minHeight,
+                },
+                multilineStyle,
+                inputStyle,
+              ]}
+              multiline={multiline}
+              numberOfLines={numberOfLines}
+              {...props}
+            />
+
+            {rightIcon && (
+              <View className={inputStyles.iconWrapper({ position: "right" })}>
+                {rightIcon}
+              </View>
+            )}
+          </View>
+
+          {(error || helperText) && (
+            <InputHelperText isError={hasError} size={size}>
+              {error || helperText}
+            </InputHelperText>
+          )}
+        </View>
+      </InputContext.Provider>
+    );
+  }
+);
+
+InputRoot.displayName = INPUT_DISPLAY_NAME;
+
+/**
+ * Input label component
+ */
+function InputLabel({
+  className,
+  style,
+  children,
+  size: sizeProp,
+}: InputLabelProps & { size?: InputSize }) {
+  const context = useInputContext();
+  const { colors } = useTheme();
+
+  const size = sizeProp ?? context?.size ?? "md";
+  const labelClassName = inputStyles.label({ size, className });
+
+  return (
+    <Text
+      className={labelClassName}
+      style={[
+        typography.uiLabel,
+        { color: colors.foreground, marginBottom: SemanticSpacing.gapSm },
+        style,
+      ]}
+    >
+      {children}
+    </Text>
+  );
+}
+
+InputLabel.displayName = INPUT_LABEL_DISPLAY_NAME;
+
+/**
+ * Input helper text component
+ */
+function InputHelperText({
+  isError = false,
+  className,
+  style,
+  children,
+  size: sizeProp,
+}: InputHelperTextProps & { size?: InputSize }) {
+  const context = useInputContext();
+  const { colors } = useTheme();
+
+  const size = sizeProp ?? context?.size ?? "md";
+  const helperClassName = inputStyles.helperText({ isError, size, className });
+
+  return (
+    <Text
+      className={helperClassName}
+      style={[
+        typography.micro,
+        {
+          color: isError ? colors.destructive : colors.mutedForeground,
+          marginTop: SemanticSpacing.gapXs,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </Text>
+  );
+}
+
+InputHelperText.displayName = INPUT_HELPER_TEXT_DISPLAY_NAME;
+
+/**
+ * Input component with compound components
+ */
+export const Input = Object.assign(InputRoot, {
+  Label: InputLabel,
+  HelperText: InputHelperText,
+});
+
+export type { InputProps, InputLabelProps, InputHelperTextProps, InputSize, InputState };

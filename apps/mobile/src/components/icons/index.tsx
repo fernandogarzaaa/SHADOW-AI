@@ -1,0 +1,1142 @@
+import Svg, { Path, type SvgProps } from "react-native-svg";
+
+interface IconProps extends Omit<SvgProps, "width" | "height"> {
+	size?: number;
+	color?: string;
+}
+
+const defaultSize = 24;
+const defaultColor = "currentColor";
+
+export function ChatIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: chat-4-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M6.45455 19L2 22.5V4C2 3.44772 2.44772 3 3 3H21C21.5523 3 22 3.44772 22 4V18C22 18.5523 21.5523 19 21 19H6.45455ZM5.76282 17H20V5H4V18.3851L5.76282 17Z" />
+		</Svg>
+	);
+}
+
+export function TerminalIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: terminal-box-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3 3H21C21.5523 3 22 3.44772 22 4V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V4C2 3.44772 2.44772 3 3 3ZM4 5V19H20V5H4ZM12 15H18V17H12V15ZM8.66685 12L5.83842 9.17157L7.25264 7.75736L11.4953 12L7.25264 16.2426L5.83842 14.8284L8.66685 12Z" />
+		</Svg>
+	);
+}
+
+export function GitBranchIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: git-branch-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M7.10508 15.2101C8.21506 15.6501 9 16.7334 9 18C9 19.6569 7.65685 21 6 21C4.34315 21 3 19.6569 3 18C3 16.6938 3.83481 15.5825 5 15.1707V8.82929C3.83481 8.41746 3 7.30622 3 6C3 4.34315 4.34315 3 6 3C7.65685 3 9 4.34315 9 6C9 7.30622 8.16519 8.41746 7 8.82929V11.9996C7.83566 11.3719 8.87439 11 10 11H14C15.3835 11 16.5482 10.0635 16.8949 8.78991C15.7849 8.34988 15 7.26661 15 6C15 4.34315 16.3431 3 18 3C19.6569 3 21 4.34315 21 6C21 7.3332 20.1303 8.46329 18.9274 8.85392C18.5222 11.2085 16.4703 13 14 13H10C8.61653 13 7.45179 13.9365 7.10508 15.2101ZM6 17C5.44772 17 5 17.4477 5 18C5 18.5523 5.44772 19 6 19C6.55228 19 7 18.5523 7 18C7 17.4477 6.55228 17 6 17ZM6 5C5.44772 5 5 5.44772 5 6C5 6.55228 5.44772 7 6 7C6.55228 7 7 6.55228 7 6C7 5.44772 6.55228 5 6 5ZM18 5C17.4477 5 17 5.44772 17 6C17 6.55228 17.4477 7 18 7C18.5523 7 19 6.55228 19 6C19 5.44772 18.5523 5 18 5Z" />
+		</Svg>
+	);
+}
+
+export function SettingsIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: settings-3-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3.33946 17.0002C2.90721 16.2515 2.58277 15.4702 2.36133 14.6741C3.3338 14.1779 3.99972 13.1668 3.99972 12.0002C3.99972 10.8345 3.3348 9.824 2.36353 9.32741C2.81025 7.71651 3.65857 6.21627 4.86474 4.99001C5.7807 5.58416 6.98935 5.65534 7.99972 5.072C9.01009 4.48866 9.55277 3.40635 9.4962 2.31604C11.1613 1.8846 12.8847 1.90004 14.5031 2.31862C14.4475 3.40806 14.9901 4.48912 15.9997 5.072C17.0101 5.65532 18.2187 5.58416 19.1346 4.99007C19.7133 5.57986 20.2277 6.25151 20.66 7.00021C21.0922 7.7489 21.4167 8.53025 21.6381 9.32628C20.6656 9.82247 19.9997 10.8336 19.9997 12.0002C19.9997 13.166 20.6646 14.1764 21.6359 14.673C21.1892 16.2839 20.3409 17.7841 19.1347 19.0104C18.2187 18.4163 17.0101 18.3451 15.9997 18.9284C14.9893 19.5117 14.4467 20.5941 14.5032 21.6844C12.8382 22.1158 11.1148 22.1004 9.49633 21.6818C9.55191 20.5923 9.00929 19.5113 7.99972 18.9284C6.98938 18.3451 5.78079 18.4162 4.86484 19.0103C4.28617 18.4205 3.77172 17.7489 3.33946 17.0002ZM8.99972 17.1964C10.0911 17.8265 10.8749 18.8227 11.2503 19.9659C11.7486 20.0133 12.2502 20.014 12.7486 19.9675C13.1238 18.8237 13.9078 17.8268 14.9997 17.1964C16.0916 16.5659 17.347 16.3855 18.5252 16.6324C18.8146 16.224 19.0648 15.7892 19.2729 15.334C18.4706 14.4373 17.9997 13.2604 17.9997 12.0002C17.9997 10.74 18.4706 9.5631 19.2729 8.6664C19.1688 8.4212 19.0538 8.18143 18.9279 7.94727C18.802 7.71312 18.6662 7.48764 18.5765 7.31595C17.4287 7.60855 16.1462 7.43848 14.9997 6.80402C13.8532 6.16956 13.0609 5.1553 12.7486 4.03292C12.2502 3.98563 11.7487 3.98497 11.2503 4.03132C10.9379 5.15366 10.1457 6.16765 8.99972 6.80402C7.85375 7.4404 6.57125 7.6206 5.39313 7.31578C5.10373 7.72417 4.85348 8.15892 4.64536 8.61405C5.44772 9.51072 5.91872 10.6876 5.91872 11.9478L5.99972 12.0002C5.99972 13.2604 5.52878 14.4373 4.72648 15.334C4.83059 15.5791 4.94564 15.8189 5.07152 16.0531C5.19741 16.2872 5.33316 16.5127 5.42289 16.6844C6.57065 16.3918 7.85313 16.5619 8.99972 17.1964ZM11.9997 15.0002C10.3429 15.0002 8.99972 13.6571 8.99972 12.0002C8.99972 10.3434 10.3429 9.00021 11.9997 9.00021C13.6566 9.00021 14.9997 10.3434 14.9997 12.0002C14.9997 13.6571 13.6566 15.0002 11.9997 15.0002ZM11.9997 13.0002C12.552 13.0002 12.9997 12.5525 12.9997 12.0002C12.9997 11.4479 12.552 11.0002 11.9997 11.0002C11.4474 11.0002 10.9997 11.4479 10.9997 12.0002C10.9997 12.5525 11.4474 13.0002 11.9997 13.0002Z" />
+		</Svg>
+	);
+}
+
+export function CodeIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: code-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M23 12L15.9289 19.0711L14.5147 17.6569L20.1716 12L14.5147 6.34317L15.9289 4.92896L23 12ZM3.82843 12L9.48528 17.6569L8.07107 19.0711L1 12L8.07107 4.92896L9.48528 6.34317L3.82843 12Z" />
+		</Svg>
+	);
+}
+
+export function FolderIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: folder-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M4 5V19H20V7H11.5858L9.58579 5H4ZM12.4142 5H21C21.5523 5 22 5.44772 22 6V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V4C2 3.44772 2.44772 3 3 3H10.4142L12.4142 5Z" />
+		</Svg>
+	);
+}
+
+export function Folder6Icon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M2 4C2 3.44772 2.44772 3 3 3H10.4142L12.4142 5H21C21.5523 5 22 5.44772 22 6V20C22 20.5523 21.5523 21 21 21L3 21C2.45 21 2 20.55 2 20V4ZM10.5858 6L9.58579 5H4V7H9.58579L10.5858 6ZM4 9V19L20 19V7H12.4142L10.4142 9H4Z" />
+		</Svg>
+	);
+}
+
+export function FileIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: file-text-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M21 8V20.9932C21 21.5501 20.5552 22 20.0066 22H3.9934C3.44495 22 3 21.556 3 21.0082V2.9918C3 2.45531 3.4487 2 4.00221 2H14.9968L21 8ZM19 9H14V4H5V20H19V9ZM8 7H11V9H8V7ZM8 11H16V13H8V11ZM8 15H16V17H8V15Z" />
+		</Svg>
+	);
+}
+
+export function FileOutlineIcon({
+	size = defaultSize,
+	color = defaultColor,
+	strokeWidth = 2,
+	...props
+}: IconProps & { strokeWidth?: number }) {
+	// Stroked file icon
+	return (
+		<Svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke={color}
+			strokeWidth={strokeWidth}
+			{...props}
+		>
+			<Path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+			<Path d="M14 2v6h6" />
+		</Svg>
+	);
+}
+
+export function SendIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3.5 1.34558C3.58425 1.34558 3.66714 1.36687 3.74096 1.40747L22.2034 11.5618C22.4454 11.6949 22.5337 11.9989 22.4006 12.2409C22.3549 12.324 22.2865 12.3924 22.2034 12.4381L3.74096 22.5924C3.499 22.7255 3.19497 22.6372 3.06189 22.3953C3.02129 22.3214 3 22.2386 3 22.1543V1.84558C3 1.56944 3.22386 1.34558 3.5 1.34558ZM5 4.38249V10.9999H10V12.9999H5V19.6174L18.8499 11.9999L5 4.38249Z" />
+		</Svg>
+	);
+}
+
+export function PlusIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: add-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M11 11V5H13V11H19V13H13V19H11V13H5V11H11Z" />
+		</Svg>
+	);
+}
+
+export function ChevronRightIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-right-s-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13.1717 12.0007L8.22192 7.05093L9.63614 5.63672L16.0001 12.0007L9.63614 18.3646L8.22192 16.9504L13.1717 12.0007Z" />
+		</Svg>
+	);
+}
+
+export function ChevronLeft({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-left-s-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M10.8284 12.0007L15.7782 16.9504L14.364 18.3646L8 12.0007L14.364 5.63672L15.7782 7.05093L10.8284 12.0007Z" />
+		</Svg>
+	);
+}
+
+export function ChevronDownIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-down-s-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 13.1722L16.95 8.22217L18.3642 9.63638L12 16.0006L5.63579 9.63638L7.05 8.22217L12 13.1722Z" />
+		</Svg>
+	);
+}
+
+export function ChevronUpIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-up-s-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 10.8284L7.05025 15.7782L5.63604 14.364L12 8L18.364 14.364L16.9497 15.7782L12 10.8284Z" />
+		</Svg>
+	);
+}
+
+export function CheckIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: check-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M9.9997 15.1709L19.1921 5.97852L20.6063 7.39273L9.9997 17.9993L3.63574 11.6354L5.04996 10.2212L9.9997 15.1709Z" />
+		</Svg>
+	);
+}
+
+export function XIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: close-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M11.9997 10.5865L16.9495 5.63672L18.3637 7.05093L13.4139 12.0007L18.3637 16.9504L16.9495 18.3646L11.9997 13.4149L7.04996 18.3646L5.63574 16.9504L10.5855 12.0007L5.63574 7.05093L7.04996 5.63672L11.9997 10.5865Z" />
+		</Svg>
+	);
+}
+
+export function CloseCircleIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM12 10.5858L14.8284 7.75736L16.2426 9.17157L13.4142 12L16.2426 14.8284L14.8284 16.2426L12 13.4142L9.17157 16.2426L7.75736 14.8284L10.5858 12L7.75736 9.17157L9.17157 7.75736L12 10.5858Z" />
+		</Svg>
+	);
+}
+
+export function RefreshIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: refresh-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z" />
+		</Svg>
+	);
+}
+
+export function CopyIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: file-copy-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M6.9998 6V3C6.9998 2.44772 7.44752 2 7.9998 2H19.9998C20.5521 2 20.9998 2.44772 20.9998 3V17C20.9998 17.5523 20.5521 18 19.9998 18H16.9998V21C16.9998 21.5523 16.5521 22 15.9998 22H3.9998C3.44752 22 2.9998 21.5523 2.9998 21V7C2.9998 6.44772 3.44752 6 3.9998 6H6.9998ZM8.9998 6H15.9998C16.5521 6 16.9998 6.44772 16.9998 7V16H18.9998V4H8.9998V6ZM4.9998 8V20H14.9998V8H4.9998Z" />
+		</Svg>
+	);
+}
+
+export function TrashIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: delete-bin-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M17 6H22V8H20V21C20 21.5523 19.5523 22 19 22H5C4.44772 22 4 21.5523 4 21V8H2V6H7V3C7 2.44772 7.44772 2 8 2H16C16.5523 2 17 2.44772 17 3V6ZM18 8H6V20H18V8ZM9 11H11V17H9V11ZM13 11H15V17H13V11ZM9 4V6H15V4H9Z" />
+		</Svg>
+	);
+}
+
+export function EditIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: edit-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M6.41421 15.8895L16.5563 5.74738L15.1421 4.33317L5 14.4753V15.8895H6.41421ZM7.24264 17.8895H3V13.6468L14.435 2.21185C14.8256 1.82133 15.4587 1.82133 15.8492 2.21185L18.6777 5.04028C19.0682 5.4308 19.0682 6.06397 18.6777 6.45449L7.24264 17.8895ZM3 19.8895H21V21.8895H3V19.8895Z" />
+		</Svg>
+	);
+}
+
+export function SearchIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: search-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M18.031 16.6168L22.3137 20.8995L20.8995 22.3137L16.6168 18.031C15.0769 19.263 13.124 20 11 20C6.032 20 2 15.968 2 11C2 6.032 6.032 2 11 2C15.968 2 20 6.032 20 11C20 13.124 19.263 15.0769 18.031 16.6168ZM16.0247 15.8748C17.2475 14.6146 18 12.8956 18 11C18 7.1325 14.8675 4 11 4C7.1325 4 4 7.1325 4 11C4 14.8675 7.1325 18 11 18C12.8956 18 14.6146 17.2475 15.8748 16.0247L16.0247 15.8748Z" />
+		</Svg>
+	);
+}
+
+export function FileSearchIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M15 4H5V20H19V8H15V4ZM3 2.9918C3 2.44405 3.44749 2 3.9985 2H16L20.9997 7L21 20.9925C21 21.5489 20.5551 22 20.0066 22H3.9934C3.44476 22 3 21.5447 3 21.0082V2.9918ZM13.529 14.4464C11.9951 15.3524 9.98633 15.1464 8.66839 13.8284C7.1063 12.2663 7.1063 9.73367 8.66839 8.17157C10.2305 6.60948 12.7631 6.60948 14.3252 8.17157C15.6432 9.48951 15.8492 11.4983 14.9432 13.0322L17.1537 15.2426L15.7395 16.6569L13.529 14.4464ZM12.911 12.4142C13.6921 11.6332 13.6921 10.3668 12.911 9.58579C12.13 8.80474 10.8637 8.80474 10.0826 9.58579C9.30156 10.3668 9.30156 11.6332 10.0826 12.4142C10.8637 13.1953 12.13 13.1953 12.911 12.4142Z" />
+		</Svg>
+	);
+}
+
+export function MenuSearchIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M15.5 5C13.567 5 12 6.567 12 8.5C12 10.433 13.567 12 15.5 12C17.433 12 19 10.433 19 8.5C19 6.567 17.433 5 15.5 5ZM10 8.5C10 5.46243 12.4624 3 15.5 3C18.5376 3 21 5.46243 21 8.5C21 9.6575 20.6424 10.7315 20.0317 11.6175L22.7071 14.2929L21.2929 15.7071L18.6175 13.0317C17.7315 13.6424 16.6575 14 15.5 14C12.4624 14 10 11.5376 10 8.5ZM3 4H8V6H3V4ZM3 11H8V13H3V11ZM21 18V20H3V18H21Z" />
+		</Svg>
+	);
+}
+
+export function MenuIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: menu-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3 4H21V6H3V4ZM3 11H21V13H3V11ZM3 18H21V20H3V18Z" />
+		</Svg>
+	);
+}
+
+export function SidebarIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: layout-left-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M21 3C21.5523 3 22 3.44772 22 4V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V4C2 3.44772 2.44772 3 3 3H21ZM7 5H4V19H7V5ZM20 5H9V19H20V5Z" />
+		</Svg>
+	);
+}
+
+export function CommandIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: command-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M10 8H14V10H10V8ZM14 14H10V16H14V14ZM10 10V14H8V10H10ZM16 10H14V14H16V10ZM18 6C18 4.89543 17.1046 4 16 4H8C6.89543 4 6 4.89543 6 6V18C6 19.1046 6.89543 20 8 20H16C17.1046 20 18 19.1046 18 18V6ZM16 2C18.2091 2 20 3.79086 20 6V18C20 20.2091 18.2091 22 16 22H8C5.79086 22 4 20.2091 4 18V6C4 3.79086 5.79086 2 8 2H16Z" />
+		</Svg>
+	);
+}
+
+export function HelpIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: question-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11 15H13V17H11V15ZM13 13.3551V14H11V12.5C11 11.9477 11.4477 11.5 12 11.5C12.8284 11.5 13.5 10.8284 13.5 10C13.5 9.17157 12.8284 8.5 12 8.5C11.2723 8.5 10.6656 9.01823 10.5288 9.70577L8.56731 9.31346C8.88637 7.70919 10.302 6.5 12 6.5C13.933 6.5 15.5 8.067 15.5 10C15.5 11.5855 14.4457 12.9248 13 13.3551Z" />
+		</Svg>
+	);
+}
+
+export function PlaylistAddIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: play-list-add-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M2 18H12V20H2V18ZM2 11H22V13H2V11ZM2 4H22V6H2V4ZM18 18V15H20V18H23V20H20V23H18V20H15V18H18Z" />
+		</Svg>
+	);
+}
+
+export function InfoIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: information-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11 7H13V9H11V7ZM11 11H13V17H11V11Z" />
+		</Svg>
+	);
+}
+
+export function ClockIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: time-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM13 12H17V14H11V7H13V12Z" />
+		</Svg>
+	);
+}
+
+export function BulbIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: lightbulb-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M9.97308 18H14.0269C14.1589 16.7984 14.7721 15.8065 15.7676 14.7226C15.8797 14.6006 16.5988 13.8564 16.6841 13.7501C17.5318 12.6931 18 11.385 18 10C18 6.68629 15.3137 4 12 4C8.68629 4 6 6.68629 6 10C6 11.385 6.46824 12.6931 7.31595 13.7501C7.40127 13.8564 8.12025 14.6006 8.23235 14.7226C9.22792 15.8065 9.84115 16.7984 9.97308 18ZM14 20H10V21H14V20ZM5.75395 14.9992C4.65645 13.6297 4 11.8915 4 10C4 5.58172 7.58172 2 12 2C16.4183 2 20 5.58172 20 10C20 11.8915 19.3435 13.6297 18.2461 14.9992C17.7958 15.5551 16.9261 16.5338 16.6353 16.8556C16.2634 17.2654 15.9608 17.7119 15.7315 18.1926C15.5627 18.5474 15.4577 18.9139 15.4101 19.2861L15.3724 19.5679C15.2802 20.2683 14.6735 20.8 13.9669 20.8H10.0331C9.32647 20.8 8.71975 20.2683 8.6276 19.5679L8.58993 19.2861C8.54229 18.9139 8.43729 18.5474 8.26847 18.1926C8.03925 17.7119 7.73662 17.2654 7.36469 16.8556C7.07385 16.5338 6.20416 15.5551 5.75395 14.9992Z" />
+		</Svg>
+	);
+}
+
+export function BookOpenIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13 21V23H11V21H3C2.44772 21 2 20.5523 2 20V4C2 3.44772 2.44772 3 3 3H9C10.1947 3 11.2671 3.52375 12 4.35418C12.7329 3.52375 13.8053 3 15 3H21C21.5523 3 22 3.44772 22 4V20C22 20.5523 21.5523 21 21 21H13ZM20 19V5H15C13.8954 5 13 5.89543 13 7V19H20ZM11 19V7C11 5.89543 10.1046 5 9 5H4V19H11Z" />
+		</Svg>
+	);
+}
+
+export function BookIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3 18.5V5C3 3.34315 4.34315 2 6 2H20C20.5523 2 21 2.44772 21 3V21C21 21.5523 20.5523 22 20 22H6.5C4.567 22 3 20.433 3 18.5ZM19 20V17H6.5C5.67157 17 5 17.6716 5 18.5C5 19.3284 5.67157 20 6.5 20H19ZM5 15.3368C5.45463 15.1208 5.9632 15 6.5 15H19V4H6C5.44772 4 5 4.44772 5 5V15.3368Z" />
+		</Svg>
+	);
+}
+
+export function ToolIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: tools-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M5.32894 3.27158C6.56203 2.8332 7.99181 3.10749 8.94975 4.06543L10.8076 5.92328L11.8678 4.86305C12.2584 4.47253 12.8915 4.47253 13.2821 4.86305L14.9497 6.53062L16.0098 5.47039C16.4004 5.07986 17.0335 5.07986 17.4241 5.47039L19.091 7.13728C19.4816 7.52781 19.4816 8.16097 19.091 8.5515L18.031 9.61165L19.6986 11.2792C20.0891 11.6698 20.0891 12.3029 19.6986 12.6935L18.6384 13.7537L20.4962 15.6115C21.4542 16.5695 21.7284 17.9993 21.2901 19.2324C21.1129 19.7088 20.6653 20.0307 20.1595 20.0307L17.9983 20.0307L17.9995 21.0101C17.9997 21.3949 17.8432 21.7639 17.5666 22.0326C17.0274 22.5568 16.165 22.5451 15.6405 22.0058L11.9985 18.2554L8.35651 22.0058C7.83197 22.5451 6.96964 22.5568 6.4304 22.0326C6.15386 21.7639 5.99729 21.3949 5.99748 21.0101L5.99871 20.0307H3.83762C3.33182 20.0307 2.88428 19.7088 2.70702 19.2324C2.26864 17.9993 2.54293 16.5695 3.50088 15.6115L5.35873 13.7537L4.29851 12.6935C3.90799 12.3029 3.90799 11.6698 4.29851 11.2792L5.96608 9.61165L4.90594 8.5515C4.51541 8.16097 4.51541 7.52781 4.90594 7.13728L6.57283 5.47039C6.96335 5.07986 7.59652 5.07986 7.98704 5.47039L9.04719 6.53054L10.1073 5.47039L8.24944 3.6126C7.02155 2.38471 5.16171 2.09666 3.62689 2.75191C3.33639 2.87601 3.21371 3.21936 3.3556 3.50105C3.73595 4.25705 4.38957 4.87596 5.32894 3.27158ZM12.575 7.69084L11.2147 9.05116L14.9497 12.7861L16.31 11.4258L12.575 7.69084ZM7.9798 9.05116L6.61948 10.4115L13.5355 17.3276L14.8958 15.9673L7.9798 9.05116ZM5.20521 12.8256L5.08619 12.9446L12.1213 19.9798L12.2403 19.8608L5.20521 12.8256ZM5.08619 17.0258L4.91509 17.1969C4.40934 17.7026 4.24614 18.3909 4.38932 19.0307H6.99871V20.5858L7.56936 19.9955L5.08619 17.0258ZM16.9986 19.0307H19.6079C19.7511 18.3909 19.5879 17.7026 19.0821 17.1969L18.9103 17.0251L16.4265 19.9962L16.9986 20.5888V19.0307ZM11.8781 19.8504L8.98606 16.8469L6.43506 19.4962L11.9998 24.8431L17.5629 19.4976L15.0119 16.8469L12.1199 19.8504C12.0557 19.9171 11.9423 19.9171 11.8781 19.8504Z" />
+		</Svg>
+	);
+}
+
+export function LayersIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M20.083 15.2L21.2855 15.9971L12 22.2047L2.71454 15.9971L3.91712 15.2L12 20.4716L20.083 15.2ZM20.083 10.5L21.2855 11.2971L12 17.5047L2.71454 11.2971L3.91712 10.5L12 15.7716L20.083 10.5ZM12 1.79541L21.2855 8.00306L12 14.2047L2.71454 8.00306L12 1.79541ZM12 4.20459L6.31486 8.00306L12 11.8016L17.6851 8.00306L12 4.20459Z" />
+		</Svg>
+	);
+}
+
+export function ListCheckIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M8 6v3H5V6zM3 4v7h7V4zm10 0h8v2h-8zm0 7h8v2h-8zm0 7h8v2h-8zm-2.293-1.793l-1.414-1.414L6 18.086l-1.793-1.793l-1.414 1.414L6 20.914z" />
+		</Svg>
+	);
+}
+
+export function MoonIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: moon-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M10 7C10 10.866 13.134 14 17 14C18.9584 14 20.729 13.1957 21.9995 11.8995C22 11.933 22 11.9665 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C12.0335 2 12.067 2 12.1005 2.00049C10.8043 3.27098 10 5.04157 10 7ZM4 12C4 16.4183 7.58172 20 12 20C15.0583 20 17.7158 18.2839 19.062 15.7621C18.3945 15.9187 17.7035 16 17 16C12.0294 16 8 11.9706 8 7C8 6.29648 8.08133 5.60547 8.2379 4.938C5.71611 6.28423 4 8.9417 4 12Z" />
+		</Svg>
+	);
+}
+
+export function LogoutIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: logout-box-r-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M5 22C4.44772 22 4 21.5523 4 21V3C4 2.44772 4.44772 2 5 2H19C19.5523 2 20 2.44772 20 3V6H18V4H6V20H18V18H20V21C20 21.5523 19.5523 22 19 22H5ZM18 16V13H11V11H18V8L23 12L18 16Z" />
+		</Svg>
+	);
+}
+
+export function GithubIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: github-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12.001 2C6.47598 2 2.00098 6.475 2.00098 12C2.00098 16.425 4.86348 20.1625 8.83848 21.4875C9.33848 21.575 9.52598 21.275 9.52598 21.0125C9.52598 20.775 9.51348 19.9875 9.51348 19.15C7.00098 19.6125 6.35098 18.5375 6.15098 17.975C6.03848 17.6875 5.55098 16.8 5.12598 16.5625C4.77598 16.375 4.27598 15.9125 5.11348 15.9C5.90098 15.8875 6.46348 16.625 6.65098 16.925C7.55098 18.4375 8.98848 18.0125 9.56348 17.75C9.65098 17.1 9.91348 16.6625 10.201 16.4125C7.97598 16.1625 5.65098 15.3 5.65098 11.475C5.65098 10.3875 6.03848 9.4875 6.67598 8.7875C6.57598 8.5375 6.22598 7.5125 6.77598 6.1375C6.77598 6.1375 7.61348 5.875 9.52598 7.1625C10.326 6.9375 11.176 6.825 12.026 6.825C12.876 6.825 13.726 6.9375 14.526 7.1625C16.4385 5.8625 17.276 6.1375 17.276 6.1375C17.826 7.5125 17.476 8.5375 17.376 8.7875C18.0135 9.4875 18.401 10.375 18.401 11.475C18.401 15.3125 16.0635 16.1625 13.8385 16.4125C14.201 16.725 14.5135 17.325 14.5135 18.2625C14.5135 19.6 14.501 20.675 14.501 21.0125C14.501 21.275 14.6885 21.5875 15.1885 21.4875C19.259 20.1133 21.9999 16.2963 22.001 12C22.001 6.475 17.526 2 12.001 2Z" />
+		</Svg>
+	);
+}
+
+export function StopIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: stop-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M6 5H18C18.5523 5 19 5.44772 19 6V18C19 18.5523 18.5523 19 18 19H6C5.44772 19 5 18.5523 5 18V6C5 5.44772 5.44772 5 6 5ZM7 7V17H17V7H7Z" />
+		</Svg>
+	);
+}
+
+export function LoaderIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: loader-4-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M18.364 5.63604L16.9497 7.05025C15.683 5.7835 13.933 5 12 5C8.13401 5 5 8.13401 5 12C5 15.866 8.13401 19 12 19C15.866 19 19 15.866 19 12H21C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C14.4853 3 16.7353 4.00736 18.364 5.63604Z" />
+		</Svg>
+	);
+}
+
+export function AttachmentIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: attachment-2
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M14.8284 12L16.2426 13.4142L11.5858 18.071C9.63316 20.0236 6.46734 20.0236 4.51471 18.071C2.56209 16.1184 2.56209 12.9525 4.51471 11L10.1716 5.34317C11.538 3.97681 13.7624 3.97681 15.1287 5.34317C16.4951 6.70953 16.4951 8.93394 15.1287 10.3003L9.82843 15.6006C9.04738 16.3816 7.78104 16.3816 7 15.6006C6.21895 14.8195 6.21895 13.5532 7 12.7721L12.3002 7.47192L13.7144 8.88613L8.41421 14.1863C8.21895 14.3816 8.21895 14.7011 8.41421 14.8963C8.60948 15.0916 8.92895 15.0916 9.12421 14.8963L14.4244 9.59609C15.2055 8.81505 15.2055 7.54871 14.4244 6.76767C13.6434 5.98662 12.377 5.98662 11.596 6.76767L5.93892 12.4247C4.57257 13.7911 4.57257 16.0155 5.93892 17.3819C7.30528 18.7482 9.52969 18.7482 10.896 17.3819L14.8284 12Z" />
+		</Svg>
+	);
+}
+
+export function ImageIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: image-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M4.82843 19L9.17157 14.6569L11.2929 16.7782L9.87868 18.1924L8.46447 16.7782L5.63604 19.6066L4.22183 18.1924L4.82843 19ZM18 19H7.24264L12.5 13.7426L18 19.2426V19ZM20 21H4C3.44772 21 3 20.5523 3 20V4C3 3.44772 3.44772 3 4 3H20C20.5523 3 21 3.44772 21 4V20C21 20.5523 20.5523 21 20 21ZM19 5H5V19L12.5 11.5L19 18V5ZM8 11C6.89543 11 6 10.1046 6 9C6 7.89543 6.89543 7 8 7C9.10457 7 10 7.89543 10 9C10 10.1046 9.10457 11 8 11Z" />
+		</Svg>
+	);
+}
+
+export function UploadIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: upload-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3 19H21V21H3V19ZM13 5.82843V17H11V5.82843L4.92893 11.8995L3.51472 10.4853L12 2L20.4853 10.4853L19.0711 11.8995L13 5.82843Z" />
+		</Svg>
+	);
+}
+
+export function DownloadIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: download-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3 19H21V21H3V19ZM13 13.1716L19.0711 7.1005L20.4853 8.51472L12 17L3.51472 8.51472L4.92893 7.1005L11 13.1716V2H13V13.1716Z" />
+		</Svg>
+	);
+}
+
+export function ArrowUpIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-up-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13 7.82843V20H11V7.82843L5.63604 13.1924L4.22183 11.7782L12 4L19.7782 11.7782L18.364 13.1924L13 7.82843Z" />
+		</Svg>
+	);
+}
+
+export function ArrowDownIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-down-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13 16.1716L18.364 10.8076L19.7782 12.2218L12 20L4.22183 12.2218L5.63604 10.8076L11 16.1716V4H13V16.1716Z" />
+		</Svg>
+	);
+}
+
+export function ArrowRightIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-right-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M16.1716 11L10.8076 5.63604L12.2218 4.22183L20 12L12.2218 19.7782L10.8076 18.364L16.1716 13H4V11H16.1716Z" />
+		</Svg>
+	);
+}
+
+export function AlertCircleIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: error-warning-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11 15H13V17H11V15ZM11 7H13V13H11V7Z" />
+		</Svg>
+	);
+}
+
+export function StarIcon({
+	size = defaultSize,
+	color = defaultColor,
+	fill,
+	...props
+}: IconProps & { fill?: string }) {
+	// Remixicon: star-line or star-fill
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={fill || color} {...props}>
+			<Path d="M12 18.26L4.94658 22.2082L6.52241 14.2799L0.587891 8.7918L8.61493 7.84006L12 0.5L15.3851 7.84006L23.4121 8.7918L17.4776 14.2799L19.0534 22.2082L12 18.26ZM12 15.968L16.2471 18.3451L15.2988 13.5717L18.8049 10.2674L13.9577 9.69434L12 5.275L10.0423 9.69434L5.19513 10.2674L8.70117 13.5717L7.75285 18.3451L12 15.968Z" />
+		</Svg>
+	);
+}
+
+export function GridIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: grid-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M14 10V14H10V10H14ZM16 10H21V14H16V10ZM14 21H10V16H14V21ZM16 21V16H21V20C21 20.5523 20.5523 21 20 21H16ZM14 3V8H10V3H14ZM16 3H20C20.5523 3 21 3.44772 21 4V8H16V3ZM8 10V14H3V10H8ZM8 21H4C3.44772 21 3 20.5523 3 20V16H8V21ZM8 3V8H3V4C3 3.44772 3.44772 3 4 3H8Z" />
+		</Svg>
+	);
+}
+
+export function QuestionIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: question-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11 15H13V17H11V15ZM13 13.3551V14H11V12.5C11 11.9477 11.4477 11.5 12 11.5C12.8284 11.5 13.5 10.8284 13.5 10C13.5 9.17157 12.8284 8.5 12 8.5C11.2723 8.5 10.6656 9.01823 10.5288 9.70577L8.56731 9.31346C8.88637 7.70919 10.302 6.5 12 6.5C13.933 6.5 15.5 8.067 15.5 10C15.5 11.5855 14.4457 12.9248 13 13.3551Z" />
+		</Svg>
+	);
+}
+
+export function GlobeIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: global-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM9.71002 19.6674C8.74743 17.6259 8.15732 15.3742 8.02731 13H4.06189C4.458 16.1765 6.71639 18.7747 9.71002 19.6674ZM10.0307 13C10.1811 15.4388 10.8778 17.7297 12 19.752C13.1222 17.7297 13.8189 15.4388 13.9693 13H10.0307ZM19.9381 13H15.9727C15.8427 15.3742 15.2526 17.6259 14.29 19.6674C17.2836 18.7747 19.542 16.1765 19.9381 13ZM4.06189 11H8.02731C8.15732 8.62577 8.74743 6.37407 9.71002 4.33256C6.71639 5.22533 4.458 7.8235 4.06189 11ZM10.0307 11H13.9693C13.8189 8.56122 13.1222 6.27025 12 4.24799C10.8778 6.27025 10.1811 8.56122 10.0307 11ZM14.29 4.33256C15.2526 6.37407 15.8427 8.62577 15.9727 11H19.9381C19.542 7.8235 17.2836 5.22533 14.29 4.33256Z" />
+		</Svg>
+	);
+}
+
+export function PencilIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: pencil-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M15.7279 9.57627L14.3137 8.16206L5 17.4758V18.89H6.41421L15.7279 9.57627ZM17.1421 8.16206L18.5563 6.74785L17.1421 5.33363L15.7279 6.74785L17.1421 8.16206ZM7.24264 20.89H3V16.6473L16.435 3.21231C16.8256 2.82179 17.4587 2.82179 17.8492 3.21231L20.6777 6.04074C21.0682 6.43126 21.0682 7.06443 20.6777 7.45495L7.24264 20.89Z" />
+		</Svg>
+	);
+}
+
+export function FileEditIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: file-edit-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M21 6.75736L19 8.75736V4H10V9H5V20H19V17.2426L21 15.2426V21.0082C21 21.556 20.5551 22 20.0066 22H3.9934C3.44476 22 3 21.5501 3 20.9932V8L9.00319 2H19.9978C20.5513 2 21 2.45531 21 2.9918V6.75736ZM21.7782 8.80761L23.1924 10.2218L15.4142 18L13.9979 17.9979L14 16.5858L21.7782 8.80761Z" />
+		</Svg>
+	);
+}
+
+export function RobotIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: robot-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13 4.05508C17.0537 4.55395 20.2229 7.95897 20.2229 12.1177V18.5008C20.2229 19.0531 19.7752 19.5008 19.2229 19.5008H4.77698C4.2247 19.5008 3.77698 19.0531 3.77698 18.5008V12.1177C3.77698 7.95897 6.94618 4.55395 10.9999 4.05508V2.5H13V4.05508ZM5.77698 12.1177V17.5008H18.2229V12.1177C18.2229 8.25232 15.1138 5.14317 11.2484 5.14317H12.7514C8.88607 5.14317 5.77698 8.25232 5.77698 12.1177ZM8.49988 12H10.4999V15H8.49988V12ZM13.4999 12H15.4999V15H13.4999V12Z" />
+		</Svg>
+	);
+}
+
+export function KeyIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: key-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M10.7577 11.8281L18.6066 3.97919L20.0208 5.3934L18.6066 6.80761L21.0815 9.28254L19.6673 10.6968L17.1924 8.22183L15.7782 9.63604L17.8995 11.7574L16.4853 13.1716L14.364 11.0503L12.1719 13.2423C12.6439 14.0251 12.9044 14.9432 12.8885 15.9223C12.8481 18.6875 10.5768 20.9239 7.81159 20.9239C5.0217 20.9239 2.75878 18.6609 2.75878 15.8711C2.75878 13.1059 4.99519 10.8346 7.76044 10.7942C8.73962 10.7782 9.65764 11.0387 10.4405 11.5108L10.7577 11.8281ZM7.81159 18.9239C9.46844 18.9239 10.8139 17.5785 10.8139 15.9216C10.8139 14.2648 9.46844 12.9194 7.81159 12.9194C6.15475 12.9194 4.80932 14.2648 4.80932 15.9216C4.80932 17.5785 6.15475 18.9239 7.81159 18.9239Z" />
+		</Svg>
+	);
+}
+
+export function UsersIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: group-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M2 22C2 17.5817 5.58172 14 10 14C14.4183 14 18 17.5817 18 22H16C16 18.6863 13.3137 16 10 16C6.68629 16 4 18.6863 4 22H2ZM10 13C6.685 13 4 10.315 4 7C4 3.685 6.685 1 10 1C13.315 1 16 3.685 16 7C16 10.315 13.315 13 10 13ZM10 11C12.21 11 14 9.21 14 7C14 4.79 12.21 3 10 3C7.79 3 6 4.79 6 7C6 9.21 7.79 11 10 11ZM18.2837 14.7028C21.0644 15.9561 23 18.752 23 22H21C21 19.564 19.5483 17.4671 17.4628 16.5271L18.2837 14.7028ZM17.5962 3.41321C19.5944 4.23703 21 6.20361 21 8.5C21 11.3702 18.8042 13.7252 16 13.9776V11.9646C17.6967 11.7222 19 10.264 19 8.5C19 7.11935 18.2016 5.92603 17.041 5.35635L17.5962 3.41321Z" />
+		</Svg>
+	);
+}
+
+export function ShareIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: share-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13.1202 17.0228L8.92129 14.7324C8.19135 15.5125 7.15261 16 6 16C3.79086 16 2 14.2091 2 12C2 9.79086 3.79086 8 6 8C7.15255 8 8.19125 8.48746 8.92118 9.26746L13.1202 6.97713C13.0417 6.66441 13 6.33707 13 6C13 3.79086 14.7909 2 17 2C19.2091 2 21 3.79086 21 6C21 8.20914 19.2091 10 17 10C15.8474 10 14.8087 9.51251 14.0787 8.73246L9.87977 11.0228C9.9583 11.3355 10 11.6629 10 12C10 12.3371 9.95831 12.6644 9.87981 12.9771L14.0788 15.2675C14.8087 14.4875 15.8474 14 17 14C19.2091 14 21 15.7909 21 18C21 20.2091 19.2091 22 17 22C14.7909 22 13 20.2091 13 18C13 17.6629 13.0417 17.3355 13.1202 17.0228ZM6 14C7.10457 14 8 13.1046 8 12C8 10.8954 7.10457 10 6 10C4.89543 10 4 10.8954 4 12C4 13.1046 4.89543 14 6 14ZM17 8C18.1046 8 19 7.10457 19 6C19 4.89543 18.1046 4 17 4C15.8954 4 15 4.89543 15 6C15 7.10457 15.8954 8 17 8ZM17 20C18.1046 20 19 19.1046 19 18C19 16.8954 18.1046 16 17 16C15.8954 16 15 16.8954 15 18C15 19.1046 15.8954 20 17 20Z" />
+		</Svg>
+	);
+}
+
+export function MoreVerticalIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: more-2-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 3C10.9 3 10 3.9 10 5C10 6.1 10.9 7 12 7C13.1 7 14 6.1 14 5C14 3.9 13.1 3 12 3ZM12 17C10.9 17 10 17.9 10 19C10 20.1 10.9 21 12 21C13.1 21 14 20.1 14 19C14 17.9 13.1 17 12 17ZM12 10C10.9 10 10 10.9 10 12C10 13.1 10.9 14 12 14C13.1 14 14 13.1 14 12C14 10.9 13.1 10 12 10Z" />
+		</Svg>
+	);
+}
+
+export function WarningIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: alert-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12.8659 3.00017L22.3922 19.5002C22.6684 19.9785 22.5045 20.5901 22.0262 20.8662C21.8742 20.954 21.7017 21.0002 21.5262 21.0002H2.47363C1.92135 21.0002 1.47363 20.5525 1.47363 20.0002C1.47363 19.8246 1.51984 19.6522 1.60761 19.5002L11.1339 3.00017C11.41 2.52187 12.0216 2.358 12.4999 2.63414C12.6519 2.72191 12.7782 2.84823 12.8659 3.00017ZM4.20568 19.0002H19.7941L11.9999 5.50017L4.20568 19.0002ZM10.9999 16.0002H12.9999V18.0002H10.9999V16.0002ZM10.9999 9.00017H12.9999V14.0002H10.9999V9.00017Z" />
+		</Svg>
+	);
+}
+
+export function LinkOffIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: link-unlink
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M17 17H13V15H17C18.6569 15 20 13.6569 20 12C20 10.3431 18.6569 9 17 9H13V7H17C19.7614 7 22 9.23858 22 12C22 14.7614 19.7614 17 17 17ZM7 15H11V17H7C4.23858 17 2 14.7614 2 12C2 9.23858 4.23858 7 7 7H11V9H7C5.34315 9 4 10.3431 4 12C4 13.6569 5.34315 15 7 15ZM8 11H16V13H8V11Z" />
+		</Svg>
+	);
+}
+
+export function ArrowsMergeIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: git-merge-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M7.10508 15.2101C8.21506 15.6501 9 16.7334 9 18C9 19.6569 7.65685 21 6 21C4.34315 21 3 19.6569 3 18C3 16.6938 3.83481 15.5825 5 15.1707V8.82929C3.83481 8.41746 3 7.30622 3 6C3 4.34315 4.34315 3 6 3C7.65685 3 9 4.34315 9 6C9 7.30622 8.16519 8.41746 7 8.82929V11.9996C7.83566 11.3719 8.87439 11 10 11H14C15.3835 11 16.5482 10.0635 16.8949 8.78991C15.7849 8.34988 15 7.26661 15 6C15 4.34315 16.3431 3 18 3C19.6569 3 21 4.34315 21 6C21 7.3332 20.1303 8.46329 18.9274 8.85392C18.5222 11.2085 16.4703 13 14 13H10C8.61653 13 7.45179 13.9365 7.10508 15.2101ZM6 17C5.44772 17 5 17.4477 5 18C5 18.5523 5.44772 19 6 19C6.55228 19 7 18.5523 7 18C7 17.4477 6.55228 17 6 17ZM6 5C5.44772 5 5 5.44772 5 6C5 6.55228 5.44772 7 6 7C6.55228 7 7 6.55228 7 6C7 5.44772 6.55228 5 6 5ZM18 5C17.4477 5 17 5.44772 17 6C17 6.55228 17.4477 7 18 7C18.5523 7 19 6.55228 19 6C19 5.44772 18.5523 5 18 5Z" />
+		</Svg>
+	);
+}
+
+export function PlusCircleIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: add-circle-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M11 11V7H13V11H17V13H13V17H11V13H7V11H11ZM12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20Z" />
+		</Svg>
+	);
+}
+
+export function CloudIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: cloud-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M17 21H7C3.68629 21 1 18.3137 1 15C1 12.3846 2.67346 10.1595 5.00356 9.33067C5.00121 9.22089 5 9.11062 5 9C5 5.13401 8.13401 2 12 2C15.866 2 19 5.13401 19 9C19 9.11062 18.9988 9.22089 18.9964 9.33067C21.3265 10.1595 23 12.3846 23 15C23 18.3137 20.3137 21 17 21ZM18.9486 11.1605C17.7789 10.4303 16.3956 10 14.917 10H14.0621C13.4892 7.17213 10.9895 5 8 5C4.68629 5 2 7.68629 2 11C2 14.3137 4.68629 17 8 17H17C18.6569 17 20 15.6569 20 14C20 12.9789 19.5203 12.0742 18.9486 11.1605Z" />
+		</Svg>
+	);
+}
+
+export function CloudOffIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: cloud-off-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M3.51472 2.10051L22.6066 21.1924L21.1924 22.6066L19.1782 20.5924C18.5028 20.855 17.7679 21 17 21H7C3.68629 21 1 18.3137 1 15C1 12.3846 2.67346 10.1595 5.00356 9.33067C5.00121 9.22089 5 9.11062 5 9C5 8.22216 5.12826 7.47429 5.36602 6.78024L2.10051 3.51472L3.51472 2.10051ZM7.22624 8.64046C7.07893 9.07311 7 9.53651 7 10V11H6C4.34315 11 3 12.3431 3 14C3 15.6569 4.34315 17 6 17H17.1716L7.22624 8.64046ZM10.8322 4.44308C11.2109 4.15448 11.6316 3.92033 12.0844 3.75036C14.5993 2.80557 17.4193 4.05651 18.3641 6.57143C20.8879 7.40592 22.4255 9.95932 21.891 12.57C21.7942 13.0473 21.6358 13.4993 21.4259 13.9176L19.892 12.3838C19.9622 12.1242 20 11.8516 20 11.571C20 10.1316 18.8684 8.95612 17.4291 8.95612H15.6877C15.2044 5.76171 12.9409 3.4208 10.0037 3.04969L10.8322 4.44308Z" />
+		</Svg>
+	);
+}
+
+export function WifiOffIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: wifi-off-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 18C10.7574 18 9.75 19.0074 9.75 20.25C9.75 21.4926 10.7574 22.5 12 22.5C13.2426 22.5 14.25 21.4926 14.25 20.25C14.25 19.0074 13.2426 18 12 18ZM2.80777 1.3934L21.1924 19.778L19.7782 21.1924L16.1812 17.5954C14.9389 18.3995 13.5231 18.9008 12 18.9988V16.8924C13.0288 16.8212 14.0212 16.5342 14.9126 16.0754L12.7678 13.9306C12.5168 13.9762 12.2614 14 12 14C9.51472 14 7.5 11.9853 7.5 9.5C7.5 9.23858 7.52376 8.98318 7.56936 8.73218L1.39355 2.55762L2.80777 1.3934ZM17.5061 12.6618L19.1421 14.2978C20.4853 13.3078 21.6213 12.0632 22.5 10.6314C20.3688 7.15726 16.4584 4.75 12 4.75C11.1456 4.75 10.3136 4.8446 9.51456 5.02262L7.69628 3.20434C9.05748 2.76162 10.5018 2.5 12 2.5C17.5228 2.5 22.3137 5.82304 24 10.5C23.2714 12.1922 22.1378 13.6916 20.7056 14.8834L19.1421 13.3199C20.0692 12.5934 20.8698 11.7054 21.5 10.6993C19.8854 8.16604 16.7614 6.5 13 6.5C11.8386 6.5 10.7234 6.68248 9.67882 7.01834L17.5061 12.6618ZM5.23864 9.06666L6.96582 10.7938C7.05818 10.5376 7.19006 10.2996 7.35488 10.0854L5.23864 9.06666Z" />
+		</Svg>
+	);
+}
+
+export function AiAgentIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: ai-agent-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12.0005 2C10.067 2 8.50049 3.567 8.50049 5.5C8.50049 7.433 10.067 9 12.0005 9C13.934 9 15.5005 7.433 15.5005 5.5C15.5005 3.567 13.934 2 12.0005 2ZM6.50049 5.5C6.50049 2.46243 8.96292 0 12.0005 0C15.0381 0 17.5005 2.46243 17.5005 5.5C17.5005 6.77992 17.0536 7.95498 16.3104 8.88663L20.1213 12.6975C20.9024 13.4786 20.9024 14.7449 20.1213 15.526L19.414 16.2333C18.6329 17.0143 17.3666 17.0143 16.5855 16.2333L15.8783 15.526C15.0972 14.7449 15.0972 13.4786 15.8783 12.6975L12.0005 8.81966L8.12267 12.6975C8.90372 13.4786 8.90372 14.7449 8.12267 15.526L7.41544 16.2333C6.63439 17.0143 5.36805 17.0143 4.587 16.2333L3.87977 15.526C3.09872 14.7449 3.09872 13.4786 3.87977 12.6975L7.69061 8.88663C6.94743 7.95498 6.50049 6.77992 6.50049 5.5ZM5.29398 14.1118L5.29415 14.1116L5.29398 14.1118ZM18.7068 14.1116L18.0001 14.8189L17.293 14.1118L17.9997 13.4045L18.7068 14.1116ZM5.29398 14.1118L6.00121 13.4045L6.70815 14.1118L6.00092 14.8189L5.29398 14.1118ZM12.0005 12C14.7619 12 17.0005 14.2386 17.0005 17V18C17.0005 20.2091 15.2096 22 13.0005 22H11.0005C8.79135 22 7.00049 20.2091 7.00049 18V17C7.00049 14.2386 9.23906 12 12.0005 12ZM9.00049 17V18C9.00049 19.1046 9.89592 20 11.0005 20H13.0005C14.1051 20 15.0005 19.1046 15.0005 18V17C15.0005 15.3431 13.6574 14 12.0005 14C10.3436 14 9.00049 15.3431 9.00049 17Z" />
+		</Svg>
+	);
+}
+
+export function PushpinIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: pushpin-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13.8273 1.69L22.3132 10.1759L20.8989 11.5901L20.1918 10.8831L15.9495 15.1253L16.6566 19.3676L15.2424 20.7819L10.2929 15.8323L5.6361 20.4891L4.22189 19.0749L8.87864 14.4181L3.92908 9.46855L5.34329 8.05434L9.58555 8.76144L13.8278 4.51911L13.1207 3.81201L14.5349 2.39779L13.8273 1.69ZM14.5765 5.15701L9.82321 9.91037L6.44541 9.32799L14.3749 17.2575L13.7925 13.8797L18.5765 9.09566L14.5765 5.15701Z" />
+		</Svg>
+	);
+}
+
+export function PushpinFillIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: pushpin-fill
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M13.8273 1.69L22.3132 10.1759L20.8989 11.5901L20.1918 10.8831L15.9495 15.1253L16.6566 19.3676L15.2424 20.7819L10.2929 15.8323L5.6361 20.4891L4.22189 19.0749L8.87864 14.4181L3.92908 9.46855L5.34329 8.05434L9.58555 8.76144L13.8278 4.51911L13.1207 3.81201L14.5349 2.39779L13.8273 1.69Z" />
+		</Svg>
+	);
+}
+
+export function LockIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: lock-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M19 10H20C20.5523 10 21 10.4477 21 11V21C21 21.5523 20.5523 22 20 22H4C3.44772 22 3 21.5523 3 21V11C3 10.4477 3.44772 10 4 10H5V9C5 5.13401 8.13401 2 12 2C15.866 2 19 5.13401 19 9V10ZM5 12V20H19V12H5ZM11 14H13V18H11V14ZM17 10V9C17 6.23858 14.7614 4 12 4C9.23858 4 7 6.23858 7 9V10H17Z" />
+		</Svg>
+	);
+}
+
+export function AiAgentFillIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: ai-agent-fill (used for 'all' mode)
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12.0005 2C10.067 2 8.50049 3.567 8.50049 5.5C8.50049 7.433 10.067 9 12.0005 9C13.934 9 15.5005 7.433 15.5005 5.5C15.5005 3.567 13.934 2 12.0005 2ZM6.50049 5.5C6.50049 2.46243 8.96292 0 12.0005 0C15.0381 0 17.5005 2.46243 17.5005 5.5C17.5005 6.77992 17.0536 7.95498 16.3104 8.88663L20.1213 12.6975C20.9024 13.4786 20.9024 14.7449 20.1213 15.526L19.414 16.2333C18.6329 17.0143 17.3666 17.0143 16.5855 16.2333L15.8783 15.526C15.0972 14.7449 15.0972 13.4786 15.8783 12.6975L12.0005 8.81966L8.12267 12.6975C8.90372 13.4786 8.90372 14.7449 8.12267 15.526L7.41544 16.2333C6.63439 17.0143 5.36805 17.0143 4.587 16.2333L3.87977 15.526C3.09872 14.7449 3.09872 13.4786 3.87977 12.6975L7.69061 8.88663C6.94743 7.95498 6.50049 6.77992 6.50049 5.5ZM12.0005 12C14.7619 12 17.0005 14.2386 17.0005 17V18C17.0005 20.2091 15.2096 22 13.0005 22H11.0005C8.79135 22 7.00049 20.2091 7.00049 18V17C7.00049 14.2386 9.23906 12 12.0005 12Z" />
+		</Svg>
+	);
+}
+
+export function QrCodeIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+			<Path d="M3 3h6v6H3zM15 3h6v6h-6zM3 15h6v6H3zM15 15h3v3h-3zM18 18h3v3h-3zM15 21v-3M21 15v3" />
+		</Svg>
+	);
+}
+
+export function SparkleIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M20.4668 8.69379L20.7134 8.12811C21.1529 7.11947 21.9445 6.31641 22.9323 5.87708L23.6919 5.53922C24.1027 5.35653 24.1027 4.75881 23.6919 4.57612L22.9748 4.25714C21.9616 3.80651 21.1558 2.97373 20.7238 1.93083L20.4706 1.31953C20.2942 0.893489 19.7058 0.893489 19.5293 1.31953L19.2761 1.93083C18.8442 2.97373 18.0384 3.80651 17.0252 4.25714L16.308 4.57612C15.8973 4.75881 15.8973 5.35653 16.308 5.53922L17.0677 5.87708C18.0555 6.31641 18.8471 7.11947 19.2866 8.12811L19.5331 8.69379C19.7136 9.10792 20.2864 9.10792 20.4668 8.69379ZM5.79993 16H7.95399L8.55399 14.5H11.4459L12.0459 16H14.1999L10.9999 8H8.99993L5.79993 16ZM9.99993 10.8852L10.6459 12.5H9.35399L9.99993 10.8852ZM15 16V8H17V16H15ZM3 3C2.44772 3 2 3.44772 2 4V20C2 20.5523 2.44772 21 3 21H21C21.5523 21 22 20.5523 22 20V11H20V19H4V5H14V3H3Z" />
+		</Svg>
+	);
+}
+
+export function UndoIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-go-back-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M5.82843 6.99955L8.36396 4.46402L6.94975 3.0498L2 7.99955L6.94975 12.9493L8.36396 11.5351L5.82843 8.99955H13C17.4183 8.99955 21 12.5813 21 16.9996C21 21.4178 17.4183 24.9996 13 24.9996H4V22.9996H13C16.3137 22.9996 19 20.3133 19 16.9996C19 13.6858 16.3137 10.9996 13 10.9996H5.82843V6.99955Z" />
+		</Svg>
+	);
+}
+
+export function RedoIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-go-forward-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M18.1716 6.99955H11C7.68629 6.99955 5 9.68584 5 12.9996C5 16.3133 7.68629 18.9996 11 18.9996H20V20.9996H11C6.58172 20.9996 3 17.4178 3 12.9996C3 8.58127 6.58172 4.99955 11 4.99955H18.1716L15.636 2.46402L17.0503 1.0498L22 5.99955L17.0503 10.9493L15.636 9.53509L18.1716 6.99955Z" />
+		</Svg>
+	);
+}
+
+export function ChevronLeftIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: arrow-left-s-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M10.8284 12.0007L15.7782 16.9504L14.364 18.3646L8 12.0007L14.364 5.63672L15.7782 7.05093L10.8284 12.0007Z" />
+		</Svg>
+	);
+}
+
+export function BrainIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M19.5 4.7832V7.6709L22 9.11426V14.8867L19.499 16.3311L19.5 19.2178L14.5 22.1045L12 20.6611L9.5 22.1045L4.5 19.2178V16.3311L2 14.8877L2.00098 9.11328L4.5 7.66992V4.78418L9.5 1.89746L11.999 3.34082L14.501 1.89648L19.5 4.7832ZM13 5.07227V7H11V5.07324L9.5 4.20703L6.49902 5.93848V8.8252L4 10.2676V13.7334L6.5 15.1768V18.0635L9.5 19.7959L11 18.9287V17H13V18.9297L14.5 19.7959L17.5 18.0625V15.1768L20 13.7324V10.2695L17.499 8.8252L17.5 5.9375L14.501 4.20605L13 5.07227ZM14.2646 13.1602C14.3529 12.9473 14.6472 12.9473 14.7354 13.1602L14.8623 13.4648C15.0783 13.986 15.4807 14.4027 15.9873 14.6279L16.3457 14.7871C16.5511 14.8784 16.5511 15.1773 16.3457 15.2686L15.9658 15.4375C15.4721 15.6571 15.0761 16.0586 14.8564 16.5625L14.7334 16.8447C14.6432 17.0517 14.3569 17.0517 14.2666 16.8447L14.1436 16.5625C13.9239 16.0586 13.5279 15.6571 13.0342 15.4375L12.6543 15.2686C12.4489 15.1773 12.4489 14.8784 12.6543 14.7871L13.0127 14.6279C13.5193 14.4027 13.9217 13.986 14.1377 13.4648L14.2646 13.1602ZM9.58789 7.7793C9.74239 7.40671 10.2577 7.4067 10.4121 7.7793L10.6338 8.31445C11.0118 9.22695 11.7161 9.95624 12.6025 10.3506L13.2305 10.6289C13.5899 10.7887 13.5897 11.3117 13.2305 11.4717L12.5654 11.7676C11.7013 12.152 11.0086 12.8548 10.624 13.7373L10.4082 14.2324C10.2504 14.5948 9.74973 14.5948 9.5918 14.2324L9.37598 13.7373C8.99143 12.8548 8.29875 12.152 7.43457 11.7676L6.76953 11.4717C6.41033 11.3117 6.41022 10.7887 6.76953 10.6289L7.39746 10.3506C8.2839 9.95624 8.98832 9.22697 9.36621 8.31445L9.58789 7.7793Z" />
+		</Svg>
+	);
+}
+
+export function CameraIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: camera-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M9.82843 5L7.82843 7H4V19H20V7H16.1716L14.1716 5H9.82843ZM9 3H15L17 5H21C21.5523 5 22 5.44772 22 6V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V6C2 5.44772 2.44772 5 3 5H7L9 3ZM12 18C8.96243 18 6.5 15.5376 6.5 12.5C6.5 9.46243 8.96243 7 12 7C15.0376 7 17.5 9.46243 17.5 12.5C17.5 15.5376 15.0376 18 12 18ZM12 16C13.933 16 15.5 14.433 15.5 12.5C15.5 10.567 13.933 9 12 9C10.067 9 8.5 10.567 8.5 12.5C8.5 14.433 10.067 16 12 16Z" />
+		</Svg>
+	);
+}
+
+export function GitForkIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: git-fork-line
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M7 5C7 6.10457 6.10457 7 5 7C3.89543 7 3 6.10457 3 5C3 3.89543 3.89543 3 5 3C6.10457 3 7 3.89543 7 5ZM5 8C2.79086 8 1 6.20914 1 4C1 1.79086 2.79086 0 5 0C7.20914 0 9 1.79086 9 4V5.126C10.7252 5.56706 12 7.13786 12 9V12C12 13.1046 12.8954 14 14 14H16.874C17.4299 12.2748 19.1362 11 21 11C23.2091 11 25 12.7909 25 15C25 17.2091 23.2091 19 21 19C19.1362 19 17.4299 17.7252 16.874 16H14C11.7909 16 10 14.2091 10 12V9C10 7.89543 9.10457 7 8 7H6V5C6 3.89543 5.10457 3 5 3ZM21 17C22.1046 17 23 16.1046 23 15C23 13.8954 22.1046 13 21 13C19.8954 13 19 13.8954 19 15C19 16.1046 19.8954 17 21 17Z" />
+		</Svg>
+	);
+}
+
+export function AlignJustifyIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Three horizontal lines - unified view icon
+	return (
+		<Svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke={color}
+			strokeWidth={2}
+			strokeLinecap="round"
+			{...props}
+		>
+			<Path d="M4 6h16M4 12h16M4 18h16" />
+		</Svg>
+	);
+}
+
+export function LayoutColumnsIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Two columns - side-by-side view icon
+	return (
+		<Svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke={color}
+			strokeWidth={2}
+			strokeLinecap="round"
+			{...props}
+		>
+			<Path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h4m6-18h4a2 2 0 012 2v14a2 2 0 01-2 2h-4" />
+		</Svg>
+	);
+}
+
+export function DocumentIcon({
+	size = defaultSize,
+	color = defaultColor,
+	strokeWidth = 1.5,
+	...props
+}: IconProps & { strokeWidth?: number }) {
+	// File with lines - document icon
+	return (
+		<Svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke={color}
+			strokeWidth={strokeWidth}
+			strokeLinecap="round"
+			{...props}
+		>
+			<Path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+			<Path d="M14 2v6h6M9 13h6M9 17h6" />
+		</Svg>
+	);
+}

@@ -1,0 +1,36 @@
+{
+  "build": {
+    "development": {
+      "android": {
+        "buildType": "apk"
+      },
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "preview": {
+      "android": {
+        "buildType": "apk"
+      },
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "autoIncrement": true
+    }
+  },
+  "cli": {
+    "appVersionSource": "local",
+    "version": ">= 16.0.0"
+  },
+  "submit": {
+    "production": {}
+  }
+}

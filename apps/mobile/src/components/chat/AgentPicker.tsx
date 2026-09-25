@@ -1,0 +1,206 @@
+import BottomSheet, {
+	BottomSheetBackdrop,
+	type BottomSheetBackdropProps,
+	BottomSheetScrollView,
+} from "@gorhom/bottom-sheet";
+import * as Haptics from "expo-haptics";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Text, View } from "react-native";
+import { TouchableOpacity } from "react-native-gesture-handler";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CheckIcon } from "@/components/icons";
+import { Button } from "@/components/ui";
+import { fontStyle, Spacing, typography, useTheme } from "@/theme";
+import { OPACITY, withOpacity } from "@/utils/colors";
+
+export interface Agent {
+	name: string;
+	description?: string;
+	mode?: "primary" | "subagent" | "all";
+}
+
+interface AgentPickerProps {
+	agents: Agent[];
+	currentAgentName?: string;
+	onAgentChange: (agentName: string) => void;
+	visible: boolean;
+	onClose: () => void;
+}
+
+function getAgentColor(name: string, palette: string[]): string {
+	let hash = 0;
+	for (let i = 0; i < name.length; i++) {
+		hash = name.charCodeAt(i) + ((hash << 5) - hash);
+	}
+	return palette[Math.abs(hash) % palette.length];
+}
+
+export function AgentPicker({
+	agents,
+	currentAgentName,
+	onAgentChange,
+	visible,
+	onClose,
+}: AgentPickerProps) {
+	const { colors, isDark } = useTheme();
+	const insets = useSafeAreaInsets();
+	const sheetRef = useRef<BottomSheet>(null);
+	const snapPoints = useMemo(() => ["68%", "92%"], []);
+	const agentPalette = [
+		colors.info,
+		colors.success,
+		colors.warning,
+		colors.destructive,
+		colors.primary,
+		colors.infoForeground,
+		colors.successForeground,
+		colors.warningForeground,
+	];
+
+	const primaryAgents = agents.filter(
+		(agent) => agent.mode === "primary" || agent.mode === "all" || !agent.mode,
+	);
+
+	useEffect(() => {
+		if (visible) {
+			sheetRef.current?.snapToIndex(0);
+		} else {
+			sheetRef.current?.close();
+		}
+	}, [visible]);
+
+	const handleAgentSelect = useCallback(
+		(agentName: string) => {
+			Haptics.selectionAsync();
+			onAgentChange(agentName);
+			sheetRef.current?.close();
+		},
+		[onAgentChange],
+	);
+
+	const handleChange = useCallback(
+		(index: number) => {
+			if (index === 0) {
+				Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+			}
+			if (index === -1) {
+				Haptics.selectionAsync().catch(() => {});
+				onClose();
+			}
+		},
+		[onClose],
+	);
+
+	const renderBackdrop = useCallback(
+		(backdropProps: BottomSheetBackdropProps) => (
+			<BottomSheetBackdrop
+				{...backdropProps}
+				disappearsOnIndex={-1}
+				appearsOnIndex={0}
+				pressBehavior="close"
+				opacity={0.55}
+			/>
+		),
+		[],
+	);
+
+	return (
+		<BottomSheet
+			ref={sheetRef}
+			index={-1}
+			snapPoints={snapPoints}
+			enablePanDownToClose
+			backdropComponent={renderBackdrop}
+			onChange={handleChange}
+			bottomInset={insets.bottom + 8}
+			keyboardBehavior="interactive"
+			keyboardBlurBehavior="restore"
+			backgroundStyle={{
+				backgroundColor: withOpacity(colors.background, isDark ? 0.95 : 0.98),
+				borderColor: withOpacity(colors.border, OPACITY.overlay),
+				borderWidth: 1,
+				borderRadius: 26,
+				overflow: "hidden",
+			}}
+			handleIndicatorStyle={{
+				backgroundColor: withOpacity(colors.mutedForeground, 0.9),
+				width: 48,
+				height: 5,
+				borderRadius: 999,
+			}}
+			style={{ zIndex: 1000, elevation: 20 }}
+		>
+			<View className="px-4 pt-2 pb-3 flex-row items-center justify-between">
+				<Text style={[typography.uiHeader, { color: colors.foreground }]}>
+					Select agent
+				</Text>
+				<Button
+					variant="muted"
+					size="sm"
+					onPress={() => sheetRef.current?.close()}
+				>
+					<Button.Label>Done</Button.Label>
+				</Button>
+			</View>
+
+			<BottomSheetScrollView
+				contentContainerStyle={{
+					paddingHorizontal: Spacing[4],
+					paddingBottom: Math.max(Spacing[6], insets.bottom + Spacing[4]),
+					gap: Spacing[3],
+				}}
+			>
+				{primaryAgents.map((agent) => {
+					const isSelected = agent.name === currentAgentName;
+					const agentColor = getAgentColor(agent.name, agentPalette);
+
+					return (
+						<TouchableOpacity
+							key={agent.name}
+							onPress={() => handleAgentSelect(agent.name)}
+							className="flex-row items-center justify-between p-3.5 rounded-xl border"
+							style={{
+								backgroundColor: isSelected
+									? withOpacity(agentColor, OPACITY.active)
+									: colors.card,
+								borderColor: isSelected ? agentColor : colors.border,
+							}}
+							accessibilityRole="button"
+						>
+							<View className="flex-1 mr-3">
+								<View className="flex-row items-center gap-2">
+									<View
+										className="w-2 h-2 rounded-full"
+										style={{ backgroundColor: agentColor }}
+									/>
+									<Text
+										style={[
+											typography.uiLabel,
+											{ color: isSelected ? agentColor : colors.foreground },
+											fontStyle("600"),
+										]}
+									>
+										{agent.name.charAt(0).toUpperCase() + agent.name.slice(1)}
+									</Text>
+								</View>
+								{agent.description && (
+									<Text
+										className="mt-1"
+										style={[
+											typography.micro,
+											{ color: colors.mutedForeground },
+										]}
+										numberOfLines={2}
+									>
+										{agent.description}
+									</Text>
+								)}
+							</View>
+							{isSelected && <CheckIcon size={18} color={agentColor} />}
+						</TouchableOpacity>
+					);
+				})}
+			</BottomSheetScrollView>
+		</BottomSheet>
+	);
+}
