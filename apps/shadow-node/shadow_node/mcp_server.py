@@ -25,7 +25,12 @@ def build_server(engine: RouteEngine | None = None) -> "Server":
     engine = engine or RouteEngine()
     server = Server("shadow-router")
     tools = [
-        types.Tool(name=s["name"], description=s["description"], inputSchema=s["schema"])
+        types.Tool(
+            name=s["name"],
+            description=s["description"],
+            inputSchema=s["schema"],
+            annotations=types.ToolAnnotations(**s["annotations"]) if s.get("annotations") else None,
+        )
         for s in engine.tool_specs()
     ]
 
