@@ -100,6 +100,25 @@ def test_auth_required_allows_cors_preflight(monkeypatch):
     importlib.reload(m)
 
 
+def test_auth_rejection_carries_cors_headers(monkeypatch):
+    # Browser clients must be able to read 401s; without the CORS header the
+    # rejection surfaces as an opaque "Failed to fetch". (Found via EVE UX testing.)
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "true")
+    import shadow_node.main as m
+    importlib.reload(m)
+    c = TestClient(m.app)
+    bad = {"x-shadow-device-id": "dev_nope", "x-shadow-signature": "bad",
+           "x-shadow-nonce": "n", "x-shadow-timestamp": "1"}
+    r = c.get("/approvals", headers={**bad, "origin": "http://localhost:19006"})
+    assert r.status_code == 401
+    assert r.headers["access-control-allow-origin"] == "http://localhost:19006"
+    r2 = c.get("/approvals", headers={**bad, "origin": "https://evil.example.com"})
+    assert r2.status_code == 401
+    assert "access-control-allow-origin" not in r2.headers
+    monkeypatch.delenv("SHADOW_AUTH_REQUIRED", raising=False)
+    importlib.reload(m)
+
+
 def test_rate_limit_middleware_returns_429(monkeypatch):
     monkeypatch.setenv("SHADOW_RATE_LIMIT_RPM", "1")
     monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # isolate rate limiting from auth

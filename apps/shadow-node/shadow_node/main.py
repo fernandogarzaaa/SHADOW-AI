@@ -108,7 +108,17 @@ async def auth_middleware(request:Request, call_next):
     if AUTH_REQUIRED and not exempt:
         body=(await request.body()).decode()
         ok,reason=sessions.verify(request.headers.get("x-shadow-device-id"),request.headers.get("x-shadow-signature"),request.headers.get("x-shadow-nonce"),request.headers.get("x-shadow-timestamp"),request.method,request.url.path,body)
-        if not ok: return JSONResponse(status_code=401, content={"detail":reason})
+        if not ok:
+            # This middleware runs outside CORSMiddleware, so auth rejections
+            # would otherwise leave browser clients with an opaque
+            # "Failed to fetch" instead of the 401. Reflect the origin for
+            # allowlisted origins so browsers can read the rejection.
+            resp=JSONResponse(status_code=401, content={"detail":reason})
+            origin=request.headers.get("origin")
+            if origin and origin in CORS_ORIGINS:
+                resp.headers["Access-Control-Allow-Origin"]=origin
+                resp.headers["Vary"]="Origin"
+            return resp
     return await call_next(request)
 WEB_INDEX=os.path.join(os.path.dirname(__file__),"web","index.html")
 @app.get("/", include_in_schema=False)
