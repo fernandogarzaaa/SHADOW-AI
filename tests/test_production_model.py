@@ -50,6 +50,7 @@ def test_safe_summary_keeps_legacy_keys(monkeypatch):
 def test_ask_stays_local_without_cloud(monkeypatch):
     for k in ["SHADOW_CLOUD_ENABLED", "ANTHROPIC_API_KEY", "SHADOW_MEMORY_DB"]:
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # routing behavior under test, not auth
     client, _ = _client()
     r = client.post("/agent/ask", json={"prompt": "what is in memory?"})
     assert r.status_code == 200
@@ -67,6 +68,7 @@ def test_cloud_model_error_falls_back_to_local(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-unreachable")
     monkeypatch.setenv("SHADOW_MODEL_ENDPOINT", "http://127.0.0.1:9/none")
     monkeypatch.delenv("SHADOW_MEMORY_DB", raising=False)
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # fallback behavior under test, not auth
     client, _ = _client()
     client.post("/consent", json={"data_source": "docs", "scope": "selected", "purpose": "answer", "model_access_level": "cloud_redacted"})
     r = client.post("/agent/ask", json={"prompt": "summarize", "allow_cloud": True, "cloud_approval": True})

@@ -7,6 +7,7 @@ def _fresh_client(monkeypatch, tmp_path):
     monkeypatch.setenv("SHADOW_RUNTIME_DB", str(tmp_path / "runtime.db"))
     monkeypatch.setenv("SHADOW_RUNTIME_KEY_FILE", str(tmp_path / "runtime.key"))
     monkeypatch.delenv("SHADOW_MEMORY_DB", raising=False)
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # persistence test: auth not under test
     import shadow_node.main as m
     importlib.reload(m)
     return TestClient(m.app), m
