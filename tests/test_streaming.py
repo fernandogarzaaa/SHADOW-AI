@@ -9,14 +9,19 @@ import importlib
 import json
 import os
 import subprocess
+import sys
 import time
+from pathlib import Path
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 BASE = "http://127.0.0.1:8899"
-PYPATH = "apps/shadow-node:packages/agent-core:packages/memory-engine:packages/axiom-adapter:packages/ghost-adapter"
+REPO = Path(__file__).resolve().parents[1]  # repo root, wherever this checkout lives
+PYPATH = os.pathsep.join(str(REPO / p) for p in (
+    "apps/shadow-node", "packages/agent-core", "packages/memory-engine",
+    "packages/axiom-adapter", "packages/ghost-adapter"))
 
 
 def _http_client(**kw):
@@ -28,9 +33,9 @@ def _http_client(**kw):
 def live_server():
     env = dict(os.environ, SHADOW_AUTH_REQUIRED="false", PYTHONPATH=PYPATH)
     proc = subprocess.Popen(
-        ["/tmp/shadow-venv/bin/python", "-m", "uvicorn", "shadow_node.main:app",
+        [sys.executable, "-m", "uvicorn", "shadow_node.main:app",
          "--port", "8899", "--log-level", "warning"],
-        cwd="/home/hatch/workspace/shadow-ai", env=env,
+        cwd=str(REPO), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
