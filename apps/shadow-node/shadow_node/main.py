@@ -12,7 +12,7 @@ from .crypto_config import load_fernet_key
 from .providers import build_frontier, CATALOG
 from .hybrid import HybridRouter
 from . import provider_auth
-import tempfile, hashlib, uuid, os, time
+import tempfile, hashlib, uuid, os, time, secrets
 APP_VERSION="1.0.0-rc"
 app=FastAPI(title="Shadow Node", version=APP_VERSION)
 # CORS: localhost by default; add deployed PWA/app origins via SHADOW_CORS_ORIGINS
@@ -45,7 +45,7 @@ for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lam
 # Hybrid local+frontier router and provider credential store.
 hybrid=HybridRouter(model, axiom)
 credentials=provider_auth.CredentialStore()
-AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "false").lower()=="true"
+AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "true").lower()=="true"
 GROUNDING_VERIFY=os.getenv("SHADOW_GROUNDING_VERIFY", "true").lower()=="true"
 RATE_LIMIT_RPM=int(os.getenv("SHADOW_RATE_LIMIT_RPM", "0"))  # 0 disables
 from .obs import RateLimiter, configure_logging, client_key
@@ -97,13 +97,20 @@ def ready():
         ok=False
     status="ready" if ok else "degraded"
     return JSONResponse(status_code=200 if ok else 503, content={"status":status,"version":APP_VERSION,"auth_required":AUTH_REQUIRED,"rate_limit_rpm":RATE_LIMIT_RPM,"grounding_verify":GROUNDING_VERIFY,"providers_ready":model_config.cloud_model_ready()})
+PAIRING_TTL_SECONDS=300
 @app.post("/pair/start")
 def pair_start():
-    pid=new_id("pair"); pairing[pid]="pending"; return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":300}
+    now=time.time()
+    for _pid,_entry in list(pairing.items()):
+        if now-_entry["created_at"]>PAIRING_TTL_SECONDS: del pairing[_pid]
+    pid=new_id("pair"); pairing[pid]={"status":"pending","created_at":now}; return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":PAIRING_TTL_SECONDS}
 @app.post("/pair/confirm")
 def pair_confirm(req:PairConfirm):
-    if req.pairing_id not in pairing: raise HTTPException(404,"pairing not found")
-    secret=hashlib.sha256((req.public_key+req.pairing_id).encode()).hexdigest(); dev=sessions.register(req.device_name, req.public_key, secret); audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint})); return {"device":dev,"shared_secret":secret}
+    entry=pairing.pop(req.pairing_id,None)
+    if entry is None: raise HTTPException(404,"pairing not found")
+    if time.time()-entry["created_at"]>PAIRING_TTL_SECONDS:
+        audit.append(AuditEvent(actor="pairing",event_type="pairing_expired",status="blocked",metadata={"pairing_id":req.pairing_id})); raise HTTPException(410,"pairing expired")
+    secret=secrets.token_hex(32); dev=sessions.register(req.device_name, req.public_key, secret); audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint})); return {"device":dev,"shared_secret":secret}
 @app.post("/devices/register")
 def register(d:Device): sessions.devices[d.id]=d; return d
 @app.post("/devices/{device_id}/revoke")

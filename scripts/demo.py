@@ -1,3 +1,6 @@
+import os
+# The demo is a local-only smoke flow; auth is exercised by the test suite.
+os.environ['SHADOW_AUTH_REQUIRED'] = 'false'
 from fastapi.testclient import TestClient
 from shadow_node.main import app
 c=TestClient(app)
