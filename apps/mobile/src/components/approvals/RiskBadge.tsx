@@ -1,4 +1,6 @@
-import { Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { useTheme } from "@/theme";
+import { withOpacity } from "@/utils/colors";
 
 export type ApprovalRisk = "low" | "medium" | "high";
 
@@ -6,27 +8,37 @@ interface RiskBadgeProps {
 	risk: ApprovalRisk;
 }
 
-const containerClasses: Record<ApprovalRisk, string> = {
-	low: "bg-emerald-500/15 border-emerald-500/40",
-	medium: "bg-amber-500/15 border-amber-500/40",
-	high: "bg-red-500/15 border-red-500/40",
-};
-
-const textClasses: Record<ApprovalRisk, string> = {
-	low: "text-emerald-400",
-	medium: "text-amber-400",
-	high: "text-red-400",
-};
-
 /** Color-coded pill showing an approval's risk level. */
 export function RiskBadge({ risk }: RiskBadgeProps) {
+	const { colors } = useTheme();
+	const base =
+		risk === "low" ? colors.success : risk === "medium" ? colors.warning : colors.destructive;
+
 	return (
 		<View
-			className={`rounded-full border px-2 py-0.5 ${containerClasses[risk]}`}
+			style={[
+				styles.pill,
+				{
+					borderColor: withOpacity(base, 0.4),
+					backgroundColor: withOpacity(base, 0.12),
+				},
+			]}
 		>
-			<Text className={`text-[11px] font-semibold uppercase ${textClasses[risk]}`}>
-				{risk}
-			</Text>
+			<Text style={[styles.label, { color: base }]}>{risk}</Text>
 		</View>
 	);
 }
+
+const styles = StyleSheet.create({
+	pill: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 999,
+		paddingHorizontal: 8,
+		paddingVertical: 2,
+	},
+	label: {
+		fontSize: 11,
+		fontWeight: "700",
+		textTransform: "uppercase",
+	},
+});

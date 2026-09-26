@@ -6,6 +6,7 @@ import {
 	ActivityIndicator,
 	Pressable,
 	RefreshControl,
+	StyleSheet,
 	Text,
 	View,
 } from "react-native";
@@ -16,90 +17,124 @@ import type { ShadowEvent } from "@/hooks/useShadowEventStream";
 import { useShadowEventStream } from "@/hooks/useShadowEventStream";
 import { useApprovalsStore } from "@/stores/useApprovalsStore";
 import { useConnectionStore } from "@/stores/useConnectionStore";
+import { Spacing, typography, useTheme } from "@/theme";
+import { withOpacity } from "@/utils/colors";
 
 function PendingCountBadge({ count }: { count: number }) {
+	const { colors } = useTheme();
 	return (
-		<View className="rounded-full bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5">
-			<Text className="text-sm font-semibold text-amber-400">{count}</Text>
+		<View
+			style={[
+				styles.badge,
+				{
+					borderColor: withOpacity(colors.warning, 0.4),
+					backgroundColor: withOpacity(colors.warning, 0.12),
+				},
+			]}
+		>
+			<Text style={[typography.uiLabel, { color: colors.warning, fontWeight: "700" }]}>
+				{count}
+			</Text>
 		</View>
 	);
 }
 
 function ConnectPrompt() {
+	const { colors } = useTheme();
 	const handlePress = () => {
 		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-		router.push("/onboarding/scan");
+		router.push("/settings/link-node");
 	};
 
 	return (
-		<View className="flex-1 items-center justify-center gap-4 px-8">
-			<Text className="text-center text-lg font-semibold text-white">
-				Connect your node
+		<View style={styles.centered}>
+			<Text style={[typography.h2, { color: colors.foreground, textAlign: "center" }]}>
+				Link your node
 			</Text>
-			<Text className="text-center text-sm text-white/50">
-				Pair with your SHADOW node to review actions waiting for approval.
+			<Text style={[typography.body, { color: colors.mutedForeground, textAlign: "center", marginTop: 8 }]}>
+				Pair with your shadow node to review actions waiting for approval.
 			</Text>
 			<Pressable
 				onPress={handlePress}
 				accessibilityRole="button"
-				className="rounded-xl bg-white/10 px-6 py-3 active:bg-white/20"
+				style={({ pressed }) => [
+					styles.actionButton,
+					{ backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
+				]}
 			>
-				<Text className="text-sm font-semibold text-white">Pair now</Text>
+				<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
+					Link node
+				</Text>
 			</Pressable>
 		</View>
 	);
 }
 
 function EmptyState({ onCheckAgain }: { onCheckAgain: () => void }) {
+	const { colors } = useTheme();
 	const handlePress = () => {
 		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 		onCheckAgain();
 	};
 
 	return (
-		<View className="flex-1 items-center justify-center gap-3 px-8">
-			<Text className="text-center text-base font-semibold text-white">
+		<View style={styles.centered}>
+			<Text style={[typography.h2, { color: colors.foreground, textAlign: "center" }]}>
 				All clear. No pending approvals.
 			</Text>
-			<Text className="text-center text-sm text-white/50">
+			<Text style={[typography.body, { color: colors.mutedForeground, textAlign: "center", marginTop: 8 }]}>
 				New requests from your node will appear here in real time.
 			</Text>
 			<Pressable
 				onPress={handlePress}
 				accessibilityRole="button"
-				className="mt-1 rounded-xl bg-white/10 px-6 py-3 active:bg-white/20"
+				style={({ pressed }) => [
+					styles.actionButton,
+					{ backgroundColor: colors.muted, opacity: pressed ? 0.7 : 1 },
+				]}
 			>
-				<Text className="text-sm font-semibold text-white">Check again</Text>
+				<Text style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}>
+					Check again
+				</Text>
 			</Pressable>
 		</View>
 	);
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+	const { colors } = useTheme();
 	const handlePress = () => {
 		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 		onRetry();
 	};
 
 	return (
-		<View className="flex-1 items-center justify-center gap-3 px-8">
-			<Text className="text-center text-base font-semibold text-white">
+		<View style={styles.centered}>
+			<Text style={[typography.h2, { color: colors.foreground, textAlign: "center" }]}>
 				Could not load approvals
 			</Text>
-			<Text className="text-center text-sm text-white/50">{message}</Text>
+			<Text style={[typography.body, { color: colors.mutedForeground, textAlign: "center", marginTop: 8 }]}>
+				{message}
+			</Text>
 			<Pressable
 				onPress={handlePress}
 				accessibilityRole="button"
-				className="mt-1 rounded-xl bg-white/10 px-6 py-3 active:bg-white/20"
+				style={({ pressed }) => [
+					styles.actionButton,
+					{ backgroundColor: colors.muted, opacity: pressed ? 0.7 : 1 },
+				]}
 			>
-				<Text className="text-sm font-semibold text-white">Retry</Text>
+				<Text style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}>
+					Retry
+				</Text>
 			</Pressable>
 		</View>
 	);
 }
 
-/** The approvals inbox: pending requests from the SHADOW node, live via SSE. */
+/** The approvals inbox: pending requests from the shadow node, live via SSE. */
 export default function ApprovalsScreen() {
+	const { colors } = useTheme();
 	const insets = useSafeAreaInsets();
 	const isPaired = useConnectionStore((state) => state.isPaired);
 
@@ -148,8 +183,14 @@ export default function ApprovalsScreen() {
 	if (!isPaired) {
 		return (
 			<View
-				className="flex-1 bg-black"
-				style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+				style={[
+					styles.container,
+					{
+						backgroundColor: colors.background,
+						paddingTop: insets.top,
+						paddingBottom: insets.bottom,
+					},
+				]}
 			>
 				<ConnectPrompt />
 			</View>
@@ -161,31 +202,43 @@ export default function ApprovalsScreen() {
 
 	return (
 		<View
-			className="flex-1 bg-black"
-			style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+			style={[
+				styles.container,
+				{
+					backgroundColor: colors.background,
+					paddingTop: insets.top,
+					paddingBottom: insets.bottom,
+				},
+			]}
 		>
-			<View className="flex-row items-center justify-between px-4 py-3">
-				<Text className="text-2xl font-bold text-white">Approvals</Text>
+			<View style={styles.header}>
+				<Text style={[typography.h1, { color: colors.foreground }]}>Approvals</Text>
 				<PendingCountBadge count={pendingCount} />
 			</View>
 
 			{loading ? (
-				<View className="flex-1 items-center justify-center">
-					<ActivityIndicator size="large" color="#f5a623" />
+				<View style={styles.centered}>
+					<ActivityIndicator size="large" color={colors.primary} />
 				</View>
 			) : showError ? (
 				<ErrorState message={error ?? "Something went wrong"} onRetry={handleRefresh} />
 			) : showEmpty ? (
 				<EmptyState onCheckAgain={handleRefresh} />
 			) : (
-				<View className="flex-1">
+				<View style={styles.list}>
 					{error !== null ? (
 						<Pressable
 							onPress={handleRefresh}
 							accessibilityRole="button"
-							className="mx-4 mb-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5"
+							style={[
+								styles.retryBanner,
+								{
+									borderColor: withOpacity(colors.destructive, 0.3),
+									backgroundColor: withOpacity(colors.destructive, 0.08),
+								},
+							]}
 						>
-							<Text className="text-center text-sm text-red-300">
+							<Text style={[typography.body, { color: colors.destructive, textAlign: "center" }]}>
 								{error} Tap to retry.
 							</Text>
 						</Pressable>
@@ -200,7 +253,7 @@ export default function ApprovalsScreen() {
 							<RefreshControl
 								refreshing={refreshing}
 								onRefresh={handleRefresh}
-								tintColor="#f5a623"
+								tintColor={colors.primary}
 							/>
 						}
 					/>
@@ -209,3 +262,47 @@ export default function ApprovalsScreen() {
 		</View>
 	);
 }
+
+const styles = StyleSheet.create({
+	container: {
+		flex: 1,
+	},
+	header: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.md,
+	},
+	badge: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 999,
+		paddingHorizontal: 10,
+		paddingVertical: 2,
+	},
+	centered: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 4,
+		paddingHorizontal: Spacing.xl,
+	},
+	actionButton: {
+		marginTop: Spacing.md,
+		borderRadius: 14,
+		paddingHorizontal: Spacing.xl,
+		paddingVertical: 12,
+		alignItems: "center",
+	},
+	list: {
+		flex: 1,
+	},
+	retryBanner: {
+		marginHorizontal: Spacing.md,
+		marginBottom: Spacing.sm,
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 12,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: 10,
+	},
+});

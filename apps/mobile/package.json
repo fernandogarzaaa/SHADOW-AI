@@ -25,6 +25,7 @@
     "build:preview": "eas build --profile preview --platform ios",
     "build:production": "eas build --profile production --platform ios",
     "type-check": "tsc --noEmit",
+    "test:providers": "bash scripts/test-providers.sh",
     "lint": "eslint \"./src/**/*.{ts,tsx}\" --config ../../eslint.config.js",
     "maestro": "source .maestro/.env && maestro test .maestro/flows",
     "maestro:studio": "source .maestro/.env && maestro studio",

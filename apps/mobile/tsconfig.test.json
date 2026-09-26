@@ -1,0 +1,1 @@
+{"compilerOptions":{"declaration":false,"module":"nodenext","moduleResolution":"nodenext","noEmit":false,"sourceMap":false,"strict":true,"target":"es2022","types":["node"]},"extends":"./tsconfig.json","include":["src/providers/types.ts","src/providers/errors.ts","src/providers/sse.ts","src/providers/anthropic.ts","src/providers/openai.ts","src/providers/__tests__/**/*.ts"]}

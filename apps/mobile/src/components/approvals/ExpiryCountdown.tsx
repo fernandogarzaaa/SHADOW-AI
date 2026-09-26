@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Text } from "react-native";
+import { Text, type TextStyle } from "react-native";
+import { typography, useTheme } from "@/theme";
 
 interface ExpiryCountdownProps {
 	/** ISO-8601 timestamp at which the approval expires. */
 	expiresAt: string;
-	className?: string;
+	style?: TextStyle;
 }
 
 function formatRemaining(ms: number): string {
@@ -25,7 +26,8 @@ function formatRemaining(ms: number): string {
 }
 
 /** Live-updating relative expiry text for an approval request. */
-export function ExpiryCountdown({ expiresAt, className }: ExpiryCountdownProps) {
+export function ExpiryCountdown({ expiresAt, style }: ExpiryCountdownProps) {
+	const { colors } = useTheme();
 	const [now, setNow] = useState(() => Date.now());
 
 	useEffect(() => {
@@ -46,7 +48,17 @@ export function ExpiryCountdown({ expiresAt, className }: ExpiryCountdownProps) 
 
 	return (
 		<Text
-			className={`text-xs ${isExpired ? "text-red-400" : isUrgent ? "text-amber-400" : "text-white/50"} ${className ?? ""}`}
+			style={[
+				typography.meta,
+				{
+					color: isExpired
+						? colors.destructive
+						: isUrgent
+							? colors.warning
+							: colors.mutedForeground,
+				},
+				style,
+			]}
 		>
 			{formatRemaining(remaining)}
 		</Text>

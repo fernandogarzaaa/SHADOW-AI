@@ -1,13 +1,26 @@
-import { useEffect, useState } from "react";
-import { Alert } from "react-native";
+import BottomSheet from "@gorhom/bottom-sheet";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
 import { SettingsGroup, SettingsRow, SettingsScreen } from "@/components/settings/primitives";
+import { KeySheet } from "@/components/companion/KeySheet";
+import { ModelSheet } from "@/components/companion/ModelSheet";
 import { unlockApp } from "@/lib/appLock";
+import {
+	KEY_PROVIDERS,
+	clearAllProviderKeys,
+	deleteProviderKey,
+	getProvider,
+	type ProviderId,
+} from "@/providers";
+import { useChatStore } from "@/stores/useChatStore";
 import { useConnectionStore } from "@/stores/useConnectionStore";
+import { useProfileStore } from "@/stores/useProfileStore";
+import { useProviderStore } from "@/stores/useProviderStore";
 
 const PUSH_REGISTERED_KEY = "shadow_push_registered";
 
@@ -24,9 +37,15 @@ export default function SettingsIndexScreen() {
 		isPaired,
 		appLockEnabled,
 		setAppLockEnabled,
-		signOut,
 	} = useConnectionStore();
+	const { providerId, modelId, keyedProviders, setProvider, setModel, refreshKeyPresence } =
+		useProviderStore();
+	const profile = useProfileStore((s) => s.profile);
 	const [pushStatus, setPushStatus] = useState("Checking");
+	const [keySheetProvider, setKeySheetProvider] = useState<ProviderId>("anthropic");
+
+	const keySheetRef = useRef<BottomSheet>(null);
+	const modelSheetRef = useRef<BottomSheet>(null);
 
 	useEffect(() => {
 		let active = true;
@@ -43,6 +62,70 @@ export default function SettingsIndexScreen() {
 			active = false;
 		};
 	}, [isPaired]);
+
+	const openKeySheet = useCallback((id: ProviderId) => {
+		setKeySheetProvider(id);
+		setTimeout(() => keySheetRef.current?.snapToIndex(0), 250);
+	}, []);
+
+	const handleKeyRowPress = useCallback(
+		(id: ProviderId) => {
+			const added = keyedProviders.includes(id);
+			const label = getProvider(id).label;
+			if (!added) {
+				openKeySheet(id);
+				return;
+			}
+			Alert.alert(
+				`${label} key`,
+				"A key is saved in this phone's secure storage. Replace it or remove it.",
+				[
+					{ text: "Cancel", style: "cancel" },
+					{
+						text: "Replace",
+						onPress: () => openKeySheet(id),
+					},
+					{
+						text: "Remove",
+						style: "destructive",
+						onPress: async () => {
+							await deleteProviderKey(id);
+							await refreshKeyPresence();
+						},
+					},
+				],
+			);
+		},
+		[keyedProviders, openKeySheet, refreshKeyPresence],
+	);
+
+	const handleKeySaved = useCallback(async () => {
+		keySheetRef.current?.close();
+		await refreshKeyPresence();
+		await setProvider(keySheetProvider);
+	}, [refreshKeyPresence, setProvider, keySheetProvider]);
+
+	const handlePickModel = useCallback(
+		async (pickedProvider: ProviderId, pickedModel: string) => {
+			modelSheetRef.current?.close();
+			if (pickedProvider !== providerId) {
+				await setProvider(pickedProvider);
+			}
+			if (pickedModel !== modelId) {
+				await setModel(pickedModel);
+			}
+			Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+		},
+		[providerId, modelId, setProvider, setModel],
+	);
+
+	const handleAddKeyFromSheet = useCallback(
+		(id: ProviderId) => {
+			modelSheetRef.current?.close();
+			openKeySheet(id);
+		},
+		[openKeySheet],
+	);
 
 	const handleCopyDeviceId = async () => {
 		if (!deviceId) return;
@@ -73,31 +156,69 @@ export default function SettingsIndexScreen() {
 		}
 	};
 
-	const handleSignOut = () => {
+	const handleReset = () => {
 		Alert.alert(
-			"Sign out",
-			"This removes the pairing between this device and your SHADOW node. You will need to pair again to reconnect.",
+			"Reset SHADOW",
+			"This removes all API keys, chats, and your local profile from this phone. The node link is kept.",
 			[
 				{ text: "Cancel", style: "cancel" },
 				{
-					text: "Sign out",
+					text: "Reset",
 					style: "destructive",
 					onPress: async () => {
-						await signOut();
-						router.replace("/onboarding/scan");
+						await clearAllProviderKeys();
+						await useProfileStore.getState().clearProfile();
+						const chat = useChatStore.getState();
+						for (const t of [...chat.threads]) {
+							await chat.deleteThread(t.id);
+						}
+						await refreshKeyPresence();
+						router.replace("/onboarding");
 					},
 				},
 			],
 		);
 	};
 
+	const activeProvider = getProvider(providerId);
+	const activeModelLabel =
+		activeProvider.models.find((m) => m.id === modelId)?.label ?? modelId;
+
 	return (
 		<SettingsScreen title="Settings" showClose>
 			<SettingsGroup>
+				{KEY_PROVIDERS.map((id) => (
+					<SettingsRow
+						key={id}
+						title={`${getProvider(id).label} key`}
+						value={keyedProviders.includes(id) ? "Added" : "Not added"}
+						onPress={() => handleKeyRowPress(id)}
+					/>
+				))}
 				<SettingsRow
-					title="Node URL"
-					value={nodeUrl ?? "Not set"}
-					onPress={() => router.push("/settings/node-url")}
+					title="Model"
+					value={`${activeProvider.label} · ${activeModelLabel}`}
+					onPress={() => modelSheetRef.current?.snapToIndex(0)}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup>
+				<SettingsRow
+					title="Local profile"
+					value={profile.name || (profile.facts.length > 0 ? "Set" : "Not set")}
+					onPress={() => router.push("/settings/profile")}
+				/>
+				<SettingsRow
+					title="Appearance"
+					onPress={() => router.push("/settings/appearance")}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup>
+				<SettingsRow
+					title="SHADOW node"
+					value={isPaired ? (nodeUrl ?? "Linked") : "Not linked"}
+					onPress={() => router.push("/settings/link-node")}
 				/>
 			</SettingsGroup>
 
@@ -128,8 +249,19 @@ export default function SettingsIndexScreen() {
 			</SettingsGroup>
 
 			<SettingsGroup>
-				<SettingsRow title="Sign out" destructive onPress={handleSignOut} />
+				<SettingsRow title="Reset SHADOW" destructive onPress={handleReset} />
 			</SettingsGroup>
+
+			<KeySheet
+				ref={keySheetRef}
+				providerId={keySheetProvider}
+				onSaved={() => void handleKeySaved()}
+			/>
+			<ModelSheet
+				ref={modelSheetRef}
+				onPick={(p, m) => void handlePickModel(p, m)}
+				onAddKey={handleAddKeyFromSheet}
+			/>
 		</SettingsScreen>
 	);
 }

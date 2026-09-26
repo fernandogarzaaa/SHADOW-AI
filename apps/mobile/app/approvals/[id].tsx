@@ -5,6 +5,7 @@ import {
 	ActivityIndicator,
 	Pressable,
 	ScrollView,
+	StyleSheet,
 	Text,
 	TextInput,
 	View,
@@ -15,23 +16,8 @@ import { ExpiryCountdown } from "@/components/approvals/ExpiryCountdown";
 import { RiskBadge } from "@/components/approvals/RiskBadge";
 import { ChevronLeft, WarningIcon } from "@/components/icons";
 import { useApprovalsStore } from "@/stores/useApprovalsStore";
-
-function SectionTitle({ children }: { children: string }) {
-	return (
-		<Text className="mb-2 text-xs font-semibold uppercase text-white/40">
-			{children}
-		</Text>
-	);
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-	return (
-		<View className="mt-5">
-			<SectionTitle>{title}</SectionTitle>
-			{children}
-		</View>
-	);
-}
+import { Spacing, typography, useTheme } from "@/theme";
+import { withOpacity } from "@/utils/colors";
 
 function formatTimestamp(value: string | null | undefined): string {
 	if (!value) return "Unknown";
@@ -40,34 +26,57 @@ function formatTimestamp(value: string | null | undefined): string {
 	return parsed.toLocaleString();
 }
 
+function ReceiptRow({
+	label,
+	children,
+	last,
+}: {
+	label: string;
+	children: React.ReactNode;
+	last?: boolean;
+}) {
+	const { colors } = useTheme();
+	return (
+		<View
+			style={[
+				styles.receiptRow,
+				!last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+			]}
+		>
+			<Text style={[typography.body, styles.receiptLabel, { color: colors.mutedForeground }]}>
+				{label}
+			</Text>
+			<View style={styles.receiptValue}>{children}</View>
+		</View>
+	);
+}
+
 function ParamRows({ params }: { params: Record<string, unknown> }) {
+	const { colors } = useTheme();
 	const entries = Object.entries(params ?? {});
 	if (entries.length === 0) {
-		return <Text className="text-sm text-white/40">No parameters.</Text>;
+		return (
+			<Text style={[typography.body, { color: colors.mutedForeground }]}>
+				No itemized details.
+			</Text>
+		);
 	}
 	return (
-		<View className="overflow-hidden rounded-xl border border-white/10">
+		<View>
 			{entries.map(([key, value], index) => {
 				const display =
 					value !== null && typeof value === "object"
 						? JSON.stringify(value, null, 2)
 						: String(value);
 				return (
-					<View
-						key={key}
-						className={`flex-row gap-3 px-3 py-2.5 ${index > 0 ? "border-t border-white/10" : ""} ${index % 2 === 1 ? "bg-white/5" : ""}`}
-					>
-						<Text className="w-28 shrink-0 text-sm font-medium text-white/60">
-							{key}
-						</Text>
+					<ReceiptRow key={key} label={key} last={index === entries.length - 1}>
 						<Text
-							className="flex-1 text-sm text-white"
+							style={[typography.body, { color: colors.foreground }]}
 							selectable
-							style={{ fontFamily: "monospace" }}
 						>
 							{display}
 						</Text>
-					</View>
+					</ReceiptRow>
 				);
 			})}
 		</View>
@@ -75,17 +84,25 @@ function ParamRows({ params }: { params: Record<string, unknown> }) {
 }
 
 function DataChips({ items }: { items: string[] }) {
+	const { colors } = useTheme();
 	if (items.length === 0) {
-		return <Text className="text-sm text-white/40">None listed.</Text>;
+		return (
+			<Text style={[typography.body, { color: colors.mutedForeground }]}>
+				None listed.
+			</Text>
+		);
 	}
 	return (
-		<View className="flex-row flex-wrap gap-2">
+		<View style={styles.chips}>
 			{items.map((item) => (
 				<View
 					key={item}
-					className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5"
+					style={[
+						styles.chip,
+						{ borderColor: colors.border, backgroundColor: colors.background },
+					]}
 				>
-					<Text className="text-xs text-white/80">{item}</Text>
+					<Text style={[typography.meta, { color: colors.foreground }]}>{item}</Text>
 				</View>
 			))}
 		</View>
@@ -93,31 +110,41 @@ function DataChips({ items }: { items: string[] }) {
 }
 
 function DecidedBanner({ approval }: { approval: ApprovalRequest }) {
+	const { colors } = useTheme();
 	if (approval.status === "pending") return null;
 	const isApproved = approval.status === "approved";
-	const colors = isApproved
-		? "border-emerald-500/40 bg-emerald-500/10"
-		: "border-red-500/40 bg-red-500/10";
-	const text = isApproved ? "text-emerald-300" : "text-red-300";
+	const base = isApproved ? colors.success : colors.destructive;
 	return (
-		<View className={`rounded-xl border px-4 py-3 ${colors}`}>
-			<Text className={`text-sm font-semibold ${text}`}>
-				{isApproved ? "Approved" : `Denied${approval.status === "expired" ? " (expired)" : ""}`}
+		<View
+			style={[
+				styles.decided,
+				{
+					borderColor: withOpacity(base, 0.4),
+					backgroundColor: withOpacity(base, 0.1),
+				},
+			]}
+		>
+			<Text style={[typography.body, { color: base, fontWeight: "700" }]}>
+				{isApproved ? "Allowed" : `Denied${approval.status === "expired" ? " (expired)" : ""}`}
 			</Text>
 			{!isApproved && approval.deny_reason ? (
-				<Text className="mt-1 text-sm text-white/60">
+				<Text style={[typography.body, { color: colors.foreground, marginTop: 4 }]}>
 					Reason: {approval.deny_reason}
 				</Text>
 			) : null}
-			<Text className="mt-1 text-xs text-white/40">
+			<Text style={[typography.meta, { color: colors.mutedForeground, marginTop: 4 }]}>
 				Decided {formatTimestamp(approval.decided_at)}
 			</Text>
 		</View>
 	);
 }
 
-/** Detail screen for one approval request: full context, then approve or deny. */
+/**
+ * Approval detail as a consent-forward receipt: the consent promise up
+ * top, itemized details in the middle, Deny + Allow pills at the bottom.
+ */
 export default function ApprovalDetailScreen() {
+	const { colors } = useTheme();
 	const insets = useSafeAreaInsets();
 	const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -129,27 +156,35 @@ export default function ApprovalDetailScreen() {
 
 	const [denyExpanded, setDenyExpanded] = useState(false);
 	const [denyReason, setDenyReason] = useState("");
-	const [confirmingApprove, setConfirmingApprove] = useState(false);
+	const [confirmingAllow, setConfirmingAllow] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 
 	if (!approval) {
 		return (
 			<View
-				className="flex-1 items-center justify-center bg-black px-8"
-				style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+				style={[
+					styles.centered,
+					{
+						backgroundColor: colors.background,
+						paddingTop: insets.top,
+						paddingBottom: insets.bottom,
+					},
+				]}
 			>
-				<Text className="text-center text-base font-semibold text-white">
+				<Text style={[typography.h2, { color: colors.foreground, textAlign: "center" }]}>
 					Approval not found
 				</Text>
-				<Text className="mt-1 text-center text-sm text-white/50">
+				<Text style={[typography.body, { color: colors.mutedForeground, textAlign: "center", marginTop: 4 }]}>
 					It may have expired or been decided on another device.
 				</Text>
 				<Pressable
 					onPress={() => router.back()}
 					accessibilityRole="button"
-					className="mt-4 rounded-xl bg-white/10 px-6 py-3 active:bg-white/20"
+					style={[styles.pillButton, { backgroundColor: colors.muted, marginTop: Spacing.lg }]}
 				>
-					<Text className="text-sm font-semibold text-white">Go back</Text>
+					<Text style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}>
+						Go back
+					</Text>
 				</Pressable>
 			</View>
 		);
@@ -163,17 +198,17 @@ export default function ApprovalDetailScreen() {
 		router.back();
 	};
 
-	const handleApprove = async () => {
-		if (approval.requires_double_confirmation && !confirmingApprove) {
+	const handleAllow = async () => {
+		if (approval.requires_double_confirmation && !confirmingAllow) {
 			Haptics.selectionAsync().catch(() => {});
-			setConfirmingApprove(true);
+			setConfirmingAllow(true);
 			return;
 		}
 		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 		setSubmitting(true);
 		await decide(approval.id, "approve");
 		setSubmitting(false);
-		setConfirmingApprove(false);
+		setConfirmingAllow(false);
 		const updated = useApprovalsStore
 			.getState()
 			.approvals.find((item) => item.id === approval.id);
@@ -207,162 +242,247 @@ export default function ApprovalDetailScreen() {
 
 	return (
 		<View
-			className="flex-1 bg-black"
-			style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+			style={[
+				styles.container,
+				{
+					backgroundColor: colors.background,
+					paddingTop: insets.top,
+					paddingBottom: insets.bottom,
+				},
+			]}
 		>
-			<View className="flex-row items-center px-2 py-2">
+			<View style={styles.header}>
 				<Pressable
 					onPress={handleBack}
 					accessibilityRole="button"
 					accessibilityLabel="Back"
-					className="rounded-full p-2 active:bg-white/10"
+					style={styles.backButton}
+					hitSlop={8}
 				>
-					<ChevronLeft size={24} color="#fff" />
+					<ChevronLeft size={24} color={colors.foreground} />
 				</Pressable>
-				<Text className="ml-1 text-lg font-semibold text-white">
+				<Text style={[typography.h2, { color: colors.foreground }]}>
 					Approval request
 				</Text>
 			</View>
 
 			<ScrollView
-				className="flex-1"
-				contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+				style={styles.scroll}
+				contentContainerStyle={styles.scrollContent}
 				keyboardShouldPersistTaps="handled"
 			>
 				<DecidedBanner approval={approval} />
 
-				<View className="mt-3">
-					<Text className="text-xl font-bold leading-7 text-white">
+				{isPending ? (
+					<View
+						style={[
+							styles.consent,
+							{
+								backgroundColor: withOpacity(colors.primary, 0.08),
+								borderColor: withOpacity(colors.primary, 0.25),
+							},
+						]}
+					>
+						<Text style={[typography.body, { color: colors.foreground, fontWeight: "600" }]}>
+							Nothing gets spent, sent, or shared without your approval.
+						</Text>
+						<Text style={[typography.meta, { color: colors.mutedForeground, marginTop: 4 }]}>
+							Review the details below, then allow or deny.
+						</Text>
+					</View>
+				) : null}
+
+				<View
+					style={[
+						styles.receipt,
+						{ backgroundColor: colors.card, borderColor: colors.border },
+					]}
+				>
+					<Text style={[typography.h2, { color: colors.foreground }]}>
 						{approval.action_preview?.trim() || action.description}
 					</Text>
-				</View>
 
-				<View className="mt-3 flex-row flex-wrap items-center gap-2">
-					<RiskBadge risk={action.risk} />
-					{action.destructive && (
-						<View className="flex-row items-center gap-1 rounded-full border border-red-500/40 bg-red-500/15 px-2 py-0.5">
-							<WarningIcon size={12} color="#f87171" />
-							<Text className="text-[11px] font-semibold uppercase text-red-400">
-								Destructive
+					<View style={styles.badges}>
+						<RiskBadge risk={action.risk} />
+						{action.destructive && (
+							<View
+								style={[
+									styles.flag,
+									{
+										borderColor: withOpacity(colors.destructive, 0.4),
+										backgroundColor: withOpacity(colors.destructive, 0.1),
+									},
+								]}
+							>
+								<WarningIcon size={12} color={colors.destructive} />
+								<Text style={[styles.flagLabel, { color: colors.destructive }]}>
+									Destructive
+								</Text>
+							</View>
+						)}
+						{approval.requires_double_confirmation && (
+							<View
+								style={[
+									styles.flag,
+									{
+										borderColor: withOpacity(colors.warning, 0.4),
+										backgroundColor: withOpacity(colors.warning, 0.1),
+									},
+								]}
+							>
+								<Text style={[styles.flagLabel, { color: colors.warning }]}>
+									Needs double confirm
+								</Text>
+							</View>
+						)}
+					</View>
+
+					{approval.risk_label ? (
+						<Text style={[typography.body, { color: colors.mutedForeground, marginTop: 8 }]}>
+							{approval.risk_label}
+						</Text>
+					) : null}
+
+					{approval.reason ? (
+						<View style={styles.reasonBlock}>
+							<Text style={[typography.uiLabel, styles.sectionLabel, { color: colors.mutedForeground }]}>
+								Why this needs your approval
+							</Text>
+							<Text style={[typography.body, { color: colors.foreground, marginTop: 4 }]}>
+								{approval.reason}
 							</Text>
 						</View>
-					)}
-					{approval.requires_double_confirmation && (
-						<View className="rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5">
-							<Text className="text-[11px] font-semibold uppercase text-amber-400">
-								Needs double confirm
-							</Text>
-						</View>
-					)}
-				</View>
+					) : null}
 
-				{approval.risk_label ? (
-					<Text className="mt-2 text-sm text-white/60">{approval.risk_label}</Text>
-				) : null}
-
-				{approval.reason ? (
-					<Section title="Why it needs approval">
-						<Text className="text-sm leading-5 text-white/80">{approval.reason}</Text>
-					</Section>
-				) : null}
-
-				<Section title={`Parameters (${action.tool_name})`}>
+					<View style={styles.divider}>
+						<Text style={[typography.uiLabel, styles.sectionLabel, { color: colors.mutedForeground }]}>
+							Details
+						</Text>
+					</View>
 					<ParamRows params={action.params ?? {}} />
-				</Section>
 
-				<Section title="Data used">
-					<DataChips items={action.data_used ?? []} />
-				</Section>
-
-				<View className="mt-5 overflow-hidden rounded-xl border border-white/10">
-					<View className="flex-row justify-between px-3 py-2.5">
-						<Text className="text-sm text-white/50">Model</Text>
-						<Text className="text-sm text-white" selectable>
+					<View style={styles.divider}>
+						<Text style={[typography.uiLabel, styles.sectionLabel, { color: colors.mutedForeground }]}>
+							Receipt
+						</Text>
+					</View>
+					<ReceiptRow label="Tool">
+						<Text style={[typography.body, { color: colors.foreground }]} selectable>
+							{action.tool_name}
+						</Text>
+					</ReceiptRow>
+					<ReceiptRow label="Model">
+						<Text style={[typography.body, { color: colors.foreground }]} selectable>
 							{action.model_used || "Unknown"}
 						</Text>
-					</View>
-					<View className="flex-row justify-between border-t border-white/10 bg-white/5 px-3 py-2.5">
-						<Text className="text-sm text-white/50">Destination</Text>
-						<Text className="flex-1 text-right text-sm text-white" selectable>
+					</ReceiptRow>
+					<ReceiptRow label="Destination">
+						<Text style={[typography.body, { color: colors.foreground }]} selectable>
 							{action.destination || "Unknown"}
 						</Text>
-					</View>
-					<View className="flex-row justify-between border-t border-white/10 px-3 py-2.5">
-						<Text className="text-sm text-white/50">Created</Text>
-						<Text className="text-sm text-white">
+					</ReceiptRow>
+					<ReceiptRow label="Data used">
+						<DataChips items={action.data_used ?? []} />
+					</ReceiptRow>
+					<ReceiptRow label="Requested">
+						<Text style={[typography.body, { color: colors.foreground }]}>
 							{formatTimestamp(approval.created_at)}
 						</Text>
-					</View>
-					<View className="flex-row items-center justify-between border-t border-white/10 bg-white/5 px-3 py-2.5">
-						<Text className="text-sm text-white/50">Expires</Text>
+					</ReceiptRow>
+					<ReceiptRow label="Expires" last>
 						{approval.expires_at ? (
 							<ExpiryCountdown expiresAt={approval.expires_at} />
 						) : (
-							<Text className="text-sm text-white">No expiry</Text>
+							<Text style={[typography.body, { color: colors.foreground }]}>No expiry</Text>
 						)}
-					</View>
+					</ReceiptRow>
 				</View>
 
 				{storeError !== null && (
-					<View className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-						<Text className="text-sm text-red-300">{storeError}</Text>
+					<View
+						style={[
+							styles.error,
+							{
+								borderColor: withOpacity(colors.destructive, 0.4),
+								backgroundColor: withOpacity(colors.destructive, 0.08),
+							},
+						]}
+					>
+						<Text style={[typography.body, { color: colors.destructive }]}>{storeError}</Text>
 					</View>
 				)}
 
 				{isPending ? (
-					<View className="mt-6 gap-3">
+					<View style={styles.actions}>
 						{submitting ? (
-							<View className="items-center py-4">
-								<ActivityIndicator size="large" color="#f5a623" />
+							<View style={styles.submitting}>
+								<ActivityIndicator size="large" color={colors.primary} />
 							</View>
 						) : (
 							<>
-								<Pressable
-									onPress={handleApprove}
-									accessibilityRole="button"
-									className={`items-center rounded-xl px-6 py-4 ${
-										confirmingApprove ? "bg-amber-500" : "bg-emerald-600"
-									} active:opacity-80`}
-								>
-									<Text className="text-base font-bold text-white">
-										{confirmingApprove
-											? "Tap again to confirm"
-											: "Approve"}
-									</Text>
-								</Pressable>
+								<View style={styles.pills}>
+									<Pressable
+										onPress={handleDenyPress}
+										accessibilityRole="button"
+										accessibilityLabel="Deny this request"
+										style={({ pressed }) => [
+											styles.pillButton,
+											styles.denyPill,
+											{ borderColor: colors.destructive, opacity: pressed ? 0.7 : 1 },
+										]}
+									>
+										<Text style={[typography.uiLabel, { color: colors.destructive, fontWeight: "700" }]}>
+											Deny
+										</Text>
+									</Pressable>
+									<Pressable
+										onPress={() => void handleAllow()}
+										accessibilityRole="button"
+										accessibilityLabel={confirmingAllow ? "Tap again to confirm allowing" : "Allow this request"}
+										style={({ pressed }) => [
+											styles.pillButton,
+											{ backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
+										]}
+									>
+										<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
+											{confirmingAllow ? "Tap again to confirm" : "Allow"}
+										</Text>
+									</Pressable>
+								</View>
 
 								{denyExpanded ? (
-									<View className="gap-3">
+									<View style={styles.denyForm}>
 										<TextInput
 											value={denyReason}
 											onChangeText={setDenyReason}
 											placeholder="Reason for denying (optional)"
-											placeholderTextColor="rgba(255,255,255,0.35)"
+											placeholderTextColor={colors.mutedForeground}
 											multiline
-											className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white"
-											style={{ minHeight: 80, textAlignVertical: "top" }}
+											style={[
+												styles.denyInput,
+												typography.body,
+												{
+													color: colors.foreground,
+													borderColor: colors.border,
+													backgroundColor: colors.card,
+												},
+											]}
 										/>
 										<Pressable
-											onPress={handleConfirmDeny}
+											onPress={() => void handleConfirmDeny()}
 											accessibilityRole="button"
-											className="items-center rounded-xl bg-red-600 px-6 py-4 active:opacity-80"
+											accessibilityLabel="Confirm deny"
+											style={({ pressed }) => [
+												styles.pillButton,
+												{ backgroundColor: colors.destructive, opacity: pressed ? 0.8 : 1 },
+											]}
 										>
-											<Text className="text-base font-bold text-white">
+											<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
 												Confirm deny
 											</Text>
 										</Pressable>
 									</View>
-								) : (
-									<Pressable
-										onPress={handleDenyPress}
-										accessibilityRole="button"
-										className="items-center rounded-xl border border-red-500/50 bg-red-500/15 px-6 py-4 active:bg-red-500/25"
-									>
-										<Text className="text-base font-bold text-red-300">
-											Deny
-										</Text>
-									</Pressable>
-								)}
+								) : null}
 							</>
 						)}
 					</View>
@@ -370,9 +490,9 @@ export default function ApprovalDetailScreen() {
 					<Pressable
 						onPress={handleBack}
 						accessibilityRole="button"
-						className="mt-6 items-center rounded-xl bg-white/10 px-6 py-4 active:bg-white/20"
+						style={[styles.pillButton, { backgroundColor: colors.muted, marginTop: Spacing.lg }]}
 					>
-						<Text className="text-base font-semibold text-white">
+						<Text style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}>
 							Back to inbox
 						</Text>
 					</Pressable>
@@ -381,3 +501,148 @@ export default function ApprovalDetailScreen() {
 		</View>
 	);
 }
+
+const styles = StyleSheet.create({
+	container: {
+		flex: 1,
+	},
+	centered: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingHorizontal: Spacing.xl,
+	},
+	header: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+		paddingHorizontal: Spacing.sm,
+		paddingVertical: Spacing.sm,
+	},
+	backButton: {
+		borderRadius: 999,
+		padding: Spacing.sm,
+	},
+	scroll: {
+		flex: 1,
+	},
+	scrollContent: {
+		paddingHorizontal: Spacing.md,
+		paddingBottom: Spacing.xl,
+	},
+	decided: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 16,
+		padding: Spacing.md,
+		marginBottom: Spacing.md,
+	},
+	consent: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 16,
+		padding: Spacing.md,
+		marginBottom: Spacing.md,
+	},
+	receipt: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 16,
+		padding: Spacing.lg,
+	},
+	badges: {
+		marginTop: Spacing.sm,
+		flexDirection: "row",
+		flexWrap: "wrap",
+		alignItems: "center",
+		gap: Spacing.sm,
+	},
+	flag: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 999,
+		paddingHorizontal: 8,
+		paddingVertical: 2,
+	},
+	flagLabel: {
+		fontSize: 11,
+		fontWeight: "700",
+		textTransform: "uppercase",
+	},
+	reasonBlock: {
+		marginTop: Spacing.md,
+	},
+	sectionLabel: {
+		fontWeight: "700",
+		textTransform: "uppercase",
+		fontSize: 12,
+	},
+	divider: {
+		marginTop: Spacing.lg,
+		marginBottom: Spacing.sm,
+	},
+	receiptRow: {
+		flexDirection: "row",
+		gap: Spacing.md,
+		paddingVertical: 10,
+	},
+	receiptLabel: {
+		width: 104,
+		flexShrink: 0,
+		fontWeight: "600",
+	},
+	receiptValue: {
+		flex: 1,
+	},
+	chips: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: Spacing.sm,
+	},
+	chip: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 999,
+		paddingHorizontal: 12,
+		paddingVertical: 6,
+	},
+	error: {
+		marginTop: Spacing.md,
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 16,
+		padding: Spacing.md,
+	},
+	actions: {
+		marginTop: Spacing.lg,
+	},
+	submitting: {
+		alignItems: "center",
+		paddingVertical: Spacing.lg,
+	},
+	pills: {
+		flexDirection: "row",
+		gap: Spacing.sm,
+	},
+	pillButton: {
+		flex: 1,
+		alignItems: "center",
+		borderRadius: 999,
+		paddingVertical: 16,
+		paddingHorizontal: Spacing.lg,
+	},
+	denyPill: {
+		borderWidth: 1.5,
+		backgroundColor: "transparent",
+	},
+	denyForm: {
+		marginTop: Spacing.md,
+		gap: Spacing.sm,
+	},
+	denyInput: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 14,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: 12,
+		minHeight: 80,
+		textAlignVertical: "top",
+		fontSize: 16,
+	},
+});

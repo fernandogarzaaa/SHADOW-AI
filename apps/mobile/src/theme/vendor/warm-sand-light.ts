@@ -3,13 +3,9 @@ import type { Theme } from "./types";
 /**
  * Warm Sand Light Theme
  *
- * Based on the desktop app's index.css OKLCH color definitions.
- * Features a warm, sandy paper-like background with orange accents.
- *
- * Key differences from Flexoki Light:
- * - Primary: #d97d2f (warm orange) vs #EC8B49 (brighter orange)
- * - Background: #f8f7f3 (warm sand) vs #FFFCF0 (cream)
- * - More muted, paper-like aesthetic
+ * Chat-first companion theme: warm cream background (#F6F1EA) with a
+ * single cobalt accent (#0064E0). Cobalt is reserved for send and
+ * primary actions; everything else stays neutral.
  */
 export const warmSandLightTheme: Theme = {
 	metadata: {
@@ -24,36 +20,36 @@ export const warmSandLightTheme: Theme = {
 
 	colors: {
 		primary: {
-			base: "#d97d2f", // oklch(0.65 0.2 55) - warm orange
-			hover: "#c46c25",
-			active: "#e08d3f",
+			base: "#0064E0", // Cobalt - reserved for send + primary actions
+			hover: "#0053BC",
+			active: "#004CA8",
 			foreground: "#fdfcf9",
-			muted: "#d97d2f80",
-			emphasis: "#e08d3f",
+			muted: "#0064E080",
+			emphasis: "#0064E0",
 		},
 
 		surface: {
-			background: "#f8f7f3", // oklch(0.97 0.02 85) - warm sand
+			background: "#F6F1EA", // Warm cream
 			foreground: "#3d3833", // oklch(0.25 0.02 40) - dark warm text
-			muted: "#e8e5dd", // oklch(0.92 0.02 80) - light sand
+			muted: "#ECE7DB", // Light warm gray for hairlines/fills
 			mutedForeground: "#6d6860", // oklch(0.45 0.02 50) - medium warm
-			elevated: "#fdfcf9", // oklch(0.99 0.01 90) - bright sand
+			elevated: "#FFFFFF", // Cards and popovers
 			elevatedForeground: "#3d3833",
 			overlay: "#3d383320",
-			subtle: "#d4cfc4", // oklch(0.85 0.02 70)
+			subtle: "#ECE7DB",
 		},
 
 		interactive: {
-			border: "#d4cfc4", // oklch(0.85 0.02 70) - warm border
-			borderHover: "#c5c0b6",
-			borderFocus: "#d97d2f",
+			border: "#E2DCCF", // Warm hairline
+			borderHover: "#d4cfc4",
+			borderFocus: "#0064E0",
 			selection: "#3d383344",
 			selectionForeground: "#3d3833",
-			focus: "#d97d2f",
-			focusRing: "#d97d2f40",
+			focus: "#0064E0",
+			focusRing: "#0064E040",
 			cursor: "#3d3833",
-			hover: "#e8e5dd",
-			active: "#d4cfc4",
+			hover: "#ECE7DB",
+			active: "#E2DCCF",
 		},
 
 		status: {
@@ -156,12 +152,12 @@ export const warmSandLightTheme: Theme = {
 		},
 
 		chat: {
-			userMessage: "#3d3833",
-			userMessageBackground: "#e8e5dd",
+			userMessage: "#232838",
+			userMessageBackground: "#E3E9FA", // Pale periwinkle bubble
 			assistantMessage: "#3d3833",
-			assistantMessageBackground: "#f8f7f3",
+			assistantMessageBackground: "#F6F1EA",
 			timestamp: "#8a857c",
-			divider: "#d4cfc4",
+			divider: "#E2DCCF",
 		},
 
 		tools: {
