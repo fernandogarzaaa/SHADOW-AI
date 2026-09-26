@@ -35,6 +35,7 @@ MUTATING_TOOLS = frozenset({
 READ_ONLY_TOOLS = frozenset({
     "note.list",
     "http.get",
+    "web.search",
 })
 
 # Safety caps so a hostile or huge workspace cannot blow up verification.
@@ -216,6 +217,12 @@ def _read_only_check(tool_name: str, result: dict) -> tuple[bool, str]:
         if "status" in result and "body" in result:
             return True, f"observation returned: HTTP {result.get('status')}"
         return False, "http.get response is missing status or body"
+    if tool_name == "web.search":
+        if result.get("ok") and isinstance(result.get("results"), list):
+            return True, f"observation returned: {len(result['results'])} search results"
+        if result.get("reason") == "unavailable":
+            return True, "observation returned: search unavailable (no SearXNG instance)"
+        return False, "web.search response is missing the results list"
     if tool_name == "note.list":
         notes = result.get("notes")
         if isinstance(notes, list):

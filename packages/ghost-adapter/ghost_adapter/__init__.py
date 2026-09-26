@@ -5,6 +5,10 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel
 
+from .skills import SkillRegistry, build_default_registry
+from .untrusted import fence_content
+from .web_search import web_search as _web_search
+
 
 def workspace_dir() -> Path:
     p = Path(os.getenv("SHADOW_WORKSPACE_DIR", "data/workspace"))
@@ -38,7 +42,9 @@ class LocalActionExecutor:
             "calendar.create": self.calendar_create,
             "email.draft": self.email_draft,
             "http.get": self.http_get,
+            "web.search": self.web_search,
         }
+        self.skills: SkillRegistry = build_default_registry(self)
 
     def tool_metadata(self) -> list[dict]:
         """Return metadata for each tool, including consent requirements."""
@@ -121,13 +127,19 @@ class LocalActionExecutor:
 
     # --- network ---
     def http_get(self, p: dict) -> dict:
+        """Fetch a public URL. The body is fenced as untrusted web data."""
         url = p.get("url", "")
         self._guard_url(url)
         r = httpx.get(url, timeout=15, follow_redirects=True)
         return {
             "ok": True, "action": "http.get", "url": url, "status": r.status_code,
-            "content_type": r.headers.get("content-type", ""), "body": r.text[:2000],
+            "content_type": r.headers.get("content-type", ""),
+            "body": fence_content(r.text[:2000], source="web"),
         }
+
+    def web_search(self, p: dict) -> dict:
+        """Search the web via a SearXNG instance. Results are fenced as untrusted."""
+        return _web_search(p.get("query", ""), max_results=int(p.get("max_results", 10) or 10))
 
     @staticmethod
     def _guard_url(url: str) -> None:
