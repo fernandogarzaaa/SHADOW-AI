@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import type { AgentState } from "@/hooks/useProviderChat";
-import { Spacing, typography, useTheme } from "@/theme";
+import { useReduceMotion } from "@/hooks/useReduceMotion";
+import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
 import { withOpacity } from "@/utils/colors";
 
 interface AgentStateLineProps {
@@ -35,6 +36,7 @@ export function AgentStateLine({
 	onViewApproval,
 }: AgentStateLineProps) {
 	const { colors } = useTheme();
+	const reduceMotion = useReduceMotion();
 	const [expanded, setExpanded] = useState(false);
 	const [now, setNow] = useState(Date.now());
 	const pulse = useRef(new Animated.Value(0.35)).current;
@@ -46,7 +48,9 @@ export function AgentStateLine({
 	}, [state]);
 
 	useEffect(() => {
-		if (!active) return;
+		// Reduced motion: the dot renders static. State is always paired
+		// with a text label, never conveyed by animation alone.
+		if (!active || reduceMotion) return;
 		const loop = Animated.loop(
 			Animated.sequence([
 				Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
@@ -55,7 +59,7 @@ export function AgentStateLine({
 		);
 		loop.start();
 		return () => loop.stop();
-	}, [active, pulse]);
+	}, [active, pulse, reduceMotion]);
 
 	useEffect(() => {
 		if (!active) return;
@@ -119,7 +123,7 @@ export function AgentStateLine({
 					<Animated.View
 						style={[
 							styles.dot,
-							{ backgroundColor: colors.primary, opacity: pulse },
+							{ backgroundColor: colors.primary, opacity: reduceMotion ? 1 : pulse },
 						]}
 					/>
 				) : (
@@ -243,6 +247,7 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		gap: Spacing.sm,
+		minHeight: SemanticSpacing.buttonHeightMd,
 	},
 	dot: {
 		width: 8,
@@ -262,13 +267,15 @@ const styles = StyleSheet.create({
 	retry: {
 		flex: 1,
 		borderRadius: 999,
-		paddingVertical: 10,
+		minHeight: SemanticSpacing.buttonHeightMd,
+		justifyContent: "center",
 		alignItems: "center",
 	},
 	dismiss: {
 		borderWidth: StyleSheet.hairlineWidth,
 		borderRadius: 999,
-		paddingVertical: 10,
+		minHeight: SemanticSpacing.buttonHeightMd,
+		justifyContent: "center",
 		paddingHorizontal: Spacing.lg,
 		alignItems: "center",
 	},

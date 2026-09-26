@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Animated, View, type ViewStyle } from "react-native";
 import { shimmer as shimmerAnimation } from "@/lib/animations";
+import { useReduceMotion } from "@/hooks/useReduceMotion";
 import { useTheme } from "@/theme";
 import { withOpacity } from "@/utils/colors";
 import { skeletonStyles } from "./skeleton.styles";
@@ -39,16 +40,19 @@ function SkeletonRoot({
   style,
 }: SkeletonProps) {
   const { colors } = useTheme();
+  const reduceMotion = useReduceMotion();
   const animatedValue = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
+    // Reduced motion: render a static placeholder instead of shimmering.
+    if (reduceMotion) return;
     const animation = shimmerAnimation(animatedValue);
     animation.start();
 
     return () => {
       animation.stop();
     };
-  }, [animatedValue]);
+  }, [animatedValue, reduceMotion]);
 
   const getVariantStyle = (): ViewStyle => {
     switch (variant) {
@@ -88,7 +92,7 @@ function SkeletonRoot({
       style={[
         baseTone,
         getVariantStyle(),
-        { opacity: animatedValue },
+        { opacity: reduceMotion ? 0.6 : animatedValue },
         style,
       ]}
     />

@@ -9,6 +9,11 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
+import {
+	DEFAULT_AVATAR_ID,
+	isAvatarId,
+	type AvatarId,
+} from "@/avatars";
 
 const STORAGE_KEY = "shadow.profile.v1";
 
@@ -25,6 +30,8 @@ export interface UserProfile {
 	agentName: string;
 	/** How the agent should talk. */
 	tone: AgentTone;
+	/** Which shadow avatar is the agent's face. Defaults to "eclipse". */
+	avatarId: AvatarId;
 	updatedAt: number;
 }
 
@@ -34,6 +41,7 @@ const EMPTY_PROFILE: UserProfile = {
 	preferences: [],
 	agentName: "shadow",
 	tone: "warm",
+	avatarId: DEFAULT_AVATAR_ID,
 	updatedAt: 0,
 };
 
@@ -69,6 +77,7 @@ export const useProfileStore = create<ProfileStoreState>()((set) => ({
 						preferences: Array.isArray(parsed.preferences) ? parsed.preferences.filter((p) => typeof p === "string") : [],
 						agentName: typeof parsed.agentName === "string" && parsed.agentName.trim() ? parsed.agentName.trim() : "shadow",
 						tone: parsed.tone === "direct" || parsed.tone === "playful" ? parsed.tone : "warm",
+						avatarId: isAvatarId(parsed.avatarId) ? parsed.avatarId : DEFAULT_AVATAR_ID,
 						updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
 					},
 					initialized: true,
@@ -89,6 +98,10 @@ export const useProfileStore = create<ProfileStoreState>()((set) => ({
 			preferences: (patch.preferences ?? prev.preferences).map((p) => p.trim()).filter((p) => p.length > 0),
 			agentName: (patch.agentName ?? prev.agentName).trim() || "shadow",
 			tone: patch.tone ?? prev.tone,
+			avatarId:
+				patch.avatarId && isAvatarId(patch.avatarId)
+					? patch.avatarId
+					: prev.avatarId,
 			updatedAt: Date.now(),
 		};
 		set({ profile });

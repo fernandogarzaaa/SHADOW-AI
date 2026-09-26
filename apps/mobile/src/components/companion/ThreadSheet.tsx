@@ -9,9 +9,12 @@ import {
 	View,
 } from "react-native";
 import { Sheet, SheetView } from "@/components/ui/sheet";
+import { AgentMark } from "@/components/companion/AgentMark";
+import { ShadowAvatar } from "@/components/Avatar";
 import { getProvider } from "@/providers";
 import { useChatStore, type ChatThread } from "@/stores/useChatStore";
-import { Spacing, typography, useTheme } from "@/theme";
+import { useProfileStore } from "@/stores/useProfileStore";
+import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
 
 interface ThreadSheetProps {
 	onSelect: (threadId: string) => void;
@@ -32,6 +35,7 @@ export const ThreadSheet = forwardRef<BottomSheet, ThreadSheetProps>(
 	function ThreadSheet({ onSelect, onNewThread }, ref) {
 		const { colors } = useTheme();
 		const { threads, activeThreadId, deleteThread } = useChatStore();
+		const avatarId = useProfileStore((s) => s.profile.avatarId);
 
 		const snapPoints = useMemo(() => ["70%", "92%"], []);
 
@@ -50,11 +54,15 @@ export const ThreadSheet = forwardRef<BottomSheet, ThreadSheetProps>(
 					}}
 					style={({ pressed }) => [
 						styles.thread,
-						{ opacity: pressed ? 0.6 : 1 },
+						{
+							opacity: pressed ? 0.6 : 1,
+							backgroundColor: active ? colors.userBubble : "transparent",
+						},
 					]}
 					accessibilityRole="button"
-					accessibilityLabel={`Open chat: ${item.title}`}
+					accessibilityLabel={`Open chat: ${item.title}${active ? ", current chat" : ""}`}
 				>
+					<ShadowAvatar avatarId={avatarId} size={36} />
 					<View style={styles.threadText}>
 						<Text
 							style={[
@@ -85,6 +93,10 @@ export const ThreadSheet = forwardRef<BottomSheet, ThreadSheetProps>(
 							void deleteThread(item.id);
 						}}
 						hitSlop={12}
+						style={({ pressed }) => [
+							styles.deleteButton,
+							{ opacity: pressed ? 0.6 : 1 },
+						]}
 						accessibilityRole="button"
 						accessibilityLabel={`Delete chat: ${item.title}`}
 					>
@@ -108,7 +120,13 @@ export const ThreadSheet = forwardRef<BottomSheet, ThreadSheetProps>(
 								Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 								onNewThread();
 							}}
-							style={[styles.newButton, { backgroundColor: colors.primary }]}
+							style={({ pressed }) => [
+								styles.newButton,
+								{
+									backgroundColor: colors.primary,
+									opacity: pressed ? 0.85 : 1,
+								},
+							]}
 							accessibilityRole="button"
 							accessibilityLabel="Start a new chat"
 						>
@@ -127,14 +145,48 @@ export const ThreadSheet = forwardRef<BottomSheet, ThreadSheetProps>(
 							<View style={[styles.separator, { backgroundColor: colors.border }]} />
 						)}
 						ListEmptyComponent={
-							<Text
-								style={[
-									typography.body,
-									{ color: colors.mutedForeground, textAlign: "center", marginTop: 32 },
-								]}
-							>
-								No chats yet. Start one with the button above.
-							</Text>
+							<View style={styles.emptyState}>
+								<AgentMark size={56} />
+								<Text style={[typography.h2, { color: colors.foreground, textAlign: "center" }]}>
+									No chats yet
+								</Text>
+								<Text
+									style={[
+										typography.body,
+										{
+											color: colors.mutedForeground,
+											textAlign: "center",
+											marginTop: Spacing.sm,
+										},
+									]}
+								>
+									Start a conversation and it will show up here.
+								</Text>
+								<Pressable
+									onPress={() => {
+										Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+										onNewThread();
+									}}
+									style={({ pressed }) => [
+										styles.emptyButton,
+										{
+											backgroundColor: colors.primary,
+											opacity: pressed ? 0.85 : 1,
+										},
+									]}
+									accessibilityRole="button"
+									accessibilityLabel="Start your first chat"
+								>
+									<Text
+										style={[
+											typography.uiLabel,
+											{ color: colors.primaryForeground, fontWeight: "700" },
+										]}
+									>
+										Start a chat
+									</Text>
+								</Pressable>
+							</View>
 						}
 					/>
 				</SheetView>
@@ -152,23 +204,46 @@ const styles = StyleSheet.create({
 		paddingBottom: Spacing.md,
 	},
 	newButton: {
-		borderRadius: 16,
+		borderRadius: SemanticSpacing.radiusModal,
 		paddingHorizontal: Spacing.md,
-		paddingVertical: 8,
+		minHeight: SemanticSpacing.buttonHeightMd,
+		justifyContent: "center",
 	},
 	thread: {
 		flexDirection: "row",
 		alignItems: "center",
 		gap: Spacing.sm,
 		paddingHorizontal: Spacing.lg,
-		paddingVertical: Spacing.md,
+		paddingVertical: Spacing.sm,
+		minHeight: 60,
+		borderRadius: SemanticSpacing.radiusCard,
+		marginHorizontal: Spacing.sm,
 	},
 	threadText: {
 		flex: 1,
 		gap: 2,
 	},
+	deleteButton: {
+		minHeight: SemanticSpacing.buttonHeightMd,
+		justifyContent: "center",
+		paddingHorizontal: Spacing.sm,
+	},
 	separator: {
 		height: StyleSheet.hairlineWidth,
 		marginHorizontal: Spacing.lg,
+	},
+	emptyState: {
+		alignItems: "center",
+		paddingHorizontal: Spacing.xl,
+		paddingTop: Spacing.xl,
+		gap: Spacing.sm,
+	},
+	emptyButton: {
+		marginTop: Spacing.md,
+		borderRadius: SemanticSpacing.radiusModal,
+		paddingHorizontal: Spacing.xl,
+		minHeight: SemanticSpacing.buttonHeightLg,
+		justifyContent: "center",
+		alignItems: "center",
 	},
 });

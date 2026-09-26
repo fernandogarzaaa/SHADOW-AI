@@ -20,12 +20,14 @@ import { MessageView } from "@/components/companion/MessageView";
 import { ModelSheet } from "@/components/companion/ModelSheet";
 import { SmartReplies } from "@/components/companion/SmartReplies";
 import { ThreadSheet } from "@/components/companion/ThreadSheet";
+import { ShadowAvatar } from "@/components/Avatar";
+import { MenuIcon, PlusIcon } from "@/components/icons";
 import { useProviderChat } from "@/hooks/useProviderChat";
 import { getProvider, type ProviderId } from "@/providers";
 import { useChatStore, type ChatMessage } from "@/stores/useChatStore";
 import { useProfileStore } from "@/stores/useProfileStore";
 import { useProviderStore } from "@/stores/useProviderStore";
-import { Spacing, typography, useTheme } from "@/theme";
+import { Spacing, SemanticSpacing, typography, useTheme } from "@/theme";
 
 const SUGGESTIONS = [
 	"plan my day",
@@ -42,6 +44,7 @@ export default function ChatScreen() {
 	const { threads, activeThreadId, setActiveThread, createThread } = useChatStore();
 	const { providerId, modelId, initialized, setProvider, setModel } = useProviderStore();
 	const agentName = useProfileStore((s) => s.profile.agentName);
+	const avatarId = useProfileStore((s) => s.profile.avatarId);
 	const {
 		streaming,
 		streamingThreadId,
@@ -168,34 +171,47 @@ export default function ChatScreen() {
 						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 						threadSheetRef.current?.snapToIndex(0);
 					}}
-					style={styles.headerButton}
+					style={({ pressed }) => [
+						styles.headerButton,
+						{ opacity: pressed ? 0.6 : 1 },
+					]}
 					hitSlop={10}
 					accessibilityRole="button"
 					accessibilityLabel="Open chat list"
 				>
-					<Text style={[typography.h2, { color: colors.foreground }]}>☰</Text>
+					<MenuIcon size={22} color={colors.foreground} />
 				</Pressable>
 
-				<View style={styles.headerTitle}>
-					<Text
-						style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}
-						numberOfLines={1}
-					>
-						{thread?.title ?? "New chat"}
-					</Text>
-					<Pressable
-						onPress={() => {
-							Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-							modelSheetRef.current?.snapToIndex(0);
-						}}
-						hitSlop={8}
-						accessibilityRole="button"
-						accessibilityLabel="Change model"
-					>
-						<Text style={[typography.meta, { color: colors.mutedForeground }]}>
-							{threadProvider.label} · {threadModelLabel}
+				<View
+					style={styles.headerTitle}
+					accessibilityRole="header"
+					accessibilityLabel={`Chat with ${agentName || "shadow"}. ${thread?.title ?? "New chat"}. ${threadProvider.label}, ${threadModelLabel}.`}
+				>
+					<ShadowAvatar avatarId={avatarId} size={32} />
+					<View style={styles.headerTitleText}>
+						<Text
+							style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}
+							numberOfLines={1}
+						>
+							{agentName || "shadow"}
 						</Text>
-					</Pressable>
+						<Pressable
+							onPress={() => {
+								Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+								modelSheetRef.current?.snapToIndex(0);
+							}}
+							hitSlop={8}
+							accessibilityRole="button"
+							accessibilityLabel="Change model"
+						>
+							<Text
+								style={[typography.meta, { color: colors.mutedForeground }]}
+								numberOfLines={1}
+							>
+								{thread?.title ?? "New chat"} · {threadProvider.label} · {threadModelLabel}
+							</Text>
+						</Pressable>
+					</View>
 				</View>
 
 				<Pressable
@@ -203,12 +219,15 @@ export default function ChatScreen() {
 						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 						void handleNewThread();
 					}}
-					style={styles.headerButton}
+					style={({ pressed }) => [
+						styles.headerButton,
+						{ opacity: pressed ? 0.6 : 1 },
+					]}
 					hitSlop={10}
 					accessibilityRole="button"
 					accessibilityLabel="Start a new chat"
 				>
-					<Text style={[typography.h2, { color: colors.foreground }]}>＋</Text>
+					<PlusIcon size={22} color={colors.foreground} />
 				</Pressable>
 			</View>
 
@@ -335,14 +354,20 @@ const styles = StyleSheet.create({
 		borderBottomWidth: StyleSheet.hairlineWidth,
 	},
 	headerButton: {
-		width: 40,
-		height: 40,
+		width: SemanticSpacing.buttonHeightMd,
+		height: SemanticSpacing.buttonHeightMd,
 		alignItems: "center",
 		justifyContent: "center",
 	},
 	headerTitle: {
 		flex: 1,
+		flexDirection: "row",
 		alignItems: "center",
+		justifyContent: "center",
+		gap: Spacing.sm,
+	},
+	headerTitleText: {
+		flexShrink: 1,
 		gap: 2,
 	},
 	listContent: {
@@ -364,8 +389,10 @@ const styles = StyleSheet.create({
 	},
 	suggestion: {
 		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: 14,
+		borderRadius: SemanticSpacing.radiusCard,
 		paddingHorizontal: Spacing.md,
 		paddingVertical: Spacing.md,
+		minHeight: SemanticSpacing.buttonHeightMd,
+		justifyContent: "center",
 	},
 });
