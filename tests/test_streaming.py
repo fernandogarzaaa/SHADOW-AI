@@ -180,15 +180,16 @@ def test_push_token_register_and_notify(monkeypatch):
     calls = []
     monkeypatch.setattr(m, "EXPO_PUSH_ENABLED", True)
     monkeypatch.setattr(m, "_send_expo_push",
-                        lambda token, title, body, data: calls.append((token, title, data)))
+                        lambda token, title, body, data, category_id=None: calls.append((token, title, data, category_id)))
     created = client.post("/approvals", json={"action": _approval_action(), "reason": "t"}).json()
     deadline = time.time() + 5
     while not calls and time.time() < deadline:
         time.sleep(0.05)
     assert len(calls) == 1
-    token, title, data = calls[0]
+    token, title, data, category_id = calls[0]
     assert token == "ExponentPushToken[abc123]"
     assert data["approval_id"] == created["id"]
+    assert category_id == "shadow.approval"
 
 
 def test_push_rejects_non_expo_token(monkeypatch):
