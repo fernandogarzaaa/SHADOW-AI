@@ -64,7 +64,7 @@ def _notify_approval_created(req):
 def _approval_event_sink(event_type:str, req):
     bus.publish(event_type, req.model_dump(mode="json"))
     if event_type=="approval.created": _notify_approval_created(req)
-core=AgentCore(profile, approval_store=_approval_store, event_sink=_approval_event_sink)
+core=AgentCore(profile, approval_store=_approval_store, event_sink=_approval_event_sink, execution_store=_approval_store)
 store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
@@ -83,7 +83,7 @@ class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title
 class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
 class PairConfirm(BaseModel): pairing_id:str; device_name:str; public_key:str
 class DenyRequest(BaseModel): reason:str
-class ExecuteRequest(BaseModel): action:AgentAction; approved:bool=False; double_confirmed:bool=False
+class ExecuteRequest(BaseModel): action:AgentAction; approved:bool=False; double_confirmed:bool=False; approval_id:str|None=None
 class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User requested approval"
 class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
 class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:str="local_only"
@@ -248,7 +248,27 @@ def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
     if req.action.tool_name=="ghost_handoff": return ghost.execute(ghost.to_ir(AgentPlan(user_intent=req.action.description, actions=[req.action])), approved=req.approved)
-    res=core.execute(req.action,req.approved,req.double_confirmed); audit.extend(core.audit); return res
+    res=core.execute(req.action,req.approved,req.double_confirmed,approval_id=req.approval_id); audit.extend(core.audit)
+    if req.approval_id:
+        try:
+            core.approvals.attach_execution(req.approval_id, res["execution_id"], res["verification"])
+        except KeyError:
+            raise HTTPException(404,"unknown approval")
+        audit.append(AuditEvent(actor="agent",event_type="execution_verified",proposed_action=req.action.description,status=res["verification"],result=res["verification_reason"],metadata={"approval_id":req.approval_id,"execution_id":res["execution_id"]}))
+    return res
+@app.get("/executions")
+def list_executions(status:str|None=None, limit:int=50):
+    """Execution records, newest first. Filter with ?status=verified|failed|uncertain|conflicting."""
+    recs=sorted(core.executions.values(), key=lambda r: r.started_at, reverse=True)
+    if status:
+        recs=[r for r in recs if r.verification.value==status]
+    return [r.summary() for r in recs[:max(1,min(limit,200))]]
+@app.get("/executions/{execution_id}")
+def get_execution(execution_id:str):
+    """Full execution detail: intent, policy decision, tool observation, evidence, world-state diff, verdict."""
+    rec=core.executions.get(execution_id)
+    if rec is None: raise HTTPException(404,"unknown execution")
+    return rec
 @app.post("/approvals")
 def create_approval(req:ApprovalCreateRequest):
     approval=core.approvals.create(req.action, req.reason); audit.append(AuditEvent(actor="user", event_type="approval_created", proposed_action=req.action.description, status="pending", metadata={"approval_id":approval.id})); return approval
