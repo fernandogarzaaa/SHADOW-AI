@@ -39,6 +39,15 @@ if _runtime_db:
     _approval_store=_runtime_store
 else:
     audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); consents:list[ConsentGrant]=[]; _approval_store=None
+# Sentinel-lite: tamper-evident audit chain + credential vault, backed by the
+# encrypted runtime DB when configured, in-memory otherwise. Every policy
+# decision, approval event, credential resolution, and execution verdict lands
+# in the chain; inspect with `python -m shadow_node.cli audit ...`.
+sentinel_audit=AuditChain(_runtime_store if _runtime_db else None)
+sentinel_vault=CredentialVault(_runtime_store if _runtime_db else None, audit=sentinel_audit)
+sessions.event_sink=lambda actor, event_type, payload: sentinel_audit.record(actor, event_type, payload)
+_POLICY_FILE=os.getenv("SHADOW_POLICY_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "policy.yaml")
+if not os.path.isfile(_POLICY_FILE): _POLICY_FILE=None  # fall back to built-in defaults
 profile=UserProfile()
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
@@ -64,7 +73,8 @@ def _notify_approval_created(req):
 def _approval_event_sink(event_type:str, req):
     bus.publish(event_type, req.model_dump(mode="json"))
     if event_type=="approval.created": _notify_approval_created(req)
-core=AgentCore(profile, approval_store=_approval_store, event_sink=_approval_event_sink, execution_store=_approval_store)
+core=AgentCore(profile, approval_store=_approval_store, event_sink=_approval_event_sink, execution_store=_approval_store,
+             audit_chain=sentinel_audit, vault=sentinel_vault, policy_file=_POLICY_FILE)
 store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
@@ -179,7 +189,7 @@ def _run_ask_pipeline(req:AskRequest):
     if is_suspicious_user_request(req.prompt):
         audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
     results=memory.search(req.prompt,5,include_sensitive=False); raw_context="\n".join(mark_untrusted(r.item.text) for r in results); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
-    if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
+    if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); sentinel_audit.record("sentinel_policy","policy.decision",{"outcome":"deny","rule_id":"cloud_escalation","reason":"cloud escalation requires active grant and explicit approval"}); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
     # Hybrid routing: build a frontier provider only when cloud is approved AND a credential resolves; else fully local.
     frontier=None
     if req.allow_cloud:
@@ -248,7 +258,7 @@ def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
     if req.action.tool_name=="ghost_handoff": return ghost.execute(ghost.to_ir(AgentPlan(user_intent=req.action.description, actions=[req.action])), approved=req.approved)
-    res=core.execute(req.action,req.approved,req.double_confirmed,approval_id=req.approval_id); audit.extend(core.audit)
+    res=core.execute(req.action,req.approved,req.double_confirmed,approval_id=req.approval_id); audit.extend(core.drain_audit())
     if req.approval_id:
         try:
             core.approvals.attach_execution(req.approval_id, res["execution_id"], res["verification"])
@@ -294,7 +304,7 @@ def get_emergency_pause(): return {"paused":profile.emergency_paused}
 def set_emergency_pause(req:EmergencyPauseRequest):
     profile.emergency_paused=req.paused; audit.append(AuditEvent(actor="user", event_type="emergency_pause", status="paused" if req.paused else "resumed", result=req.reason)); return {"paused":profile.emergency_paused}
 @app.get("/audit")
-def get_audit(): return audit + core.audit + sessions.audit
+def get_audit(): return audit + core.drain_audit() + sessions.audit
 @app.get("/model/providers")
 def model_providers(): return model_config.safe_summary()
 @app.get("/providers")

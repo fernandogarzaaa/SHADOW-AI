@@ -1,5 +1,7 @@
 from .models import *
-from .policy import PolicyEngine
+from .policy import PolicyEngine, PolicyDecision, PolicyOutcome, DEFAULT_POLICY
+from .audit import AuditChain, AuditEntry, entry_hash
+from .vault import CredentialVault, CredentialRecord, SurrogateRecord
 from .core import AgentCore, AgentPlanner, ApprovalWorkflow, ToolRegistry
 from .verification import (
     ExecutionRecord,
