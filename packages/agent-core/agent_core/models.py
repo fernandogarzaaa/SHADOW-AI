@@ -26,6 +26,10 @@ class AgentTask(BaseModel):
     id: str = Field(default_factory=lambda:new_id("tsk")); prompt: str; plan: AgentPlan|None=None; status: str="created"; created_at: datetime=Field(default_factory=now)
 class ApprovalRequest(BaseModel):
     id: str = Field(default_factory=lambda:new_id("apr")); action: AgentAction; reason: str; action_preview: str; data_used_preview: list[str]=[]; model_used_preview: str|None=None; destination_preview: str|None=None; risk_label: RiskClass=RiskClass.LOW; kind: ApprovalKind=ApprovalKind.ONE_TIME; requires_double_confirmation: bool=False; status: ApprovalStatus=ApprovalStatus.PENDING; deny_reason: str|None=None; created_at: datetime=Field(default_factory=now); decided_at: datetime|None=None; expires_at: datetime=Field(default_factory=lambda: now()+timedelta(minutes=15))
+    # Verification linkage: once the approved action runs, the approval card
+    # carries the execution id and its VERIFIED / FAILED / UNCERTAIN / CONFLICTING
+    # verdict so clients can show proof, not just a claim of completion.
+    execution_id: str|None=None; verification_status: str|None=None
 class AuditEvent(BaseModel):
     id: str = Field(default_factory=lambda:new_id("aud")); actor: str; event_type: str; data_used: list[str]=[]; model_used: str|None=None; permission_checked: str|None=None; proposed_action: str|None=None; status: str="recorded"; result: str|None=None; timestamp: datetime=Field(default_factory=now); metadata: dict[str, Any]={}
 class Device(BaseModel):
