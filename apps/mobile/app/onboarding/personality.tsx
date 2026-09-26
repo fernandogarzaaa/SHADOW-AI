@@ -1,10 +1,13 @@
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getAvatar, type AvatarId } from "@/avatars";
+import { ShadowAvatar } from "@/components/Avatar";
+import { AvatarPicker } from "@/components/AvatarPicker";
 import { useProfileStore, type AgentTone } from "@/stores/useProfileStore";
-import { Spacing, typography, useTheme } from "../../src/theme";
+import { SemanticSpacing, Spacing, typography, useTheme } from "../../src/theme";
 
 const TONES: Array<{ id: AgentTone; label: string; blurb: string }> = [
 	{ id: "warm", label: "warm", blurb: "calm and friendly, like a thoughtful friend" },
@@ -13,8 +16,8 @@ const TONES: Array<{ id: AgentTone; label: string; blurb: string }> = [
 ];
 
 /**
- * Final onboarding step: name the agent and shape how it talks.
- * Stored in the local profile; editable later in Settings.
+ * Final onboarding step: name the agent, pick its face, and shape how it
+ * talks. Stored in the local profile; editable later in Settings.
  */
 export default function PersonalityScreen() {
 	const { colors } = useTheme();
@@ -22,13 +25,16 @@ export default function PersonalityScreen() {
 	const { profile, saveProfile } = useProfileStore();
 	const [agentName, setAgentName] = useState(profile.agentName || "shadow");
 	const [tone, setTone] = useState<AgentTone>(profile.tone);
+	const [avatarId, setAvatarId] = useState<AvatarId>(profile.avatarId);
 
 	async function handleDone() {
 		const name = agentName.trim() || "shadow";
 		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-		await saveProfile({ agentName: name, tone });
+		await saveProfile({ agentName: name, tone, avatarId });
 		router.replace("/(tabs)/chat");
 	}
+
+	const avatar = getAvatar(avatarId);
 
 	return (
 		<View
@@ -41,12 +47,17 @@ export default function PersonalityScreen() {
 				},
 			]}
 		>
-			<View style={styles.body}>
+			<ScrollView
+				style={styles.body}
+				contentContainerStyle={styles.bodyContent}
+				showsVerticalScrollIndicator={false}
+				keyboardShouldPersistTaps="handled"
+			>
 				<Text style={[typography.h1, { color: colors.foreground }]}>
 					make me yours
 				</Text>
-				<Text style={[typography.body, { color: colors.mutedForeground, marginTop: 8 }]}>
-					give me a name and tell me how to talk. you can change
+				<Text style={[typography.body, { color: colors.mutedForeground, marginTop: Spacing.sm }]}>
+					give me a name, pick my face, and tell me how to talk. you can change
 					this anytime in settings.
 				</Text>
 
@@ -72,6 +83,22 @@ export default function PersonalityScreen() {
 				/>
 
 				<Text style={[styles.label, typography.uiLabel, { color: colors.foreground }]}>
+					my look
+				</Text>
+				<View
+					style={styles.previewRow}
+					accessibilityRole="image"
+					accessibilityLabel={`Preview: ${avatar.label} avatar`}
+				>
+					<ShadowAvatar avatarId={avatarId} size={96} />
+					<Text style={[typography.body, { color: colors.mutedForeground, flex: 1 }]}>
+						this is the face of {agentName.trim() || "shadow"}. it shows up in
+						chat, your chats list, and approvals.
+					</Text>
+				</View>
+				<AvatarPicker value={avatarId} onSelect={setAvatarId} />
+
+				<Text style={[styles.label, typography.uiLabel, { color: colors.foreground }]}>
 					how i talk
 				</Text>
 				<View style={styles.tones}>
@@ -84,11 +111,12 @@ export default function PersonalityScreen() {
 									Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 									setTone(t.id);
 								}}
-								style={[
+								style={({ pressed }) => [
 									styles.tone,
 									{
 										borderColor: active ? colors.primary : colors.border,
 										backgroundColor: colors.card,
+										opacity: pressed ? 0.7 : 1,
 									},
 								]}
 								accessibilityRole="radio"
@@ -113,15 +141,18 @@ export default function PersonalityScreen() {
 						);
 					})}
 				</View>
-			</View>
+			</ScrollView>
 
 			<Pressable
 				onPress={() => void handleDone()}
-				style={[styles.cta, { backgroundColor: colors.primary }]}
+				style={({ pressed }) => [
+					styles.cta,
+					{ backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+				]}
 				accessibilityRole="button"
 				accessibilityLabel="Start chatting"
 			>
-				<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
+				<Text style={[typography.uiLabel, { color: colors.primaryForeground, fontWeight: "700" }]}>
 					start chatting
 				</Text>
 			</Pressable>
@@ -137,6 +168,9 @@ const styles = StyleSheet.create({
 	body: {
 		flex: 1,
 	},
+	bodyContent: {
+		paddingBottom: Spacing.lg,
+	},
 	label: {
 		marginTop: Spacing.xl,
 		marginBottom: Spacing.sm,
@@ -144,23 +178,32 @@ const styles = StyleSheet.create({
 	},
 	input: {
 		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: 12,
+		borderRadius: SemanticSpacing.radiusInput,
 		paddingHorizontal: Spacing.md,
-		paddingVertical: 12,
-		fontSize: 16,
+		paddingVertical: Spacing.md,
+		minHeight: SemanticSpacing.inputHeight,
+	},
+	previewRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: Spacing.md,
+		marginBottom: Spacing.md,
 	},
 	tones: {
 		gap: Spacing.sm,
 	},
 	tone: {
 		borderWidth: 1.5,
-		borderRadius: 14,
+		borderRadius: SemanticSpacing.radiusCard,
 		padding: Spacing.md,
 		gap: 2,
+		minHeight: SemanticSpacing.buttonHeightMd,
+		justifyContent: "center",
 	},
 	cta: {
-		borderRadius: 16,
-		paddingVertical: 16,
+		borderRadius: SemanticSpacing.radiusModal,
+		minHeight: SemanticSpacing.buttonHeightLg,
+		justifyContent: "center",
 		alignItems: "center",
 	},
 });

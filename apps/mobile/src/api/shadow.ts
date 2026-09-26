@@ -421,3 +421,71 @@ export async function askAgentStream(
 		});
 	});
 }
+
+/* ------------------------------------------------------------------ */
+/* Ambient surfaces (PR #21 node verification, PR #23 GHOST ambient).  */
+/* Used by the Briefing tab. All requests go through the HMAC-signed   */
+/* shadowFetch like every other node endpoint.                         */
+/* ------------------------------------------------------------------ */
+
+export interface ExecutionSummary {
+	execution_id: string;
+	intent?: string;
+	tool_name?: string;
+	verification?: "VERIFIED" | "FAILED" | "UNCERTAIN" | "CONFLICTING" | string;
+	started_at?: string;
+	[key: string]: unknown;
+}
+
+export interface AmbientRun {
+	run_id: string;
+	objective?: string;
+	status?: string;
+	started_at?: string;
+	steps_total?: number;
+	steps_done?: number;
+	[key: string]: unknown;
+}
+
+export interface AmbientStatus {
+	config?: {
+		enabled?: boolean;
+		interval_seconds?: number;
+		stealth_mode?: boolean;
+		[key: string]: unknown;
+	};
+	tasks_available?: string[];
+	background_running?: boolean;
+	[key: string]: unknown;
+}
+
+export interface Claim {
+	claim_id: string;
+	statement?: string;
+	status?: "unconfirmed" | "confirmed" | "refuted" | string;
+	run_id?: string | null;
+	[key: string]: unknown;
+}
+
+export async function listExecutions(limit = 20): Promise<ExecutionSummary[]> {
+	return readJson<ExecutionSummary[]>(
+		await shadowFetch(`/executions?limit=${encodeURIComponent(limit)}`),
+	);
+}
+
+export async function getAmbientStatus(): Promise<AmbientStatus> {
+	return readJson<AmbientStatus>(await shadowFetch("/ambient/status"));
+}
+
+export async function listAmbientRuns(limit = 20): Promise<AmbientRun[]> {
+	return readJson<AmbientRun[]>(
+		await shadowFetch(`/ambient/runs?limit=${encodeURIComponent(limit)}`),
+	);
+}
+
+export async function listClaims(
+	status?: "unconfirmed" | "confirmed" | "refuted",
+): Promise<Claim[]> {
+	const query = status ? `?status=${encodeURIComponent(status)}` : "";
+	return readJson<Claim[]>(await shadowFetch(`/claims${query}`));
+}

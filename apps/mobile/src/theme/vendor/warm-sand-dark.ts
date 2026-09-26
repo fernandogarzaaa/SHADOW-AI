@@ -3,181 +3,177 @@ import type { Theme } from "./types";
 /**
  * Warm Sand Dark Theme
  *
- * Based on the desktop app's index.css OKLCH color definitions.
- * Features a warm, golden-sand color palette that differs from Flexoki's orange primary.
- *
- * Key differences from Flexoki Dark:
- * - Primary: #edb449 (golden sand) vs #EC8B49 (orange)
- * - Background: #151313 vs #100F0F
- * - More consistent warm undertones throughout
+ * SHADOW deep-ink dark variant: a warm near-black background with warm
+ * neutral surfaces and a single cobalt accent (#0064E0), matching the
+ * light theme's reserved cobalt for send and primary actions.
  */
 export const warmSandDarkTheme: Theme = {
 	metadata: {
 		id: "warm-sand-dark",
 		name: "Warm Sand Dark",
-		description: "A warm, golden-sand color scheme - dark variant",
+		description: "A deep-ink, warm-neutral dark scheme with a cobalt accent",
 		author: "OpenChamber",
 		version: "1.0.0",
 		variant: "dark",
-		tags: ["dark", "warm", "sand", "golden"],
+		tags: ["dark", "warm", "ink", "cobalt"],
 	},
 
 	colors: {
 		primary: {
-			base: "#d97d2f", // oklch(0.65 0.2 55) - warm orange (same as light mode)
-			hover: "#c46c25",
-			active: "#e08d3f",
-			foreground: "#151313",
-			muted: "#d97d2f80",
-			emphasis: "#e08d3f",
+			base: "#2f7fe8", // Cobalt lightened for dark surfaces (4.66:1 on deep ink)
+			hover: "#4b92ec",
+			active: "#1f6cd6",
+			foreground: "#161412", // deep ink on cobalt: 4.66:1, passes AA
+			muted: "#2f7fe880",
+			emphasis: "#4b92ec",
 		},
 
 		surface: {
-			background: "#151313", // oklch(0.16 0.01 30)
-			foreground: "#cdccc3", // oklch(0.85 0.02 90)
-			muted: "#403E3C", // oklch(0.33 0.01 40)
-			mutedForeground: "#b6b4ab", // oklch(0.75 0.02 80)
-			elevated: "#1C1B1A", // oklch(0.19 0.01 40)
-			elevatedForeground: "#cdccc3",
+			background: "#161412", // deep ink, warm undertone
+			foreground: "#e9e2d5", // warm off-white
+			muted: "#292521", // warm neutral fill
+			mutedForeground: "#a9a091", // warm gray text (AA on deep ink)
+			elevated: "#1e1b17",
+			elevatedForeground: "#e9e2d5",
 			overlay: "#00000080",
-			subtle: "#343331", // oklch(0.29 0.01 40)
+			subtle: "#232019",
 		},
 
 		interactive: {
-			border: "#393836", // oklch(0.31 0.01 35)
-			borderHover: "#4a4846",
-			borderFocus: "#d97d2f", // matches primary orange
-			selection: "#cdccc330",
-			selectionForeground: "#cdccc3",
-			focus: "#d97d2f", // matches primary orange
-			focusRing: "#d97d2f50", // matches primary orange
-			cursor: "#cdccc3",
-			hover: "#343331",
-			active: "#403E3C",
+			border: "#2e2924", // hairline on deep ink
+			borderHover: "#3d3730",
+			borderFocus: "#2f7fe8", // cobalt
+			selection: "#e9e2d530",
+			selectionForeground: "#e9e2d5",
+			focus: "#2f7fe8", // cobalt
+			focusRing: "#2f7fe850", // cobalt
+			cursor: "#e9e2d5",
+			hover: "#232019",
+			active: "#292521",
 		},
 
 		status: {
-			error: "#d98678", // oklch(0.65 0.15 30) - warm red
-			errorForeground: "#151313",
-			errorBackground: "#d9867820",
-			errorBorder: "#d9867850",
+			error: "#e08a7a", // warm red, lightened for dark
+			errorForeground: "#161412",
+			errorBackground: "#e08a7a20",
+			errorBorder: "#e08a7a50",
 
-			warning: "#ffca16",
-			warningForeground: "#151313",
-			warningBackground: "#d9a33e20",
-			warningBorder: "#d9a33e50",
+			warning: "#e8b93e",
+			warningForeground: "#161412",
+			warningBackground: "#e8b93e20",
+			warningBorder: "#e8b93e50",
 
-			success: "#81af6c", // oklch(0.68 0.12 145) - warm green
-			successForeground: "#151313",
-			successBackground: "#81af6c20",
-			successBorder: "#81af6c50",
+			success: "#8fbf7d", // warm green, lightened for dark
+			successForeground: "#161412",
+			successBackground: "#8fbf7d20",
+			successBorder: "#8fbf7d50",
 
-			info: "#5aa9d9", // oklch(0.68 0.12 230) - soft blue
-			infoForeground: "#151313",
-			infoBackground: "#5aa9d920",
-			infoBorder: "#5aa9d950",
+			info: "#6fb3e0", // soft blue, lightened for dark
+			infoForeground: "#161412",
+			infoBackground: "#6fb3e020",
+			infoBorder: "#6fb3e050",
 		},
 
 		syntax: {
 			base: {
-				background: "#1C1B1A",
-				foreground: "#cdccc3",
-				comment: "#6b6964",
-				keyword: "#5aa9d9", // Soft blue
-				string: "#6cacd6",
-				number: "#d39373",
-				function: "#d29470", // Warm orange
-				variable: "#cdccc3",
-				type: "#c2974d", // Golden
-				operator: "#d98678", // Warm red
+				background: "#1e1b17",
+				foreground: "#e9e2d5",
+				comment: "#7a7264",
+				keyword: "#6fb3e0", // Soft blue
+				string: "#7fbfe0",
+				number: "#d8a17e",
+				function: "#d8a17e",
+				variable: "#e9e2d5",
+				type: "#c9a45c", // Warm sand
+				operator: "#e08a7a", // Warm red
 			},
 
 			tokens: {
-				commentDoc: "#575653",
-				stringEscape: "#cdccc3",
-				keywordImport: "#d98678",
-				storageModifier: "#5aa9d9",
-				functionCall: "#d29470",
-				method: "#81af6c",
-				variableProperty: "#5aa9d9",
-				variableOther: "#81af6c",
-				variableGlobal: "#ce5d97",
-				variableLocal: "#282726",
-				parameter: "#cdccc3",
-				constant: "#cdccc3",
-				class: "#d29470",
-				className: "#d29470",
-				interface: "#c2974d",
-				struct: "#d29470",
-				enum: "#d29470",
-				typeParameter: "#d29470",
-				namespace: "#c2974d",
-				module: "#d98678",
-				tag: "#5aa9d9",
-				jsxTag: "#ce5d97",
-				tagAttribute: "#c2974d",
-				tagAttributeValue: "#6cacd6",
-				boolean: "#c2974d",
-				decorator: "#c2974d",
-				label: "#ce5d97",
-				punctuation: "#6b6964",
-				macro: "#5aa9d9",
-				preprocessor: "#ce5d97",
-				regex: "#6cacd6",
-				url: "#5aa9d9",
-				key: "#d29470",
-				exception: "#ce5d97",
+				commentDoc: "#655d52",
+				stringEscape: "#e9e2d5",
+				keywordImport: "#e08a7a",
+				storageModifier: "#6fb3e0",
+				functionCall: "#d8a17e",
+				method: "#8fbf7d",
+				variableProperty: "#6fb3e0",
+				variableOther: "#8fbf7d",
+				variableGlobal: "#d47ba3",
+				variableLocal: "#2a2621",
+				parameter: "#e9e2d5",
+				constant: "#e9e2d5",
+				class: "#d8a17e",
+				className: "#d8a17e",
+				interface: "#c9a45c",
+				struct: "#d8a17e",
+				enum: "#d8a17e",
+				typeParameter: "#d8a17e",
+				namespace: "#c9a45c",
+				module: "#e08a7a",
+				tag: "#6fb3e0",
+				jsxTag: "#d47ba3",
+				tagAttribute: "#c9a45c",
+				tagAttributeValue: "#7fbfe0",
+				boolean: "#c9a45c",
+				decorator: "#c9a45c",
+				label: "#d47ba3",
+				punctuation: "#7a7264",
+				macro: "#6fb3e0",
+				preprocessor: "#d47ba3",
+				regex: "#7fbfe0",
+				url: "#6fb3e0",
+				key: "#d8a17e",
+				exception: "#d47ba3",
 			},
 
 			highlights: {
-				diffAdded: "#81af6c",
-				diffAddedBackground: "#81af6c20",
-				diffRemoved: "#d98678",
-				diffRemovedBackground: "#d9867820",
-				diffModified: "#5aa9d9",
-				diffModifiedBackground: "#5aa9d920",
-				lineNumber: "#403E3C",
-				lineNumberActive: "#cdccc3",
+				diffAdded: "#8fbf7d",
+				diffAddedBackground: "#8fbf7d20",
+				diffRemoved: "#e08a7a",
+				diffRemovedBackground: "#e08a7a20",
+				diffModified: "#6fb3e0",
+				diffModifiedBackground: "#6fb3e020",
+				lineNumber: "#2e2924",
+				lineNumberActive: "#e9e2d5",
 			},
 		},
 
 		markdown: {
-			heading1: "#c2974d", // Golden
-			heading2: "#d29470", // Warm orange
-			heading3: "#5aa9d9", // Soft blue
-			heading4: "#cdccc3",
-			link: "#5aa9d9",
-			linkHover: "#6cacd6",
-			inlineCode: "#81af6c",
-			inlineCodeBackground: "#1C1B1A",
-			blockquote: "#b6b4ab",
-			blockquoteBorder: "#393836",
-			listMarker: "#c2974d99",
+			heading1: "#c9a45c", // Warm sand
+			heading2: "#d8a17e", // Warm clay
+			heading3: "#6fb3e0", // Soft blue
+			heading4: "#e9e2d5",
+			link: "#6fb3e0",
+			linkHover: "#7fbfe0",
+			inlineCode: "#8fbf7d",
+			inlineCodeBackground: "#1e1b17",
+			blockquote: "#a9a091",
+			blockquoteBorder: "#2e2924",
+			listMarker: "#c9a45c99",
 		},
 
 		chat: {
-			userMessage: "#cdccc3",
-			userMessageBackground: "#282726", // oklch(0.24 0.01 40)
-			assistantMessage: "#cdccc3",
-			assistantMessageBackground: "#151313",
-			timestamp: "#6b6964",
-			divider: "#393836",
+			userMessage: "#e9e2d5",
+			userMessageBackground: "#2a2621",
+			assistantMessage: "#e9e2d5",
+			assistantMessageBackground: "#161412",
+			timestamp: "#7a7264",
+			divider: "#2e2924",
 		},
 
 		tools: {
-			background: "#1C1B1A50",
-			border: "#39383680",
-			headerHover: "#39383650",
-			icon: "#b6b4ab",
-			title: "#cdccc3",
-			description: "#b6b4ab",
+			background: "#1e1b1750",
+			border: "#2e292480",
+			headerHover: "#2e292450",
+			icon: "#a9a091",
+			title: "#e9e2d5",
+			description: "#a9a091",
 
 			edit: {
-				added: "#81af6c",
-				addedBackground: "#81af6c25",
-				removed: "#d98678",
-				removedBackground: "#d9867825",
-				lineNumber: "#403E3C",
+				added: "#8fbf7d",
+				addedBackground: "#8fbf7d25",
+				removed: "#e08a7a",
+				removedBackground: "#e08a7a25",
+				lineNumber: "#2e2924",
 			},
 		},
 	},

@@ -10,8 +10,11 @@ import {
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getAvatar, type AvatarId } from "@/avatars";
+import { ShadowAvatar } from "@/components/Avatar";
+import { AvatarPicker } from "@/components/AvatarPicker";
 import { useProfileStore, type AgentTone } from "@/stores/useProfileStore";
-import { Spacing, typography, useTheme } from "../../src/theme";
+import { SemanticSpacing, Spacing, typography, useTheme } from "../../src/theme";
 
 const TONES: Array<{ id: AgentTone; label: string }> = [
 	{ id: "warm", label: "warm" },
@@ -34,6 +37,7 @@ export default function ProfileScreen() {
 	const [preferences, setPreferences] = useState(profile.preferences.join("\n"));
 	const [agentName, setAgentName] = useState(profile.agentName);
 	const [tone, setTone] = useState<AgentTone>(profile.tone);
+	const [avatarId, setAvatarId] = useState<AvatarId>(profile.avatarId);
 	const [saved, setSaved] = useState(false);
 
 	useEffect(() => {
@@ -42,6 +46,7 @@ export default function ProfileScreen() {
 		setPreferences(profile.preferences.join("\n"));
 		setAgentName(profile.agentName);
 		setTone(profile.tone);
+		setAvatarId(profile.avatarId);
 	}, [profile]);
 
 	const dirty =
@@ -49,7 +54,8 @@ export default function ProfileScreen() {
 		facts !== profile.facts.join("\n") ||
 		preferences !== profile.preferences.join("\n") ||
 		agentName.trim() !== profile.agentName ||
-		tone !== profile.tone;
+		tone !== profile.tone ||
+		avatarId !== profile.avatarId;
 
 	async function handleSave() {
 		await saveProfile({
@@ -58,6 +64,7 @@ export default function ProfileScreen() {
 			preferences: preferences.split("\n"),
 			agentName,
 			tone,
+			avatarId,
 		});
 		setSaved(true);
 		Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -89,6 +96,8 @@ export default function ProfileScreen() {
 		},
 	];
 
+	const avatar = getAvatar(avatarId);
+
 	return (
 		<ScrollView
 			style={{ backgroundColor: colors.background }}
@@ -104,7 +113,7 @@ export default function ProfileScreen() {
 			<Text style={[typography.h1, { color: colors.foreground }]}>
 				local profile
 			</Text>
-			<Text style={[typography.body, { color: colors.mutedForeground, marginTop: 8 }]}>
+			<Text style={[typography.body, { color: colors.mutedForeground, marginTop: Spacing.sm }]}>
 				only what you write here. i add it to each chat so i
 				know the basics about you. nothing is learned in the
 				background and nothing leaves this phone.
@@ -124,6 +133,24 @@ export default function ProfileScreen() {
 			/>
 
 			<Text style={[styles.label, typography.uiLabel, { color: colors.foreground }]}>
+				Agent look
+			</Text>
+			<View style={styles.avatarRow}>
+				<ShadowAvatar avatarId={avatarId} size={56} />
+				<View style={styles.avatarText}>
+					<Text style={[typography.body, { color: colors.foreground, fontWeight: "600" }]}>
+						{avatar.label}
+					</Text>
+					<Text style={[typography.meta, { color: colors.mutedForeground }]}>
+						shown in chat, your chats list, and approvals
+					</Text>
+				</View>
+			</View>
+			<View style={styles.pickerWrap}>
+				<AvatarPicker value={avatarId} onSelect={setAvatarId} thumbSize={48} />
+			</View>
+
+			<Text style={[styles.label, typography.uiLabel, { color: colors.foreground }]}>
 				How I talk
 			</Text>
 			<View style={styles.toneRow}>
@@ -136,11 +163,12 @@ export default function ProfileScreen() {
 								Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 								setTone(t.id);
 							}}
-							style={[
+							style={({ pressed }) => [
 								styles.tonePill,
 								{
 									borderColor: active ? colors.primary : colors.border,
 									backgroundColor: active ? colors.userBubble : colors.card,
+									opacity: pressed ? 0.7 : 1,
 								},
 							]}
 							accessibilityRole="radio"
@@ -202,12 +230,16 @@ export default function ProfileScreen() {
 			<Pressable
 				onPress={() => void handleSave()}
 				disabled={!dirty}
-				style={[
+				style={({ pressed }) => [
 					styles.saveButton,
-					{ backgroundColor: dirty ? colors.primary : colors.muted },
+					{
+						backgroundColor: dirty ? colors.primary : colors.muted,
+						opacity: pressed && dirty ? 0.85 : 1,
+					},
 				]}
 				accessibilityRole="button"
 				accessibilityLabel="Save profile"
+				accessibilityState={{ disabled: !dirty }}
 			>
 				<Text
 					style={[
@@ -224,7 +256,10 @@ export default function ProfileScreen() {
 
 			<Pressable
 				onPress={handleClear}
-				style={styles.clearRow}
+				style={({ pressed }) => [
+					styles.clearRow,
+					{ opacity: pressed ? 0.6 : 1 },
+				]}
 				accessibilityRole="button"
 				accessibilityLabel="Clear profile"
 			>
@@ -248,10 +283,22 @@ const styles = StyleSheet.create({
 	},
 	input: {
 		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: 12,
+		borderRadius: SemanticSpacing.radiusInput,
 		paddingHorizontal: Spacing.md,
-		paddingVertical: 12,
-		fontSize: 16,
+		paddingVertical: Spacing.md,
+		minHeight: SemanticSpacing.inputHeight,
+	},
+	avatarRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: Spacing.md,
+	},
+	avatarText: {
+		flex: 1,
+		gap: 2,
+	},
+	pickerWrap: {
+		marginTop: Spacing.md,
 	},
 	toneRow: {
 		flexDirection: "row",
@@ -259,9 +306,10 @@ const styles = StyleSheet.create({
 	},
 	tonePill: {
 		borderWidth: 1.5,
-		borderRadius: 18,
+		borderRadius: SemanticSpacing.radiusFull,
 		paddingHorizontal: Spacing.md,
-		paddingVertical: 10,
+		minHeight: SemanticSpacing.buttonHeightMd,
+		justifyContent: "center",
 	},
 	multiline: {
 		minHeight: 96,
@@ -269,13 +317,15 @@ const styles = StyleSheet.create({
 	},
 	saveButton: {
 		marginTop: Spacing.xl,
-		borderRadius: 14,
-		paddingVertical: 14,
+		borderRadius: SemanticSpacing.radiusModal,
+		minHeight: SemanticSpacing.buttonHeightLg,
+		justifyContent: "center",
 		alignItems: "center",
 	},
 	clearRow: {
 		marginTop: Spacing.md,
 		alignItems: "center",
-		paddingVertical: 8,
+		justifyContent: "center",
+		minHeight: SemanticSpacing.buttonHeightMd,
 	},
 });

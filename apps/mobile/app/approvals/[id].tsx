@@ -444,7 +444,7 @@ export default function ApprovalDetailScreen() {
 											{ backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
 										]}
 									>
-										<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
+										<Text style={[typography.uiLabel, { color: colors.primaryForeground, fontWeight: "700" }]}>
 											{confirmingAllow ? "Tap again to confirm" : "Allow"}
 										</Text>
 									</Pressable>
@@ -477,7 +477,7 @@ export default function ApprovalDetailScreen() {
 												{ backgroundColor: colors.destructive, opacity: pressed ? 0.8 : 1 },
 											]}
 										>
-											<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
+											<Text style={[typography.uiLabel, { color: colors.primaryForeground, fontWeight: "700" }]}>
 												Confirm deny
 											</Text>
 										</Pressable>

@@ -53,25 +53,25 @@ export const warmSandLightTheme: Theme = {
 		},
 
 		status: {
-			error: "#c54a3a", // oklch(0.55 0.25 25) - warm red
+			error: "#b23e2e", // darkened for WCAG AA (5.16:1 on warm cream)
 			errorForeground: "#fdfcf9",
-			errorBackground: "#c54a3a20",
-			errorBorder: "#c54a3a50",
+			errorBackground: "#b23e2e20",
+			errorBorder: "#b23e2e50",
 
-			warning: "#c46c25",
+			warning: "#a05c1a", // darkened for WCAG AA (4.63:1 on warm cream)
 			warningForeground: "#fdfcf9",
-			warningBackground: "#c46c2520",
-			warningBorder: "#c46c2550",
+			warningBackground: "#a05c1a20",
+			warningBorder: "#a05c1a50",
 
-			success: "#5a8a35", // Warm green
+			success: "#4a7329", // darkened for WCAG AA (4.95:1 on warm cream)
 			successForeground: "#fdfcf9",
-			successBackground: "#5a8a3520",
-			successBorder: "#5a8a3550",
+			successBackground: "#4a732920",
+			successBorder: "#4a732950",
 
-			info: "#3a7ab8", // Warm blue
+			info: "#346f9f", // darkened for WCAG AA (4.77:1 on warm cream)
 			infoForeground: "#fdfcf9",
-			infoBackground: "#3a7ab820",
-			infoBorder: "#3a7ab850",
+			infoBackground: "#346f9f20",
+			infoBorder: "#346f9f50",
 		},
 
 		syntax: {
