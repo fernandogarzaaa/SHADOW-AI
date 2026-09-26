@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { SettingsScreen } from "@/components/settings";
+import { SettingsScreen } from "@/components/settings/SettingsScreen";
 import { CheckIcon } from "@/components/icons";
 import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
 import { type ThemeMode, useThemeMode } from "@/theme/ThemeProvider";
