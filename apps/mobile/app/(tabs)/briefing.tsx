@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AvatarStatusPill } from "@/components/AvatarStatusPill";
+import { ClaimCard } from "@/components/briefing/ClaimCard";
 import {
 	type AmbientRun,
 	type AmbientStatus,
@@ -148,13 +149,30 @@ export default function BriefingScreen() {
 	const { agentState } = useProviderChat();
 	const { data, loading, error, reload } = useBriefingData(isPaired);
 	const [refreshing, setRefreshing] = useState(false);
+	/** Claims the user decided on this session; hidden optimistically. */
+	const [resolvedClaimIds, setResolvedClaimIds] = useState<Set<string>>(
+		() => new Set(),
+	);
 
 	const onRefresh = useCallback(async () => {
 		setRefreshing(true);
 		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		setResolvedClaimIds(new Set());
 		await reload();
 		setRefreshing(false);
 	}, [reload]);
+
+	const handleClaimResolved = useCallback((claimId: string) => {
+		setResolvedClaimIds((prev) => {
+			const next = new Set(prev);
+			next.add(claimId);
+			return next;
+		});
+	}, []);
+
+	const openClaims = (data?.claims ?? []).filter(
+		(c) => !resolvedClaimIds.has(c.claim_id),
+	);
 
 	const greeting = greetingFor(new Date());
 	const ambientOn = data?.status.config?.enabled === true;
@@ -394,27 +412,21 @@ export default function BriefingScreen() {
 						)}
 					</SectionCard>
 
-					<SectionCard title={`Open claims (${data.claims.length})`}>
-						{data.claims.length === 0 ? (
+					<SectionCard title={`Open claims (${openClaims.length})`}>
+						{openClaims.length === 0 ? (
 							<Text style={[typography.body, { color: colors.mutedForeground }]}>
 								Nothing waiting on confirmation.
 							</Text>
 						) : (
-							data.claims.slice(0, 5).map((claim) => (
-								<View key={claim.claim_id} style={styles.itemRow}>
-									<View style={styles.itemText}>
-										<Text
-											style={[typography.body, { color: colors.foreground }]}
-											numberOfLines={2}
-										>
-											{claim.statement || claim.claim_id}
-										</Text>
-										<Text style={[typography.meta, { color: colors.mutedForeground }]}>
-											awaiting confirmation
-										</Text>
-									</View>
-								</View>
-							))
+							<View style={styles.claimList}>
+								{openClaims.slice(0, 5).map((claim) => (
+									<ClaimCard
+										key={claim.claim_id}
+										claim={claim}
+										onResolved={handleClaimResolved}
+									/>
+								))}
+							</View>
 						)}
 					</SectionCard>
 				</>
@@ -480,5 +492,8 @@ const styles = StyleSheet.create({
 		width: 8,
 		height: 8,
 		borderRadius: 4,
+	},
+	claimList: {
+		gap: Spacing.sm,
 	},
 });

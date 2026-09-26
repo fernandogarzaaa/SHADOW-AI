@@ -30,6 +30,8 @@ export function SmartReplies({
 						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 						onPick(reply);
 					}}
+					// Chips are visually compact; the hit area reaches 44pt.
+					hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
 					style={({ pressed }) => [
 						styles.chip,
 						{

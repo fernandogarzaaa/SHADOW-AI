@@ -17,28 +17,28 @@ export function AgentMark({ size = 72 }: { size?: number }) {
 			/>
 			<Path
 				d="M60 34 C62 46 64 54 66 66"
-				stroke="#3D3833"
+				stroke={colors.foreground}
 				strokeWidth={5}
 				strokeLinecap="round"
 				fill="none"
 			/>
 			<Path
 				d="M38 58 C50 58 70 58 84 57"
-				stroke="#3D3833"
+				stroke={colors.foreground}
 				strokeWidth={5}
 				strokeLinecap="round"
 				fill="none"
 			/>
 			<Path
 				d="M46 44 C54 52 66 64 74 72"
-				stroke="#3D3833"
+				stroke={colors.foreground}
 				strokeWidth={5}
 				strokeLinecap="round"
 				fill="none"
 			/>
 			<Path
 				d="M74 44 C66 52 54 64 46 72"
-				stroke="#3D3833"
+				stroke={colors.foreground}
 				strokeWidth={5}
 				strokeLinecap="round"
 				fill="none"

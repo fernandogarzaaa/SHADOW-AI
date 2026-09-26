@@ -9,6 +9,7 @@ import {
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { PlusIcon, SendIcon } from "@/components/icons";
 import { Spacing, typography, useTheme } from "@/theme";
 
 interface ComposerProps {
@@ -119,18 +120,21 @@ export function Composer({
 						styles.plusButton,
 						{ opacity: pressed ? 0.6 : 1 },
 					]}
+					// Visual is 36pt; the hit area reaches the 44pt minimum.
+					hitSlop={6}
 					accessibilityRole="button"
 					accessibilityLabel="More actions"
+					accessibilityState={{ expanded: menuOpen }}
 				>
-					<Text style={[typography.h2, { color: colors.mutedForeground }]}>
-						＋
-					</Text>
+					<PlusIcon size={22} color={colors.mutedForeground} />
 				</Pressable>
 
 				<TextInput
 					style={[styles.input, typography.body, { color: colors.foreground }]}
 					placeholder="Message"
 					placeholderTextColor={colors.mutedForeground}
+					accessibilityLabel="Message input"
+					accessibilityHint="Type a message to send to your agent"
 					value={text}
 					onChangeText={setText}
 					multiline
@@ -148,6 +152,7 @@ export function Composer({
 							onStop();
 						}}
 						style={[styles.sendButton, { backgroundColor: colors.foreground }]}
+						hitSlop={6}
 						accessibilityLabel="Stop generating"
 						accessibilityRole="button"
 					>
@@ -161,23 +166,18 @@ export function Composer({
 							styles.sendButton,
 							{ backgroundColor: canSend ? colors.primary : colors.muted },
 						]}
+						hitSlop={6}
 						accessibilityLabel="Send message"
 						accessibilityRole="button"
+						accessibilityState={{ disabled: !canSend }}
 					>
 						{disabled ? (
 							<ActivityIndicator size="small" color={colors.mutedForeground} />
 						) : (
-							<Text
-								style={[
-									typography.uiLabel,
-									{
-										color: canSend ? colors.primaryForeground : colors.mutedForeground,
-										fontWeight: "700",
-									},
-								]}
-							>
-								↑
-							</Text>
+							<SendIcon
+								size={18}
+								color={canSend ? colors.primaryForeground : colors.mutedForeground}
+							/>
 						)}
 					</Pressable>
 				)}

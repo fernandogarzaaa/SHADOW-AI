@@ -202,6 +202,11 @@ export default function ConversationScreen() {
 						agentName={agentName || "shadow"}
 						state={agentState}
 						size={56}
+						detail={
+							agentState === "idle"
+								? null
+								: `${stateProviderLabel ?? threadProvider.label} · ${threadModelLabel}`
+						}
 					/>
 					<Pressable
 						onPress={() => {

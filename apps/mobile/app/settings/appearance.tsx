@@ -2,24 +2,25 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SettingsScreen } from "@/components/settings/SettingsScreen";
 import { CheckIcon } from "@/components/icons";
 import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
+import { WarmSandDark, WarmSandLight } from "@/theme/colors";
 import { type ThemeMode, useThemeMode } from "@/theme/ThemeProvider";
 
-/** Static swatches for the preview cards, mirroring the vendor themes. */
+/** Static swatches for the preview cards, sourced from the theme tokens. */
 const PREVIEWS: Record<
 	Exclude<ThemeMode, "system">,
 	{ background: string; card: string; primary: string; foreground: string }
 > = {
 	light: {
-		background: "#F6F1EA",
-		card: "#FFFFFF",
-		primary: "#0064E0",
-		foreground: "#3d3833",
+		background: WarmSandLight.background,
+		card: WarmSandLight.card,
+		primary: WarmSandLight.primary,
+		foreground: WarmSandLight.foreground,
 	},
 	dark: {
-		background: "#161412",
-		card: "#1e1b17",
-		primary: "#2f7fe8",
-		foreground: "#e9e2d5",
+		background: WarmSandDark.background,
+		card: WarmSandDark.card,
+		primary: WarmSandDark.primary,
+		foreground: WarmSandDark.foreground,
 	},
 };
 
