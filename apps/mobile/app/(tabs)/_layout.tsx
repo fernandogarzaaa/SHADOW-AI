@@ -13,6 +13,7 @@ import {
 } from "@/components/icons";
 import { useConnectionStore } from "@/stores/useConnectionStore";
 import { SemanticSpacing, Spacing, useTheme } from "@/theme";
+import { withOpacity } from "@/utils/colors";
 
 const TAB_ICON_SIZE = 24;
 
@@ -55,10 +56,15 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 					styles.pill,
 					{
 						borderColor: colors.border,
-						// Translucent fill under the blur.
-						backgroundColor: isDark
-							? "rgba(28, 27, 26, 0.72)"
-							: "rgba(255, 253, 248, 0.72)",
+						// Translucent fill under the blur, derived from the theme
+						// card color so the bar tracks theme changes.
+						backgroundColor: withOpacity(colors.card, 0.72),
+						// Shadow tinted to the foreground hue; never pure black.
+						...Platform.select({
+							ios: { shadowColor: withOpacity(colors.foreground, 0.25) },
+							android: {},
+							default: {},
+						}),
 					},
 				]}
 			>
@@ -184,7 +190,6 @@ const styles = StyleSheet.create({
 		gap: 4,
 		...Platform.select({
 			ios: {
-				shadowColor: "#000",
 				shadowOpacity: 0.15,
 				shadowRadius: 16,
 				shadowOffset: { width: 0, height: 4 },

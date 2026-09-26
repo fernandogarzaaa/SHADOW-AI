@@ -79,7 +79,10 @@ export default function LinkNodeScreen() {
 						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 						router.push("/onboarding/scan");
 					}}
-					style={[styles.cta, { backgroundColor: colors.primary }]}
+					style={({ pressed }) => [
+						styles.cta,
+						{ backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+					]}
 					accessibilityRole="button"
 					accessibilityLabel="Scan pairing QR code"
 				>

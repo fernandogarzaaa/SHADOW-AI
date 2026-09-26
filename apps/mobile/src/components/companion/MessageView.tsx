@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { MarkdownRenderer } from "@/components/markdown/MarkdownRenderer";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import type { ChatMessage } from "@/stores/useChatStore";
+import { useProfileStore } from "@/stores/useProfileStore";
 import { Spacing, typography, useTheme } from "@/theme";
 
 /**
@@ -25,10 +26,14 @@ function StreamingCursor() {
 
 export function MessageView({ message }: { message: ChatMessage }) {
 	const { colors } = useTheme();
+	const agentName = useProfileStore((s) => s.profile.agentName) || "shadow";
 
 	if (message.role === "user") {
 		return (
-			<View style={styles.userRow}>
+			<View
+				style={styles.userRow}
+				accessibilityLabel={`You said: ${message.text}`}
+			>
 				<View
 					style={[
 						styles.userPill,
@@ -44,13 +49,19 @@ export function MessageView({ message }: { message: ChatMessage }) {
 	}
 
 	return (
-		<View style={styles.assistantRow}>
+		<View
+			style={styles.assistantRow}
+			accessibilityLabel={`${agentName} said: ${message.text}`}
+		>
 			<View style={styles.assistantBody}>
 				<ThrottledMarkdown content={message.text} />
 				{message.streaming ? <StreamingCursor /> : null}
 			</View>
 			{message.failed ? (
-				<Text style={[typography.meta, { color: colors.destructive, marginTop: 4 }]}>
+				<Text
+					style={[typography.meta, { color: colors.destructive, marginTop: 4 }]}
+					accessibilityRole="alert"
+				>
 					Failed to send. The error is shown above the composer.
 				</Text>
 			) : null}

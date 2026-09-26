@@ -489,3 +489,25 @@ export async function listClaims(
 	const query = status ? `?status=${encodeURIComponent(status)}` : "";
 	return readJson<Claim[]>(await shadowFetch(`/claims${query}`));
 }
+
+const CLAIM_DECISION_EVIDENCE = "Decided by the user in the SHADOW app.";
+
+/** Confirm a world-state claim. The node moves it out of "unconfirmed". */
+export async function confirmClaim(claimId: string): Promise<Claim> {
+	return readJson<Claim>(
+		await shadowFetch(`/claims/${encodeURIComponent(claimId)}/confirm`, {
+			method: "POST",
+			body: { evidence: CLAIM_DECISION_EVIDENCE },
+		}),
+	);
+}
+
+/** Refute a world-state claim. The node moves it out of "unconfirmed". */
+export async function refuteClaim(claimId: string): Promise<Claim> {
+	return readJson<Claim>(
+		await shadowFetch(`/claims/${encodeURIComponent(claimId)}/refute`, {
+			method: "POST",
+			body: { evidence: CLAIM_DECISION_EVIDENCE },
+		}),
+	);
+}

@@ -53,7 +53,10 @@ export default function WelcomeScreen() {
 						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 						router.push("/onboarding/provider");
 					}}
-					style={[styles.cta, { backgroundColor: colors.primary }]}
+					style={({ pressed }) => [
+						styles.cta,
+						{ backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+					]}
 					accessibilityRole="button"
 					accessibilityLabel="Choose a provider"
 				>
