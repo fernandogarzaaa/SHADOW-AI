@@ -18,6 +18,11 @@ import {
 import { useChatStore } from "@/stores/useChatStore";
 import { buildProfilePrompt, useProfileStore } from "@/stores/useProfileStore";
 import { useProviderStore } from "@/stores/useProviderStore";
+import {
+	quickCompleteLocalFirst,
+	smartRepliesPrompt,
+	threadTitlePrompt,
+} from "@/lib/localTriage";
 
 const MAX_HISTORY_MESSAGES = 40;
 
@@ -158,16 +163,16 @@ export function useProviderChat(): UseProviderChat {
 			const { threads, renameThread } = useChatStore.getState();
 			const thread = threads.find((t) => t.id === threadId);
 			if (!thread) return;
-			const title = await runQuickComplete(
-				thread.providerId,
-				thread.modelId,
-				[
-					{
-						role: "user",
-						content: `Give this chat a very short title (max 5 words, no quotes, no punctuation at the end). First message: ${firstUserText.slice(0, 300)}`,
-					},
-				],
-				24,
+			// Local-first: on-device when available (zero cost, offline),
+			// else the thread's cloud provider as before.
+			const prompt = threadTitlePrompt(firstUserText);
+			const title = await quickCompleteLocalFirst(prompt, 24, () =>
+				runQuickComplete(
+					thread.providerId,
+					thread.modelId,
+					[{ role: "user", content: prompt }],
+					24,
+				),
 			);
 			const clean = (title ?? "").trim().replace(/^["']|["']$/g, "");
 			if (clean) {
@@ -193,16 +198,16 @@ export function useProviderChat(): UseProviderChat {
 				return;
 			}
 			void (async () => {
-				const raw = await runQuickComplete(
-					thread.providerId,
-					thread.modelId,
-					[
-						{
-							role: "user",
-							content: `Suggest 3 short follow-up questions or replies the user might send next. Reply with only the 3 suggestions, one per line, no numbering, no quotes. Keep each under 8 words.\n\nAssistant just said: ${lastAssistant.text.slice(0, 600)}`,
-						},
-					],
-					80,
+				// Local-first: on-device when available (zero cost, offline),
+				// else the thread's cloud provider as before.
+				const prompt = smartRepliesPrompt(lastAssistant.text);
+				const raw = await quickCompleteLocalFirst(prompt, 80, () =>
+					runQuickComplete(
+						thread.providerId,
+						thread.modelId,
+						[{ role: "user", content: prompt }],
+						80,
+					),
 				);
 				if (!raw) return;
 				const replies = raw

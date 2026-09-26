@@ -53,3 +53,21 @@ approval_required_risks:
   - medium
   - high
   - blocked
+
+# Per-tool approval tiers. Optional; empty means the engine behaves exactly
+# as before. Tiers can only relax the *approval* requirement: they never
+# override emergency pause, blocked tools, or destructive double
+# confirmation, and `auto_approve` never waives high/blocked risk,
+# sensitive tools, or destructive actions.
+#
+# always_ask:   the tool always needs explicit approval
+# auto_approve: routine (low/medium risk) uses run without approval
+# always_allow: the tool never needs approval
+#
+# Examples (commented out = current default behavior):
+# tool_tiers:
+#   web_search: auto_approve
+#   calendar.read: auto_approve
+#   memory.recall: always_allow
+#   send_email: always_ask
+tool_tiers: {}

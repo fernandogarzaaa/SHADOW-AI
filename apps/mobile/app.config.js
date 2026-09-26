@@ -66,6 +66,8 @@ export default {
     },
     plugins: [
       'expo-router',
+      '@avasapp/react-native-app-intents',
+      './plugins/withSystemIntegrations.js',
       [
         'expo-splash-screen',
         {

@@ -10,6 +10,7 @@ export type ProviderErrorCode =
 	| "rate_limited"
 	| "quota"
 	| "bad_request"
+	| "forbidden"
 	| "server"
 	| "network"
 	| "aborted"
@@ -38,6 +39,15 @@ export function mapHttpError(
 ): ProviderError {
 	const body = bodyText.toLowerCase();
 	if (status === 401 || status === 403) {
+		// Some gateways (OpenCode Zen) 403 valid keys on tier-gated models.
+		// That is not a bad key; say so plainly.
+		if (body.includes("freetier")) {
+			return new ProviderError(
+				"forbidden",
+				`Your ${providerLabel} key cannot use this model on its current tier. Pick a different model or upgrade the key.`,
+				status,
+			);
+		}
 		return new ProviderError(
 			"invalid_key",
 			`Your ${providerLabel} key was rejected. Check the key and try again.`,

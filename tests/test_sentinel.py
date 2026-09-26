@@ -371,3 +371,110 @@ def test_drain_audit_returns_new_events_once():
     first = core.drain_audit()
     assert len(first) == 1
     assert core.drain_audit() == []
+
+
+# --- per-tool approval tiers ---
+
+def _tiered_engine(tiers):
+    from agent_core import DEFAULT_POLICY
+    doc = dict(DEFAULT_POLICY)
+    doc["tool_tiers"] = tiers
+    return PolicyEngine(policy=doc)
+
+
+def test_no_tiers_behaves_as_before():
+    engine = PolicyEngine()
+    assert engine.tool_tiers == {}
+    assert engine.describe()["tool_tiers"] == {}
+    # Existing behavior spot-check: suggest_only still requires approval.
+    profile = UserProfile(autonomy_mode=AutonomyMode.SUGGEST_ONLY)
+    d = engine.decide(_action("answer_question", description="summarize this"), profile)
+    assert d.outcome == PolicyOutcome.REQUIRE_APPROVAL
+
+
+def test_auto_approve_waives_routine_low_risk_tool():
+    engine = _tiered_engine({"web_search": "auto_approve"})
+    profile = UserProfile(autonomy_mode=AutonomyMode.SUGGEST_ONLY)
+    d = engine.decide(_action("web_search", description="look up the docs"), profile)
+    assert d.outcome == PolicyOutcome.ALLOW
+    assert d.rule_id == "tool_tier_auto_approve"
+
+
+def test_auto_approve_does_not_waive_high_risk_tool():
+    engine = _tiered_engine({"send_email": "auto_approve"})
+    d = engine.decide(_action("send_email", description="send the report"), _profile())
+    assert d.outcome == PolicyOutcome.REQUIRE_APPROVAL
+    assert d.rule_id == "approval_required"
+
+
+def test_auto_approve_does_not_waive_sensitive_tool():
+    engine = _tiered_engine({"write_file": "auto_approve"})
+    d = engine.decide(_action("write_file", description="write notes"), _profile())
+    assert d.outcome == PolicyOutcome.REQUIRE_APPROVAL
+
+
+def test_always_ask_forces_approval_in_trusted_workflow():
+    engine = _tiered_engine({"answer_question": "always_ask"})
+    profile = UserProfile(autonomy_mode=AutonomyMode.TRUSTED_WORKFLOW)
+    d = engine.decide(_action("answer_question", description="summarize this"), profile)
+    assert d.outcome == PolicyOutcome.REQUIRE_APPROVAL
+    assert d.rule_id == "tool_tier_always_ask"
+
+
+def test_always_allow_skips_approval_for_routine_tool():
+    engine = _tiered_engine({"memory_recall": "always_allow"})
+    profile = UserProfile(autonomy_mode=AutonomyMode.SUGGEST_ONLY)
+    d = engine.decide(_action("memory_recall", description="recall prefs"), profile)
+    assert d.outcome == PolicyOutcome.ALLOW
+    assert d.rule_id == "tool_tier_always_allow"
+
+
+def test_always_allow_on_sensitive_tool_is_config_error():
+    from agent_core import DEFAULT_POLICY
+    doc = dict(DEFAULT_POLICY)
+    doc["tool_tiers"] = {"send_email": "always_allow"}
+    with pytest.raises(ValueError, match="not allowed for sensitive tool"):
+        PolicyEngine(policy=doc)
+
+
+def test_always_allow_does_not_waive_medium_risk_use():
+    engine = _tiered_engine({"web_search": "always_allow"})
+    d = engine.decide(_action("web_search", description="look up email contacts"), _profile())
+    assert d.outcome == PolicyOutcome.REQUIRE_APPROVAL
+    assert d.rule_id == "approval_required"
+
+
+def test_always_allow_does_not_waive_destructive_use():
+    engine = _tiered_engine({"web_search": "always_allow"})
+    d = engine.decide(_action("web_search", destructive=True), _profile(), approved=True)
+    assert d.outcome == PolicyOutcome.DENY
+    assert d.rule_id == "destructive_needs_double_confirm"
+
+
+def test_tiers_never_override_blocked_tools():
+    engine = _tiered_engine({"keylogger": "always_allow"})
+    d = engine.decide(_action("keylogger", description="log keys"), _profile(), approved=True)
+    assert d.outcome == PolicyOutcome.DENY
+    assert d.rule_id == "blocked_tool"
+
+
+def test_tiers_never_override_destructive_double_confirm():
+    engine = _tiered_engine({"delete_file": "always_allow"})
+    d = engine.decide(_action("delete_file", destructive=True), _profile(), approved=True)
+    assert d.outcome == PolicyOutcome.DENY
+    assert d.rule_id == "destructive_needs_double_confirm"
+
+
+def test_tiers_never_override_emergency_pause():
+    engine = _tiered_engine({"web_search": "always_allow"})
+    d = engine.decide(_action("web_search"), _profile(emergency_paused=True))
+    assert d.outcome == PolicyOutcome.DENY
+    assert d.rule_id == "emergency_pause"
+
+
+def test_unknown_tier_is_hard_error():
+    from agent_core import DEFAULT_POLICY
+    doc = dict(DEFAULT_POLICY)
+    doc["tool_tiers"] = {"web_search": "sometimes"}
+    with pytest.raises(ValueError, match="unknown tool_tier"):
+        PolicyEngine(policy=doc)

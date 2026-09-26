@@ -34,8 +34,40 @@ The rule sets live in `apps/shadow-node/shadow_node/policy.yaml`
 - `approval_required_risks`: risk classes that need approval.
 
 Evaluation order is fixed: emergency pause -> blocked -> destructive without
-double confirmation -> approval required -> allow. The same inputs always
-produce the same decision.
+double confirmation -> per-tool tier -> approval required -> allow. The same
+inputs always produce the same decision.
+
+### Per-tool approval tiers
+
+`tool_tiers` (default `{}`) lets the operator set Always Ask / Auto Approve /
+Always Allow per tool, so routine reads run silent while writes still pause:
+
+```yaml
+tool_tiers:
+  web_search: auto_approve
+  memory.recall: always_allow
+  send_email: always_ask
+```
+
+Safety properties, all enforced in `decide()` and covered by tests:
+
+- Tiers are evaluated **after** the hard gates, so a tier can never
+  override emergency pause, a blocked tool, or destructive double
+  confirmation.
+- `auto_approve` waives approval only for low/medium-risk, non-sensitive,
+  non-destructive uses. A tiered `send_email` (high risk, sensitive) still
+  requires approval.
+- `always_allow` is standing pre-approval for routine **low-risk,
+  non-sensitive, non-destructive** uses only (e.g. `memory.recall`).
+  Medium/high-risk, sensitive, or destructive uses of a tiered tool fall
+  through to the normal approval path. Tiering a sensitive tool
+  `always_allow` (e.g. `send_email`) is a hard startup error, not a silent
+  waiver.
+- An unknown tier name is a hard startup error, not a silent default.
+- Every tier decision is written to the audit chain with its own
+  `rule_id` (`tool_tier_always_ask`, `tool_tier_auto_approve`,
+  `tool_tier_always_allow`), so tier usage is explainable.
+- With no tiers configured, behavior is byte-for-byte identical to before.
 
 The engine falls back to built-in defaults only when no policy file is
 configured. An explicitly configured file that is missing or invalid is a

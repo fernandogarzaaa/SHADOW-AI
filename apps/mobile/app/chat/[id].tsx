@@ -40,7 +40,7 @@ export default function ConversationScreen() {
 	const { colors } = useTheme();
 	const router = useRouter();
 	const insets = useSafeAreaInsets();
-	const { id } = useLocalSearchParams<{ id: string }>();
+	const { id, autosend } = useLocalSearchParams<{ id: string; autosend?: string }>();
 
 	const { threads, setActiveThread, createThread, markThreadRead } = useChatStore();
 	const { providerId, modelId, initialized, setProvider, setModel } = useProviderStore();
@@ -112,6 +112,21 @@ export default function ConversationScreen() {
 		},
 		[id, send, clearError],
 	);
+
+	// App Intents / share-sheet entry: a fresh thread opened with an
+	// `autosend` param sends it once, then the param is consumed.
+	const autosendConsumedRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!autosend || !id || !thread || thread.messages.length > 0) return;
+		const key = `${id}:${autosend}`;
+		if (autosendConsumedRef.current === key) return;
+		autosendConsumedRef.current = key;
+		void (async () => {
+			clearError();
+			await send(id, autosend);
+			router.setParams({ autosend: undefined });
+		})();
+	}, [autosend, id, thread, send, clearError, router]);
 
 	const handleRetry = useCallback(async () => {
 		if (!id) return;
