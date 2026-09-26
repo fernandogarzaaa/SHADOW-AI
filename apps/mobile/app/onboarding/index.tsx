@@ -60,7 +60,7 @@ export default function WelcomeScreen() {
 					<Text
 						style={[
 							typography.uiLabel,
-							{ color: "#FFFFFF", fontWeight: "700" },
+							{ color: colors.primaryForeground, fontWeight: "700" },
 						]}
 					>
 						choose a provider

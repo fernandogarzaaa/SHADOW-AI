@@ -34,6 +34,8 @@ export interface ChatThread {
 	createdAt: number;
 	updatedAt: number;
 	messages: ChatMessage[];
+	/** Last time the user viewed this thread. Unset means never viewed. */
+	lastReadAt?: number;
 }
 
 function newId(): string {
@@ -49,6 +51,8 @@ interface ChatStoreState {
 	setActiveThread: (id: string | null) => void;
 	deleteThread: (id: string) => Promise<void>;
 	renameThread: (id: string, title: string) => Promise<void>;
+	/** Marks a thread as viewed now. Powers the unread dots on the chats list. */
+	markThreadRead: (threadId: string) => Promise<void>;
 	addMessage: (threadId: string, role: ChatRole, text: string) => Promise<string>;
 	appendToMessage: (threadId: string, messageId: string, delta: string) => void;
 	finalizeMessage: (threadId: string, messageId: string, failed?: boolean) => Promise<void>;
@@ -132,6 +136,15 @@ export const useChatStore = create<ChatStoreState>()((set, get) => ({
 		await persist(threads);
 	},
 
+	markThreadRead: async (threadId) => {
+		const now = Date.now();
+		const threads = get().threads.map((t) =>
+			t.id === threadId ? { ...t, lastReadAt: now } : t,
+		);
+		set({ threads });
+		await persist(threads);
+	},
+
 	addMessage: async (threadId, role, text) => {
 		const message: ChatMessage = {
 			id: newId(),
@@ -181,4 +194,14 @@ export const useChatStore = create<ChatStoreState>()((set, get) => ({
 /** Pure helper for tests: sort newest-first. */
 export function sortThreadsNewestFirst(threads: ChatThread[]): ChatThread[] {
 	return [...threads].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/**
+ * Pure helper for tests: a thread counts as unread when it was updated
+ * after the user last viewed it. The user's own active thread is never
+ * unread; callers exclude it before rendering the dot.
+ */
+export function isThreadUnread(thread: ChatThread): boolean {
+	if (thread.messages.length === 0) return false;
+	return (thread.lastReadAt ?? 0) < thread.updatedAt;
 }

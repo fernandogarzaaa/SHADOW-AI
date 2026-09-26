@@ -1,6 +1,4 @@
 import BottomSheet from "@gorhom/bottom-sheet";
-import * as Clipboard from "expo-clipboard";
-import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
@@ -9,6 +7,21 @@ import { Alert } from "react-native";
 import { SettingsGroup, SettingsRow, SettingsScreen } from "@/components/settings/primitives";
 import { KeySheet } from "@/components/companion/KeySheet";
 import { ModelSheet } from "@/components/companion/ModelSheet";
+import {
+	AiAgentIcon,
+	BellIcon,
+	BrainIcon,
+	CloudIcon,
+	DocumentIcon,
+	HelpIcon,
+	InfoIcon,
+	KeyIcon,
+	LockIcon,
+	MoonIcon,
+	TrashIcon,
+	UsersIcon,
+} from "@/components/icons";
+import { getAvatar } from "@/avatars";
 import { unlockApp } from "@/lib/appLock";
 import {
 	KEY_PROVIDERS,
@@ -21,19 +34,21 @@ import { useChatStore } from "@/stores/useChatStore";
 import { useConnectionStore } from "@/stores/useConnectionStore";
 import { useProfileStore } from "@/stores/useProfileStore";
 import { useProviderStore } from "@/stores/useProviderStore";
+import { useTheme } from "@/theme";
 
 const PUSH_REGISTERED_KEY = "shadow_push_registered";
+const ICON_SIZE = 18;
 
-function shortenId(id: string): string {
-	if (id.length <= 20) return id;
-	return `${id.slice(0, 8)}...${id.slice(-4)}`;
-}
-
+/**
+ * Settings, regrouped around what the app actually does: chat (provider,
+ * model, keys), personal (avatar, personality), the optional node link,
+ * preferences, support, legal, about, and a data reset. Every row leads
+ * to real behavior; nothing here is decorative.
+ */
 export default function SettingsIndexScreen() {
+	const { colors } = useTheme();
 	const {
 		nodeUrl,
-		deviceId,
-		deviceName,
 		isPaired,
 		appLockEnabled,
 		setAppLockEnabled,
@@ -127,12 +142,6 @@ export default function SettingsIndexScreen() {
 		[openKeySheet],
 	);
 
-	const handleCopyDeviceId = async () => {
-		if (!deviceId) return;
-		await Clipboard.setStringAsync(deviceId);
-		await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-	};
-
 	const handleAppLockToggle = async (value: boolean) => {
 		if (!value) {
 			await setAppLockEnabled(false);
@@ -183,34 +192,40 @@ export default function SettingsIndexScreen() {
 	const activeProvider = getProvider(providerId);
 	const activeModelLabel =
 		activeProvider.models.find((m) => m.id === modelId)?.label ?? modelId;
+	const avatarLabel = getAvatar(profile.avatarId).label;
 
 	return (
 		<SettingsScreen title="Settings" showClose>
 			<SettingsGroup>
+				<SettingsRow
+					title="Model"
+					value={`${activeProvider.label} · ${activeModelLabel}`}
+					icon={<BrainIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => modelSheetRef.current?.snapToIndex(0)}
+				/>
 				{KEY_PROVIDERS.map((id) => (
 					<SettingsRow
 						key={id}
 						title={`${getProvider(id).label} key`}
 						value={keyedProviders.includes(id) ? "Added" : "Not added"}
+						icon={<KeyIcon size={ICON_SIZE} color={colors.foreground} />}
 						onPress={() => handleKeyRowPress(id)}
 					/>
 				))}
-				<SettingsRow
-					title="Model"
-					value={`${activeProvider.label} · ${activeModelLabel}`}
-					onPress={() => modelSheetRef.current?.snapToIndex(0)}
-				/>
 			</SettingsGroup>
 
 			<SettingsGroup>
 				<SettingsRow
-					title="Local profile"
-					value={profile.name || (profile.facts.length > 0 ? "Set" : "Not set")}
-					onPress={() => router.push("/settings/profile")}
+					title="Avatar"
+					value={avatarLabel}
+					icon={<AiAgentIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/avatar")}
 				/>
 				<SettingsRow
-					title="Appearance"
-					onPress={() => router.push("/settings/appearance")}
+					title="Personality and profile"
+					value={profile.name || (profile.facts.length > 0 ? "Set" : "Not set")}
+					icon={<UsersIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/profile")}
 				/>
 			</SettingsGroup>
 
@@ -218,38 +233,59 @@ export default function SettingsIndexScreen() {
 				<SettingsRow
 					title="SHADOW node"
 					value={isPaired ? (nodeUrl ?? "Linked") : "Not linked"}
+					icon={<CloudIcon size={ICON_SIZE} color={colors.foreground} />}
 					onPress={() => router.push("/settings/link-node")}
 				/>
 			</SettingsGroup>
 
 			<SettingsGroup>
 				<SettingsRow
-					title="Device"
-					value={deviceName ?? "Unknown"}
+					title="Appearance"
+					value={undefined}
+					icon={<MoonIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/appearance")}
 				/>
 				<SettingsRow
-					title="Device ID"
-					value={deviceId ? shortenId(deviceId) : "Unknown"}
-					onPress={() => void handleCopyDeviceId()}
+					title="Push notifications"
+					value={pushStatus}
+					icon={<BellIcon size={ICON_SIZE} color={colors.foreground} />}
 				/>
-				<SettingsRow title="Push notifications" value={pushStatus} />
 				<SettingsRow
 					title="App lock"
+					icon={<LockIcon size={ICON_SIZE} color={colors.foreground} />}
 					toggle={appLockEnabled}
 					onToggleChange={(value) => void handleAppLockToggle(value)}
 				/>
 			</SettingsGroup>
 
 			<SettingsGroup>
-				<SettingsRow title="App" value="SHADOW" />
 				<SettingsRow
-					title="Version"
-					value={Constants.expoConfig?.version ?? "1.0.0"}
+					title="Support"
+					icon={<HelpIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/support")}
 				/>
 			</SettingsGroup>
 
 			<SettingsGroup>
-				<SettingsRow title="Reset SHADOW" destructive onPress={handleReset} />
+				<SettingsRow
+					title="Legal"
+					icon={<DocumentIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/legal")}
+				/>
+				<SettingsRow
+					title="About"
+					icon={<InfoIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/about")}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup>
+				<SettingsRow
+					title="Reset SHADOW"
+					destructive
+					icon={<TrashIcon size={ICON_SIZE} color={colors.destructive} />}
+					onPress={handleReset}
+				/>
 			</SettingsGroup>
 
 			<KeySheet

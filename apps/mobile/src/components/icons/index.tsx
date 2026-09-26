@@ -1140,3 +1140,27 @@ export function DocumentIcon({
 		</Svg>
 	);
 }
+
+export function BellIcon({
+	size = defaultSize,
+	color = defaultColor,
+	strokeWidth = 1.5,
+	...props
+}: IconProps & { strokeWidth?: number }) {
+	return (
+		<Svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke={color}
+			strokeWidth={strokeWidth}
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			{...props}
+		>
+			<Path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
+			<Path d="M10 19a2 2 0 0 0 4 0" />
+		</Svg>
+	);
+}

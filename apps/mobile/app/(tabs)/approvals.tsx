@@ -62,7 +62,7 @@ function ConnectPrompt() {
 					{ backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
 				]}
 			>
-				<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
+				<Text style={[typography.uiLabel, { color: colors.primaryForeground, fontWeight: "700" }]}>
 					Link node
 				</Text>
 			</Pressable>

@@ -17,13 +17,11 @@ export default function SettingsLayout() {
 			<Stack.Screen name="index" />
 			<Stack.Screen name="link-node" />
 			<Stack.Screen name="profile" />
-			<Stack.Screen name="connection" />
+			<Stack.Screen name="avatar" />
 			<Stack.Screen name="appearance" />
-			<Stack.Screen name="preferences" />
-			<Stack.Screen name="agents" />
-			<Stack.Screen name="commands" />
-			<Stack.Screen name="providers" />
-			<Stack.Screen name="git" />
+			<Stack.Screen name="support" />
+			<Stack.Screen name="legal" />
+			<Stack.Screen name="about" />
 		</Stack>
 	);
 }

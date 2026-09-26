@@ -171,7 +171,7 @@ export function Composer({
 								style={[
 									typography.uiLabel,
 									{
-										color: canSend ? "#FFFFFF" : colors.mutedForeground,
+										color: canSend ? colors.primaryForeground : colors.mutedForeground,
 										fontWeight: "700",
 									},
 								]}

@@ -12,7 +12,7 @@ const DISPLAY_NAME = "SettingsRow";
  */
 export function SettingsRow(props: SettingsRowProps) {
   const { colors } = useTheme();
-  const { title, value, destructive } = props;
+  const { title, value, destructive, icon } = props;
 
   const isToggle = "toggle" in props && props.toggle !== undefined;
   const isNavigation = "onPress" in props && typeof props.onPress === "function";
@@ -46,9 +46,26 @@ export function SettingsRow(props: SettingsRowProps) {
         paddingVertical: SemanticSpacing.gapSm,
       }}
     >
-      <Text style={[typography.uiLabel, { color: textColor }]} numberOfLines={1}>
-        {title}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: SemanticSpacing.gapSm, flex: 1 }}>
+        {icon && (
+          <View
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 9,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.muted,
+            }}
+            accessibilityElementsHidden
+          >
+            {icon}
+          </View>
+        )}
+        <Text style={[typography.uiLabel, { color: textColor, flex: 1 }]} numberOfLines={1}>
+          {title}
+        </Text>
+      </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: SemanticSpacing.gapSm }}>
         {value && !isToggle && (
           <Text style={[typography.uiLabel, { color: colors.mutedForeground }]} numberOfLines={1}>

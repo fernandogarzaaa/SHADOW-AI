@@ -1,344 +1,269 @@
-import BottomSheet from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { router } from "expo-router";
+import { useMemo, useState } from "react";
 import {
 	FlatList,
-	KeyboardAvoidingView,
-	Platform,
 	Pressable,
 	StyleSheet,
 	Text,
+	TextInput,
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Composer } from "@/components/companion/Composer";
-import { AgentMark } from "@/components/companion/AgentMark";
-import { AgentStateLine } from "@/components/companion/AgentStateLine";
-import { KeySheet } from "@/components/companion/KeySheet";
-import { MessageView } from "@/components/companion/MessageView";
-import { ModelSheet } from "@/components/companion/ModelSheet";
-import { SmartReplies } from "@/components/companion/SmartReplies";
-import { ThreadSheet } from "@/components/companion/ThreadSheet";
 import { ShadowAvatar } from "@/components/Avatar";
-import { MenuIcon, PlusIcon } from "@/components/icons";
-import { useProviderChat } from "@/hooks/useProviderChat";
-import { getProvider, type ProviderId } from "@/providers";
-import { useChatStore, type ChatMessage } from "@/stores/useChatStore";
+import {
+	FolderIcon,
+	ArrowRightIcon,
+	PencilIcon,
+	SearchIcon,
+	SettingsIcon,
+} from "@/components/icons";
 import { useProfileStore } from "@/stores/useProfileStore";
 import { useProviderStore } from "@/stores/useProviderStore";
-import { Spacing, SemanticSpacing, typography, useTheme } from "@/theme";
+import {
+	isThreadUnread,
+	useChatStore,
+	type ChatThread,
+} from "@/stores/useChatStore";
+import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
 
-const SUGGESTIONS = [
-	"plan my day",
-	"explain a tricky idea simply",
-	"draft a message",
-	"brainstorm with me",
-];
-
-export default function ChatScreen() {
+function ThreadRow({
+	thread,
+	unread,
+	onPress,
+}: {
+	thread: ChatThread;
+	unread: boolean;
+	onPress: () => void;
+}) {
 	const { colors } = useTheme();
-	const router = useRouter();
-	const insets = useSafeAreaInsets();
+	const lastMessage = thread.messages[thread.messages.length - 1];
+	return (
+		<Pressable
+			onPress={onPress}
+			style={({ pressed }) => [
+				styles.row,
+				{ opacity: pressed ? 0.6 : 1 },
+			]}
+			accessibilityRole="button"
+			accessibilityLabel={`${thread.title}${unread ? ", unread" : ""}`}
+		>
+			<View style={styles.rowText}>
+				<Text
+					style={[typography.body, { color: colors.foreground }]}
+					numberOfLines={1}
+				>
+					{thread.title}
+				</Text>
+				{lastMessage ? (
+					<Text
+						style={[typography.meta, { color: colors.mutedForeground }]}
+						numberOfLines={1}
+					>
+						{lastMessage.text}
+					</Text>
+				) : null}
+			</View>
+			{unread ? (
+				<View
+					style={[styles.unreadDot, { backgroundColor: colors.primary }]}
+					accessibilityLabel="Unread"
+				/>
+			) : null}
+		</Pressable>
+	);
+}
 
-	const { threads, activeThreadId, setActiveThread, createThread } = useChatStore();
-	const { providerId, modelId, initialized, setProvider, setModel } = useProviderStore();
+/**
+ * Chats list: the Chat tab home. The active thread is the "Main chat";
+ * every other thread is a "Side chat". Bottom row: settings, search,
+ * compose. Unread dots come from real last-read tracking in the chat
+ * store (markThreadRead), never invented.
+ */
+export default function ChatsScreen() {
+	const { colors } = useTheme();
+	const insets = useSafeAreaInsets();
+	const { threads, activeThreadId, setActiveThread, createThread, initialized } =
+		useChatStore();
+	const { providerId, modelId } = useProviderStore();
 	const agentName = useProfileStore((s) => s.profile.agentName);
 	const avatarId = useProfileStore((s) => s.profile.avatarId);
-	const {
-		streaming,
-		streamingThreadId,
-		error,
-		agentState,
-		stateProviderLabel,
-		stateModelId,
-		stateStartedAt,
-		smartReplies,
-		send,
-		retry,
-		stop,
-		clearError,
-		refreshSmartReplies,
-	} = useProviderChat();
+	const [query, setQuery] = useState("");
 
-	const threadSheetRef = useRef<BottomSheet>(null);
-	const modelSheetRef = useRef<BottomSheet>(null);
-	const keySheetRef = useRef<BottomSheet>(null);
-	const [keyProvider, setKeyProvider] = useState<ProviderId>("anthropic");
-	const listRef = useRef<FlatList<ChatMessage>>(null);
+	const openThread = (id: string) => {
+		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		setActiveThread(id);
+		router.push(`/chat/${id}`);
+	};
 
-	const thread = threads.find((t) => t.id === activeThreadId) ?? null;
-	const messages = useMemo(
-		() => (thread ? [...thread.messages].reverse() : []),
-		[thread],
-	);
+	const handleCompose = async () => {
+		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		const id = await createThread(providerId, modelId);
+		router.push(`/chat/${id}`);
+	};
 
-	// Ensure there is always an active thread once stores are ready.
-	useEffect(() => {
-		if (!initialized) return;
-		if (!activeThreadId) {
-			void createThread(providerId, modelId);
-		}
-	}, [initialized, activeThreadId, createThread, providerId, modelId]);
-
-	// Refresh smart replies when the active thread changes.
-	useEffect(() => {
-		if (activeThreadId && !streaming) {
-			refreshSmartReplies(activeThreadId);
-		}
-	}, [activeThreadId, streaming, refreshSmartReplies]);
-
-	const ensureThread = useCallback(async (): Promise<string | null> => {
-		if (activeThreadId) return activeThreadId;
-		return createThread(providerId, modelId);
-	}, [activeThreadId, createThread, providerId, modelId]);
-
-	const handleSend = useCallback(
-		async (text: string) => {
-			clearError();
-			const id = await ensureThread();
-			if (id) {
-				await send(id, text);
-			}
-		},
-		[ensureThread, send, clearError],
-	);
-
-	const handleRetry = useCallback(async () => {
-		if (!activeThreadId) return;
-		clearError();
-		// Retry re-runs the failed turn; it never duplicates the user message.
-		await retry(activeThreadId);
-	}, [activeThreadId, retry, clearError]);
-
-	const handleNewThread = useCallback(async () => {
-		if (streaming) stop();
-		threadSheetRef.current?.close();
-		await createThread(providerId, modelId);
-	}, [createThread, providerId, modelId, streaming, stop]);
-
-	const handlePickModel = useCallback(
-		async (pickedProvider: ProviderId, pickedModel: string) => {
-			modelSheetRef.current?.close();
-			if (streaming) stop();
-			if (pickedProvider !== providerId) {
-				await setProvider(pickedProvider);
-			}
-			if (pickedModel !== modelId || pickedProvider !== providerId) {
-				await setModel(pickedModel);
-			}
-			// A thread snapshots its provider/model, so a switch starts fresh.
-			await createThread(pickedProvider, pickedModel);
-		},
-		[providerId, modelId, setProvider, setModel, createThread, streaming, stop],
-	);
-
-	const handleAddKey = useCallback((id: ProviderId) => {
-		modelSheetRef.current?.close();
-		setKeyProvider(id);
-		setTimeout(() => keySheetRef.current?.snapToIndex(0), 300);
-	}, []);
-
-	const handleKeySaved = useCallback(async () => {
-		keySheetRef.current?.close();
-		await useProviderStore.getState().refreshKeyPresence();
-		const savedProvider = keyProvider;
-		await handlePickModel(savedProvider, getProvider(savedProvider).defaultModel);
-	}, [handlePickModel, keyProvider]);
-
-	const threadProvider = thread ? getProvider(thread.providerId) : getProvider(providerId);
-	const threadModelLabel =
-		threadProvider.models.find((m) => m.id === (thread?.modelId ?? modelId))?.label ??
-		(thread?.modelId ?? modelId);
+	const active = threads.find((t) => t.id === activeThreadId) ?? threads[0] ?? null;
+	const sideChats = useMemo(() => {
+		const rest = threads.filter((t) => t.id !== active?.id);
+		const q = query.trim().toLowerCase();
+		if (!q) return rest;
+		return rest.filter((t) => t.title.toLowerCase().includes(q));
+	}, [threads, active, query]);
 
 	return (
-		<KeyboardAvoidingView
+		<View
 			style={[styles.container, { backgroundColor: colors.background }]}
-			behavior={Platform.OS === "ios" ? "padding" : "height"}
-			keyboardVerticalOffset={insets.top + 56}
 		>
-			<View
-				style={[
-					styles.header,
-					{
-						paddingTop: insets.top + Spacing.sm,
-						borderBottomColor: colors.border,
-					},
-				]}
-			>
-				<Pressable
-					onPress={() => {
-						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-						threadSheetRef.current?.snapToIndex(0);
-					}}
-					style={({ pressed }) => [
-						styles.headerButton,
-						{ opacity: pressed ? 0.6 : 1 },
-					]}
-					hitSlop={10}
-					accessibilityRole="button"
-					accessibilityLabel="Open chat list"
-				>
-					<MenuIcon size={22} color={colors.foreground} />
-				</Pressable>
-
-				<View
-					style={styles.headerTitle}
+			{/* Header: title + action button */}
+			<View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
+				<View style={styles.headerSpacer} />
+				<Text
+					style={[typography.h2, { color: colors.foreground }]}
 					accessibilityRole="header"
-					accessibilityLabel={`Chat with ${agentName || "shadow"}. ${thread?.title ?? "New chat"}. ${threadProvider.label}, ${threadModelLabel}.`}
 				>
-					<ShadowAvatar avatarId={avatarId} size={32} />
-					<View style={styles.headerTitleText}>
-						<Text
-							style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}
-							numberOfLines={1}
-						>
-							{agentName || "shadow"}
-						</Text>
-						<Pressable
-							onPress={() => {
-								Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-								modelSheetRef.current?.snapToIndex(0);
-							}}
-							hitSlop={8}
-							accessibilityRole="button"
-							accessibilityLabel="Change model"
-						>
-							<Text
-								style={[typography.meta, { color: colors.mutedForeground }]}
-								numberOfLines={1}
-							>
-								{thread?.title ?? "New chat"} · {threadProvider.label} · {threadModelLabel}
-							</Text>
-						</Pressable>
-					</View>
-				</View>
-
+					{agentName || "shadow"}
+				</Text>
 				<Pressable
 					onPress={() => {
-						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-						void handleNewThread();
+						if (active) openThread(active.id);
 					}}
 					style={({ pressed }) => [
-						styles.headerButton,
-						{ opacity: pressed ? 0.6 : 1 },
+						styles.headerAction,
+						{
+							backgroundColor: colors.card,
+							borderColor: colors.border,
+							opacity: pressed ? 0.6 : 1,
+						},
 					]}
-					hitSlop={10}
 					accessibilityRole="button"
-					accessibilityLabel="Start a new chat"
+					accessibilityLabel="Open main chat"
 				>
-					<PlusIcon size={22} color={colors.foreground} />
+					<ArrowRightIcon size={20} color={colors.foreground} />
 				</Pressable>
 			</View>
 
-			{/* Agent state (thinking/working/error/offline) renders above the composer. */}
+			{/* Main chat pill */}
+			<View style={styles.content}>
+				{active ? (
+					<Pressable
+						onPress={() => openThread(active.id)}
+						style={({ pressed }) => [
+							styles.mainPill,
+							{
+								backgroundColor: colors.card,
+								borderColor: colors.border,
+								opacity: pressed ? 0.7 : 1,
+							},
+						]}
+						accessibilityRole="button"
+						accessibilityLabel={`Main chat: ${active.title}`}
+					>
+						<ShadowAvatar avatarId={avatarId} size={28} />
+						<Text
+							style={[typography.uiLabel, { color: colors.foreground, fontWeight: "600" }]}
+							numberOfLines={1}
+						>
+							Main chat
+						</Text>
+						<Text
+							style={[typography.meta, { color: colors.mutedForeground, flex: 1 }]}
+							numberOfLines={1}
+						>
+							{active.title}
+						</Text>
+					</Pressable>
+				) : null}
 
-			{messages.length === 0 ? (
-				<View style={styles.empty}>
-					<View style={styles.emptyMark}>
-						<AgentMark size={72} />
-					</View>
-					<Text style={[typography.h1, { color: colors.foreground, textAlign: "center" }]}>
-						what's on your mind?
-					</Text>
+				<View style={styles.sectionHeader}>
 					<Text
 						style={[
-							typography.body,
-							{ color: colors.mutedForeground, textAlign: "center", marginTop: 8 },
+							typography.meta,
+							{ color: colors.mutedForeground, fontWeight: "600" },
 						]}
 					>
-						i'm {agentName || "shadow"}, your personal ai.{"\n"}
-						{threadProvider.label} · {threadModelLabel}
+						Side chats
 					</Text>
-					<View style={styles.suggestions}>
-						{SUGGESTIONS.map((s) => (
-							<Pressable
-								key={s}
-								onPress={() => void handleSend(s)}
-								style={({ pressed }) => [
-									styles.suggestion,
-									{
-										borderColor: colors.border,
-										backgroundColor: colors.card,
-										opacity: pressed ? 0.6 : 1,
-									},
-								]}
-								accessibilityRole="button"
-								accessibilityLabel={`Ask: ${s}`}
-							>
-								<Text style={[typography.body, { color: colors.foreground }]}>
-									{s}
-								</Text>
-							</Pressable>
-						))}
-					</View>
+					<FolderIcon size={18} color={colors.mutedForeground} />
 				</View>
-			) : (
+
 				<FlatList
-					ref={listRef}
-					data={messages}
-					keyExtractor={(m) => m.id}
-					renderItem={({ item }) => <MessageView message={item} />}
-					inverted
-					keyboardDismissMode="interactive"
-					keyboardShouldPersistTaps="handled"
-					maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+					data={sideChats}
+					keyExtractor={(t) => t.id}
+					renderItem={({ item }) => (
+						<ThreadRow
+							thread={item}
+							unread={isThreadUnread(item)}
+							onPress={() => openThread(item.id)}
+						/>
+					)}
+					ListEmptyComponent={
+						<Text style={[typography.body, { color: colors.mutedForeground }]}>
+							{initialized
+								? "No side chats yet. Compose one with the button below."
+								: "Loading chats..."}
+						</Text>
+					}
 					contentContainerStyle={styles.listContent}
-					removeClippedSubviews={false}
+					keyboardShouldPersistTaps="handled"
 				/>
-			)}
+			</View>
 
-			{!streaming && smartReplies.length > 0 && messages.length > 0 ? (
-				<SmartReplies
-					replies={smartReplies}
-					onPick={(reply) => void handleSend(reply)}
-				/>
-			) : null}
-
-			<AgentStateLine
-				state={agentState}
-				agentName={agentName}
-				providerLabel={stateProviderLabel}
-				modelId={stateModelId}
-				startedAt={stateStartedAt}
-				errorMessage={error}
-				onRetry={() => void handleRetry()}
-				onDismiss={clearError}
-				onViewApproval={() => router.replace("/(tabs)/approvals")}
-			/>
-
-			<Composer
-				onSend={(text) => void handleSend(text)}
-				onStop={stop}
-				onNewChat={() => void handleNewThread()}
-				onSwitchModel={() => {
-					Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-					modelSheetRef.current?.snapToIndex(0);
-				}}
-				streaming={streaming && streamingThreadId === activeThreadId}
-				disabled={!initialized}
-			/>
-
-			<ThreadSheet
-				ref={threadSheetRef}
-				onSelect={(id) => {
-					if (streaming) stop();
-					threadSheetRef.current?.close();
-					setActiveThread(id);
-				}}
-				onNewThread={() => void handleNewThread()}
-			/>
-			<ModelSheet
-				ref={modelSheetRef}
-				onPick={(p, m) => void handlePickModel(p, m)}
-				onAddKey={handleAddKey}
-			/>
-			<KeySheet
-				ref={keySheetRef}
-				providerId={keyProvider}
-				onSaved={() => void handleKeySaved()}
-			/>
-		</KeyboardAvoidingView>
+			{/* Bottom row: settings, search, compose */}
+			<View
+				style={[
+					styles.bottomRow,
+					{ paddingBottom: Math.max(insets.bottom, Spacing.md) + 76 },
+				]}
+			>
+				<Pressable
+					onPress={() => router.push("/settings")}
+					style={({ pressed }) => [
+						styles.circleButton,
+						{
+							backgroundColor: colors.card,
+							borderColor: colors.border,
+							opacity: pressed ? 0.6 : 1,
+						},
+					]}
+					accessibilityRole="button"
+					accessibilityLabel="Open settings"
+				>
+					<SettingsIcon size={22} color={colors.foreground} />
+				</Pressable>
+				<View
+					style={[
+						styles.searchPill,
+						{ backgroundColor: colors.card, borderColor: colors.border },
+					]}
+				>
+					<SearchIcon size={18} color={colors.mutedForeground} />
+					<TextInput
+						value={query}
+						onChangeText={setQuery}
+						placeholder="Search"
+						placeholderTextColor={colors.mutedForeground}
+						style={[typography.body, { color: colors.foreground, flex: 1 }]}
+						accessibilityLabel="Search side chats"
+						returnKeyType="search"
+					/>
+				</View>
+				<Pressable
+					onPress={() => void handleCompose()}
+					style={({ pressed }) => [
+						styles.circleButton,
+						{
+							backgroundColor: colors.card,
+							borderColor: colors.border,
+							opacity: pressed ? 0.6 : 1,
+						},
+					]}
+					accessibilityRole="button"
+					accessibilityLabel="Start a new chat"
+				>
+					<PencilIcon size={22} color={colors.foreground} />
+				</Pressable>
+			</View>
+		</View>
 	);
 }
 
@@ -349,50 +274,84 @@ const styles = StyleSheet.create({
 	header: {
 		flexDirection: "row",
 		alignItems: "center",
-		paddingHorizontal: Spacing.md,
+		justifyContent: "space-between",
+		paddingHorizontal: Spacing.lg,
 		paddingBottom: Spacing.sm,
-		borderBottomWidth: StyleSheet.hairlineWidth,
 	},
-	headerButton: {
+	headerSpacer: {
+		width: SemanticSpacing.buttonHeightMd,
+	},
+	headerAction: {
 		width: SemanticSpacing.buttonHeightMd,
 		height: SemanticSpacing.buttonHeightMd,
+		borderRadius: SemanticSpacing.buttonHeightMd / 2,
+		borderWidth: StyleSheet.hairlineWidth,
 		alignItems: "center",
 		justifyContent: "center",
 	},
-	headerTitle: {
+	content: {
+		flex: 1,
+		paddingHorizontal: Spacing.lg,
+	},
+	mainPill: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: Spacing.sm,
+		borderRadius: 999,
+		borderWidth: StyleSheet.hairlineWidth,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.sm,
+		minHeight: 56,
+		marginBottom: Spacing.lg,
+	},
+	sectionHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: Spacing.sm,
+	},
+	listContent: {
+		paddingBottom: Spacing.xl,
+		gap: 4,
+	},
+	row: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: Spacing.sm,
+		paddingVertical: Spacing.md,
+		minHeight: SemanticSpacing.buttonHeightMd,
+	},
+	rowText: {
+		flex: 1,
+		gap: 2,
+	},
+	unreadDot: {
+		width: 10,
+		height: 10,
+		borderRadius: 5,
+	},
+	bottomRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: Spacing.sm,
+		paddingHorizontal: Spacing.lg,
+	},
+	circleButton: {
+		width: SemanticSpacing.buttonHeightMd,
+		height: SemanticSpacing.buttonHeightMd,
+		borderRadius: SemanticSpacing.buttonHeightMd / 2,
+		borderWidth: StyleSheet.hairlineWidth,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	searchPill: {
 		flex: 1,
 		flexDirection: "row",
 		alignItems: "center",
-		justifyContent: "center",
 		gap: Spacing.sm,
-	},
-	headerTitleText: {
-		flexShrink: 1,
-		gap: 2,
-	},
-	listContent: {
-		paddingTop: Spacing.md,
-		paddingBottom: Spacing.sm,
-	},
-	empty: {
-		flex: 1,
-		justifyContent: "center",
-		paddingHorizontal: Spacing.xl,
-	},
-	emptyMark: {
-		alignItems: "center",
-		marginBottom: Spacing.lg,
-	},
-	suggestions: {
-		marginTop: Spacing.xl,
-		gap: Spacing.sm,
-	},
-	suggestion: {
+		borderRadius: 999,
 		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: SemanticSpacing.radiusCard,
 		paddingHorizontal: Spacing.md,
-		paddingVertical: Spacing.md,
-		minHeight: SemanticSpacing.buttonHeightMd,
-		justifyContent: "center",
+		height: SemanticSpacing.buttonHeightMd,
 	},
 });

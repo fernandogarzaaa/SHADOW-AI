@@ -152,7 +152,7 @@ export default function PersonalityScreen() {
 				accessibilityRole="button"
 				accessibilityLabel="Start chatting"
 			>
-				<Text style={[typography.uiLabel, { color: "#FFFFFF", fontWeight: "700" }]}>
+				<Text style={[typography.uiLabel, { color: colors.primaryForeground, fontWeight: "700" }]}>
 					start chatting
 				</Text>
 			</Pressable>

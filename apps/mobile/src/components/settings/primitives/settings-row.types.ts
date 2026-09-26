@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ViewStyle } from "react-native";
 
 /**
@@ -14,6 +15,8 @@ interface SettingsRowBaseProps {
   className?: string;
   /** Additional style */
   style?: ViewStyle;
+  /** Leading icon rendered in a tinted tile */
+  icon?: ReactNode;
 }
 
 /**
