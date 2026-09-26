@@ -16,6 +16,16 @@ Inspect the Sentinel-lite audit chain, policy, and credential vault:
     python -m shadow_node.cli vault revoke NAME
     python -m shadow_node.cli vault surrogate NAME [--ttl 300] [--scopes a,b]
 
+Ambient GHOST capabilities (checkpointed runs, journals, claims, scheduler):
+
+    python -m shadow_node.cli ambient on [--interval 3600] [--stealth|--no-stealth] [--tasks morning_brief,memory_digest]
+    python -m shadow_node.cli ambient off
+    python -m shadow_node.cli ambient status
+    python -m shadow_node.cli journal show run_<id> [--limit 50]
+    python -m shadow_node.cli claims list [--status unconfirmed]
+    python -m shadow_node.cli claims confirm clm_<id> --evidence "text"
+    python -m shadow_node.cli claims refute clm_<id> --evidence "text"
+
 Reads the encrypted runtime DB configured via SHADOW_RUNTIME_DB (same key
 resolution as the node itself). Run with the repo packages on sys.path, e.g.
 PYTHONPATH=apps/shadow-node:packages/agent-core.
@@ -151,6 +161,40 @@ def main(argv=None) -> int:
     p_vsur.add_argument("--scopes", default="", help="comma-separated scopes")
     p_vsur.set_defaults(func=cmd_vault_surrogate)
 
+    am = sub.add_parser("ambient", help="control the ambient background scheduler (default: off)")
+    am_sub = am.add_subparsers(dest="ambient_command", required=True)
+    p_aon = am_sub.add_parser("on", help="enable ambient background work (explicit opt-in)")
+    p_aon.add_argument("--interval", type=int, default=3600, help="seconds between ticks (min 60)")
+    p_aon.add_argument("--stealth", action="store_true", help="stealth mode: journal everything, emit no SSE/push")
+    p_aon.add_argument("--no-stealth", action="store_true", help="normal mode: emit SSE events for ambient activity")
+    p_aon.add_argument("--tasks", default="morning_brief", help="comma-separated task names")
+    p_aon.set_defaults(func=cmd_ambient_on)
+    p_aoff = am_sub.add_parser("off", help="disable ambient background work")
+    p_aoff.set_defaults(func=cmd_ambient_off)
+    p_astatus = am_sub.add_parser("status", help="show ambient scheduler config and state")
+    p_astatus.set_defaults(func=cmd_ambient_status)
+
+    jo = sub.add_parser("journal", help="inspect per-run ambient journals")
+    jo_sub = jo.add_subparsers(dest="journal_command", required=True)
+    p_jshow = jo_sub.add_parser("show", help="show the journal for one run")
+    p_jshow.add_argument("run_id")
+    p_jshow.add_argument("--limit", type=int, default=50)
+    p_jshow.set_defaults(func=cmd_journal_show)
+
+    cl = sub.add_parser("claims", help="inspect and decide world-state claims")
+    cl_sub = cl.add_subparsers(dest="claims_command", required=True)
+    p_clist = cl_sub.add_parser("list", help="list claims, newest first")
+    p_clist.add_argument("--status", choices=["unconfirmed", "confirmed", "refuted"], default=None)
+    p_clist.set_defaults(func=cmd_claims_list)
+    p_cconfirm = cl_sub.add_parser("confirm", help="confirm a claim with evidence")
+    p_cconfirm.add_argument("claim_id")
+    p_cconfirm.add_argument("--evidence", required=True)
+    p_cconfirm.set_defaults(func=cmd_claims_confirm)
+    p_crefute = cl_sub.add_parser("refute", help="refute a claim with evidence")
+    p_crefute.add_argument("claim_id")
+    p_crefute.add_argument("--evidence", required=True)
+    p_crefute.set_defaults(func=cmd_claims_refute)
+
     args = parser.parse_args(argv)
     return args.func(args)
 
@@ -280,6 +324,113 @@ def cmd_vault_surrogate(args) -> int:
         return 1
     print(token)
     return 0
+
+
+def _load_ambient():
+    """Return (scheduler, journal, checkpoints, claims) backed by the runtime DB."""
+    from .runtime_store import EncryptedRuntimeStore
+    from agent_core import RunJournal, CheckpointStore, ClaimRegistry, AmbientScheduler, InMemoryKV
+
+    db = os.getenv("SHADOW_RUNTIME_DB")
+    if not db:
+        print(
+            "SHADOW_RUNTIME_DB is not set: ambient state is in-memory only and "
+            "cannot be managed after the node stops. Set SHADOW_RUNTIME_DB to "
+            "the node's runtime database path.",
+            file=sys.stderr,
+        )
+        kv = InMemoryKV()
+    else:
+        kv = EncryptedRuntimeStore(db)
+    journal = RunJournal(kv)
+    scheduler = AmbientScheduler(store=kv, journal=journal)
+    return scheduler, journal, CheckpointStore(kv), ClaimRegistry(kv)
+
+
+def cmd_ambient_on(args) -> int:
+    scheduler, _, _, _ = _load_ambient()
+    stealth = True if args.stealth else (False if args.no_stealth else None)
+    tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
+    try:
+        cfg = scheduler.configure(enabled=True, interval_seconds=args.interval,
+                                  stealth_mode=stealth, tasks=tasks)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    mode = "stealth (no SSE/push surface)" if cfg.stealth_mode else "normal (SSE events emitted)"
+    print(f"ambient enabled: every {cfg.interval_seconds}s, tasks={','.join(cfg.tasks)}, {mode}")
+    return 0
+
+
+def cmd_ambient_off(args) -> int:
+    scheduler, _, _, _ = _load_ambient()
+    scheduler.configure(enabled=False)
+    print("ambient disabled: the scheduler will not run background work")
+    return 0
+
+
+def cmd_ambient_status(args) -> int:
+    scheduler, journal, checkpoints, claims = _load_ambient()
+    cfg = scheduler.get_config()
+    print(f"enabled:         {cfg.enabled}")
+    print(f"interval:        {cfg.interval_seconds}s")
+    print(f"stealth_mode:    {cfg.stealth_mode}")
+    print(f"tasks:           {','.join(cfg.tasks) or '(none)'}")
+    print(f"last_tick:       {cfg.last_tick_at or 'never'}")
+    print(f"checkpoints:     {len(checkpoints.all())}")
+    print(f"journal runs:    {len(journal.run_ids())}")
+    unconfirmed = claims.list(status="unconfirmed")
+    print(f"unconfirmed claims: {len(unconfirmed)}")
+    return 0
+
+
+def cmd_journal_show(args) -> int:
+    _, journal, _, _ = _load_ambient()
+    entries = journal.for_run(args.run_id, limit=args.limit)
+    if not entries:
+        print(f"no journal entries for run: {args.run_id}", file=sys.stderr)
+        return 1
+    for e in entries:
+        ts = e.created_at.isoformat() if hasattr(e.created_at, "isoformat") else str(e.created_at)
+        print(f"#{e.seq:3} [{e.entry_type.value:12}] {ts}  {e.message}")
+        if e.execution_id:
+            print(f"         execution: {e.execution_id}")
+    return 0
+
+
+def cmd_claims_list(args) -> int:
+    _, _, _, claims = _load_ambient()
+    rows = claims.list(status=args.status)
+    for c in rows:
+        print(f"{c.id}  {c.status.value:11}  {c.statement[:70]}")
+        for ev in c.evidence:
+            print(f"         evidence: {ev[:100]}")
+    if not rows:
+        print("no claims found")
+    return 0
+
+
+def _cmd_claims_decide(args, decide: str) -> int:
+    _, _, _, claims = _load_ambient()
+    try:
+        claim = claims.confirm(args.claim_id, args.evidence) if decide == "confirm" \
+            else claims.refute(args.claim_id, args.evidence)
+    except KeyError:
+        print(f"unknown claim: {args.claim_id}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(f"claim {claim.id} {decide}ed: {claim.statement[:70]}")
+    return 0
+
+
+def cmd_claims_confirm(args) -> int:
+    return _cmd_claims_decide(args, "confirm")
+
+
+def cmd_claims_refute(args) -> int:
+    return _cmd_claims_decide(args, "refute")
 
 
 if __name__ == "__main__":
