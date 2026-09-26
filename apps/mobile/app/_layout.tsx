@@ -10,6 +10,12 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Button } from "../src/components/ui";
+import {
+	setupApprovalNotificationCategories,
+	startApprovalNotificationResponses,
+} from "../src/lib/approvalNotifications";
+import { setupAppIntents } from "../src/lib/appIntents";
+import { setupShareReceive } from "../src/lib/shareReceive";
 import { LockIcon } from "../src/components/icons";
 import { unlockApp } from "../src/lib/appLock";
 import { useConnectionStore } from "../src/stores/useConnectionStore";
@@ -124,6 +130,25 @@ export default function RootLayout() {
 	useEffect(() => {
 		restore();
 	}, [restore]);
+
+	// Approval notification actions: register the Approve / Deny category and
+	// route notification responses (decide in place, or deep-link on tap).
+	useEffect(() => {
+		setupApprovalNotificationCategories();
+		const subscription = startApprovalNotificationResponses();
+		return () => subscription.remove();
+	}, []);
+
+	// App Intents (Siri / Spotlight / Shortcuts / Assistant): route
+	// invocations that opened the app into chat actions.
+	useEffect(() => {
+		void setupAppIntents();
+	}, []);
+
+	// Share sheet (Android): shared text/links from other apps arrive here.
+	useEffect(() => {
+		return setupShareReceive();
+	}, []);
 
 	// Reset the unlock gate whenever pairing is removed.
 	useEffect(() => {

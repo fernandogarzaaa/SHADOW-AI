@@ -56,10 +56,15 @@ if not os.path.isfile(_POLICY_FILE): _POLICY_FILE=None  # fall back to built-in 
 profile=UserProfile()
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
-def _send_expo_push(token:str, title:str, body:str, data:dict):
+def _send_expo_push(token:str, title:str, body:str, data:dict, category_id:str|None=None):
     """Best-effort Expo push; failures are logged, never raised."""
     try:
-        payload=json.dumps({"to":token,"title":title,"body":body,"data":data,"sound":"default"}).encode()
+        message={"to":token,"title":title,"body":body,"data":data,"sound":"default"}
+        if category_id:
+            # Lets the app render action buttons (e.g. Approve / Deny) and
+            # route the response. See mobile src/lib/approvalNotifications.ts.
+            message["categoryId"]=category_id
+        payload=json.dumps(message).encode()
         req=urllib.request.Request("https://exp.host/--/api/v2/push/send", data=payload,
                                    headers={"Content-Type":"application/json","Accept":"application/json"})
         urllib.request.urlopen(req, timeout=8)
@@ -73,7 +78,8 @@ def _notify_approval_created(req):
             if dev is None or dev.revoked: continue
             _send_expo_push(token, "Approval needed",
                             req.action_preview or req.action.description,
-                            {"type":"approval.created","approval_id":req.id})
+                            {"type":"approval.created","approval_id":req.id},
+                            category_id="shadow.approval")
     threading.Thread(target=_run, daemon=True).start()
 def _approval_event_sink(event_type:str, req):
     bus.publish(event_type, req.model_dump(mode="json"))

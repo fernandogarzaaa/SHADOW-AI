@@ -52,6 +52,12 @@ DEFAULT_POLICY: dict = {
     ],
     # Risk classes that always require explicit user approval.
     "approval_required_risks": ["medium", "high", "blocked"],
+    # Per-tool approval tiers. Empty by default: with no tiers configured the
+    # engine behaves exactly as before. Tiers are operator opt-in and can
+    # only relax the *approval* requirement; they never override the hard
+    # gates above (emergency pause, blocked tools, destructive double
+    # confirmation), which are evaluated first in decide().
+    "tool_tiers": {},
 }
 
 
@@ -59,6 +65,17 @@ class PolicyOutcome(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
     REQUIRE_APPROVAL = "require_approval"  # the spec's ASK
+
+
+#: Valid per-tool approval tiers. `always_ask` forces an approval prompt;
+#: `auto_approve` waives approval for routine (low/medium risk, non-sensitive,
+#: non-destructive) uses of the tool; `always_allow` acts as standing
+#: pre-approval for routine *low-risk, non-sensitive, non-destructive* uses
+#: only. Sensitive, medium/high-risk, or destructive uses still require
+#: approval even when tiered `always_allow`, and tiering a sensitive tool
+#: `always_allow` is a configuration error. All three still lose to the hard
+#: gates (emergency pause, blocked tools, destructive double confirmation).
+TOOL_TIERS = ("always_ask", "auto_approve", "always_allow")
 
 
 class PolicyDecision(BaseModel):
@@ -98,6 +115,21 @@ def _load_policy_document(policy: dict | None, policy_file: str | Path | None) -
     return merged
 
 
+def _parse_tool_tiers(raw: dict | None) -> dict[str, str]:
+    """Validate the `tool_tiers` mapping. Unknown tier names are a hard error:
+    silently running a misconfigured tier would hide operator mistakes."""
+    tiers: dict[str, str] = {}
+    for tool, tier in (raw or {}).items():
+        name = str(tier).lower()
+        if name not in TOOL_TIERS:
+            raise ValueError(
+                f"unknown tool_tier {tier!r} for tool {tool!r}; "
+                f"expected one of {list(TOOL_TIERS)}"
+            )
+        tiers[str(tool).lower()] = name
+    return tiers
+
+
 class PolicyEngine:
     """Single policy authority. Every agent action flows through decide()."""
 
@@ -108,6 +140,17 @@ class PolicyEngine:
         self.destructive_tools = {t.lower() for t in self.document.get("destructive_tools", [])}
         self.sensitive_tools = {t.lower() for t in self.document.get("sensitive_tools", [])}
         self.approval_required_risks = set(self.document.get("approval_required_risks", []))
+        self.tool_tiers = _parse_tool_tiers(self.document.get("tool_tiers", {}))
+        # Fail loud: `always_allow` on a sensitive tool would silently waive
+        # approval for outbound messages, writes, and other sensitive
+        # actions. That is never a valid configuration.
+        for tool, tier in self.tool_tiers.items():
+            if tier == "always_allow" and tool in self.sensitive_tools:
+                raise ValueError(
+                    f"tool_tier 'always_allow' is not allowed for sensitive tool "
+                    f"{tool!r}: sensitive tools always require approval; "
+                    f"use 'always_ask' or 'auto_approve' instead"
+                )
 
     # -- risk classification -------------------------------------------------
     def classify_action(self, action: AgentAction) -> RiskClass:
@@ -170,6 +213,46 @@ class PolicyEngine:
                 rule_id="destructive_needs_double_confirm",
                 risk=risk,
             )
+        # Per-tool approval tiers. These run after the hard gates above, so a
+        # tier can only relax the approval requirement, never override a
+        # denial. An empty tool_tiers map (the default) falls straight
+        # through to the standard requires_approval() path.
+        tier = self.tool_tiers.get(action.tool_name.lower())
+        if tier == "always_ask" and not approved:
+            return PolicyDecision(
+                outcome=PolicyOutcome.REQUIRE_APPROVAL,
+                reason=f"Tool '{action.tool_name}' is tiered 'always_ask': explicit approval required.",
+                rule_id="tool_tier_always_ask",
+                risk=risk,
+            )
+        if tier == "always_allow":
+            # Standing pre-approval covers routine low-risk reads only.
+            # Sensitive, risky, or destructive uses fall through to the
+            # normal approval path: the tier can waive approval, never the
+            # safety requirement.
+            if (
+                risk == RiskClass.LOW
+                and action.tool_name.lower() not in self.sensitive_tools
+                and not action.destructive
+            ):
+                return PolicyDecision(
+                    outcome=PolicyOutcome.ALLOW,
+                    reason=f"Tool '{action.tool_name}' is tiered 'always_allow': routine low-risk use.",
+                    rule_id="tool_tier_always_allow",
+                    risk=risk,
+                )
+        if (
+            tier == "auto_approve"
+            and risk in (RiskClass.LOW, RiskClass.MEDIUM)
+            and action.tool_name.lower() not in self.sensitive_tools
+            and not action.destructive
+        ):
+            return PolicyDecision(
+                outcome=PolicyOutcome.ALLOW,
+                reason=f"Tool '{action.tool_name}' is tiered 'auto_approve': routine use waived approval.",
+                rule_id="tool_tier_auto_approve",
+                risk=risk,
+            )
         if self.requires_approval(action, profile) and not approved:
             return PolicyDecision(
                 outcome=PolicyOutcome.REQUIRE_APPROVAL,
@@ -205,4 +288,5 @@ class PolicyEngine:
             "destructive_tools": sorted(self.destructive_tools),
             "sensitive_tools": sorted(self.sensitive_tools),
             "approval_required_risks": sorted(self.approval_required_risks),
+            "tool_tiers": dict(sorted(self.tool_tiers.items())),
         }

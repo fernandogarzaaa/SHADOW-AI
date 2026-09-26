@@ -1,1 +1,40 @@
-{"compilerOptions":{"declaration":false,"module":"nodenext","moduleResolution":"nodenext","noEmit":false,"sourceMap":false,"strict":true,"target":"es2022","types":["node"]},"extends":"./tsconfig.json","include":["src/providers/types.ts","src/providers/errors.ts","src/providers/sse.ts","src/providers/anthropic.ts","src/providers/openai.ts","src/providers/__tests__/**/*.ts"]}
+{
+  "compilerOptions": {
+    "declaration": false,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": false,
+    "sourceMap": false,
+    "strict": true,
+    "target": "es2022",
+    "rootDir": "src",
+    "types": [
+      "node"
+    ]
+  },
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/providers/types.ts",
+    "src/providers/errors.ts",
+    "src/providers/sse.ts",
+    "src/providers/anthropic.ts",
+    "src/providers/openai.ts",
+    "src/providers/__tests__/**/*.ts",
+    "src/providers/openrouter.ts",
+    "src/providers/modelCatalog.ts",
+    "src/providers/opencode.ts",
+    "src/providers/openaiCompatible.ts",
+    "src/providers/compatProviders.ts",
+    "src/providers/cohere.ts",
+    "src/providers/custom.ts",
+    "src/lib/approvalNotificationRouting.ts",
+    "src/lib/__tests__/approvalNotificationRouting.test.ts",
+    "src/lib/localTriage.ts",
+    "src/lib/__tests__/localTriage.test.ts",
+    "src/lib/intentRouting.ts",
+    "src/lib/__tests__/intentRouting.test.ts",
+    "src/lib/shareFormat.ts",
+    "src/lib/__tests__/shareFormat.test.ts",
+    "src/intents/shadow.intents.ts"
+  ]
+}
