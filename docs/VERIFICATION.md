@@ -58,6 +58,16 @@ After the run, the approval card gains `execution_id` and
 `verification_status`, and an `approval.updated` event goes out over the SSE
 stream (`GET /agent/stream`) so the mobile Approvals tab updates live.
 
+## Policy decisions come from Sentinel-lite
+
+The policy decision attached to every record is made by the unified policy
+engine (`agent_core.policy.PolicyEngine`), evaluated in a fixed rule order
+from the operator-owned policy file (`apps/shadow-node/shadow_node/policy.yaml`).
+The decision carries the `rule_id` that fired and is written to the
+tamper-evident audit chain as a `policy.decision` event, alongside approval
+events, credential resolutions, and execution verdicts. See
+docs/SENTINEL.md for the policy model, the credential vault, and the audit log.
+
 ## API
 
 - `GET /executions?status=verified&limit=50` - execution summaries, newest first.

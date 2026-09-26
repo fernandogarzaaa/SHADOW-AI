@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hmac, hashlib, time, os, secrets
 from dataclasses import dataclass, field
+from typing import Callable
 from .models import Device, AuditEvent, now
 
 MAX_SKEW_SECONDS = 300
@@ -82,6 +83,17 @@ class DeviceSessionStore:
     push_tokens: dict[str, str] = field(default_factory=dict)
     # Ed25519 public keys per device (optional upgrade from HMAC secrets)
     ed25519_keys: dict[str, bytes] = field(default_factory=dict)
+    # Optional sink(actor, event_type, payload) invoked on auth decisions so
+    # the node can route them into the tamper-evident audit chain. Failures are
+    # recorded; per-request successes are not (they would flood the chain).
+    event_sink: Callable[[str, str, dict], None] | None = field(default=None)
+
+    def _sink(self, event_type: str, payload: dict):
+        if self.event_sink is not None:
+            try:
+                self.event_sink("sentinel_transport", event_type, payload)
+            except Exception:
+                pass  # auditing must never break auth
 
     def register(self, name: str, public_key: str, secret: str | None = None) -> Device:
         fp = fingerprint_for_key(public_key)
@@ -120,6 +132,7 @@ class DeviceSessionStore:
                method: str, path: str, body: str = "") -> tuple[bool, str]:
         def fail(reason):
             self.audit.append(AuditEvent(actor="transport", event_type="auth_failed", status="blocked", result=reason, metadata={"device_id": device_id}))
+            self._sink("auth.decision", {"outcome": "deny", "reason": reason, "device_id": device_id, "path": path})
             return False, reason
 
         if not device_id or device_id not in self.devices:

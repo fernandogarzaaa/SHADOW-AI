@@ -1,0 +1,55 @@
+# SHADOW node policy: the single policy authority (Sentinel-lite).
+#
+# Rules are data, not code. The node loads this file at startup
+# (override with SHADOW_POLICY_FILE). Every agent action flows through
+# agent_core.PolicyEngine.decide(), which evaluates in a fixed order and
+# returns exactly one of: allow, deny, require_approval.
+#
+# Operator-owned. The agent cannot modify this file through any node API;
+# changes require operator access to the node host and a node restart.
+# Every decision is recorded in the tamper-evident audit chain with the
+# rule_id that fired, so any denial is explainable.
+
+version: 1
+
+# Tools that are always denied, no matter the autonomy mode or approvals.
+# Description patterns catch renamed variants of the same abuse.
+blocked_tools:
+  - keylogger
+  - covert_monitor
+  - bypass_ios_sandbox
+  - silent_microphone
+  - silent_camera
+  - leak_secret
+
+blocked_description_patterns:
+  - keylog
+  - covert
+  - bypass ios
+  - silently record
+  - reveal secret
+
+# Tools that change or destroy state. Destructive actions additionally
+# require double confirmation at execution time (not just approval).
+destructive_tools:
+  - delete_file
+  - overwrite_file
+  - shell_rm
+
+# Tools that always require explicit user approval before execution,
+# even in permissive autonomy modes.
+sensitive_tools:
+  - send_email
+  - send_message
+  - write_file
+  - device_control
+  - cloud_model
+  - ghost_handoff
+  - calendar.create
+  - email.draft
+
+# Risk classes that require explicit user approval.
+approval_required_risks:
+  - medium
+  - high
+  - blocked
