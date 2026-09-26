@@ -18,25 +18,11 @@ import { useShadowEventStream } from "@/hooks/useShadowEventStream";
 import { useApprovalsStore } from "@/stores/useApprovalsStore";
 import { useConnectionStore } from "@/stores/useConnectionStore";
 import { Spacing, typography, useTheme } from "@/theme";
+import { Badge, DepthBackground } from "@/components/ui";
 import { withOpacity } from "@/utils/colors";
 
 function PendingCountBadge({ count }: { count: number }) {
-	const { colors } = useTheme();
-	return (
-		<View
-			style={[
-				styles.badge,
-				{
-					borderColor: withOpacity(colors.warning, 0.4),
-					backgroundColor: withOpacity(colors.warning, 0.12),
-				},
-			]}
-		>
-			<Text style={[typography.uiLabel, { color: colors.warning, fontWeight: "700" }]}>
-				{count}
-			</Text>
-		</View>
-	);
+	return <Badge variant="destructive">{String(count)} pending</Badge>;
 }
 
 function ConnectPrompt() {
@@ -186,12 +172,12 @@ export default function ApprovalsScreen() {
 				style={[
 					styles.container,
 					{
-						backgroundColor: colors.background,
 						paddingTop: insets.top,
 						paddingBottom: insets.bottom,
 					},
 				]}
 			>
+				<DepthBackground />
 				<ConnectPrompt />
 			</View>
 		);
@@ -205,14 +191,14 @@ export default function ApprovalsScreen() {
 			style={[
 				styles.container,
 				{
-					backgroundColor: colors.background,
 					paddingTop: insets.top,
 					paddingBottom: insets.bottom,
 				},
 			]}
 		>
+			<DepthBackground />
 			<View style={styles.header}>
-				<Text style={[typography.h1, { color: colors.foreground }]}>Approvals</Text>
+				<Text style={[typography.title, { color: colors.foreground }]}>Approvals</Text>
 				<PendingCountBadge count={pendingCount} />
 			</View>
 

@@ -19,6 +19,7 @@ import { KeySheet } from "@/components/companion/KeySheet";
 import { MessageView } from "@/components/companion/MessageView";
 import { ModelSheet } from "@/components/companion/ModelSheet";
 import { SmartReplies } from "@/components/companion/SmartReplies";
+import { DepthBackground } from "@/components/ui";
 import { AvatarStatusPill } from "@/components/AvatarStatusPill";
 import { ChevronLeftIcon, PlusIcon } from "@/components/icons";
 import { useProviderChat } from "@/hooks/useProviderChat";
@@ -162,10 +163,11 @@ export default function ConversationScreen() {
 
 	return (
 		<KeyboardAvoidingView
-			style={[styles.container, { backgroundColor: colors.background }]}
+			style={styles.container}
 			behavior={Platform.OS === "ios" ? "padding" : "height"}
 			keyboardVerticalOffset={insets.top + 56}
 		>
+			<DepthBackground />
 			<View
 				style={[
 					styles.header,
@@ -201,7 +203,7 @@ export default function ConversationScreen() {
 						avatarId={avatarId}
 						agentName={agentName || "shadow"}
 						state={agentState}
-						size={56}
+						size={40}
 						detail={
 							agentState === "idle"
 								? null
@@ -250,7 +252,7 @@ export default function ConversationScreen() {
 					<View style={styles.emptyMark}>
 						<AgentMark size={72} />
 					</View>
-					<Text style={[typography.h1, { color: colors.foreground, textAlign: "center" }]}>
+					<Text style={[typography.titleLarge, { color: colors.foreground, textAlign: "center" }]}>
 						what's on your mind?
 					</Text>
 					<Text

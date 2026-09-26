@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PlusIcon, SendIcon } from "@/components/icons";
+import { GlassView } from "@/components/ui";
 import { Spacing, typography, useTheme } from "@/theme";
 
 interface ComposerProps {
@@ -63,21 +64,12 @@ export function Composer({
 			style={[
 				styles.container,
 				{
-					backgroundColor: colors.background,
 					paddingBottom: Math.max(insets.bottom, Spacing.sm),
 				},
 			]}
 		>
 			{menuOpen ? (
-				<View
-					style={[
-						styles.menu,
-						{
-							backgroundColor: colors.card,
-							borderColor: colors.border,
-						},
-					]}
-				>
+				<GlassView borderRadius={16} style={styles.menu}>
 					<Pressable
 						onPress={() => handleMenuAction(onNewChat)}
 						style={styles.menuItem}
@@ -99,18 +91,11 @@ export function Composer({
 							switch model
 						</Text>
 					</Pressable>
-				</View>
+				</GlassView>
 			) : null}
 
-			<View
-				style={[
-					styles.pill,
-					{
-						backgroundColor: colors.card,
-						borderColor: colors.border,
-					},
-				]}
-			>
+			<GlassView borderRadius={28} intensity={80}>
+				<View style={styles.pillInner}>
 				<Pressable
 					onPress={() => {
 						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -181,7 +166,8 @@ export function Composer({
 						)}
 					</Pressable>
 				)}
-			</View>
+				</View>
+			</GlassView>
 		</View>
 	);
 }
@@ -192,10 +178,7 @@ const styles = StyleSheet.create({
 		paddingTop: Spacing.sm,
 	},
 	menu: {
-		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: 16,
 		marginBottom: Spacing.sm,
-		overflow: "hidden",
 	},
 	menuItem: {
 		paddingHorizontal: Spacing.md,
@@ -204,11 +187,9 @@ const styles = StyleSheet.create({
 	menuDivider: {
 		height: StyleSheet.hairlineWidth,
 	},
-	pill: {
+	pillInner: {
 		flexDirection: "row",
 		alignItems: "center",
-		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: 28,
 		paddingLeft: Spacing.sm,
 		paddingRight: 6,
 		paddingVertical: 6,

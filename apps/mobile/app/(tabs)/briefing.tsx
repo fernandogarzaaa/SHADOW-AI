@@ -3,7 +3,6 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
 	ActivityIndicator,
-	Pressable,
 	RefreshControl,
 	ScrollView,
 	StyleSheet,
@@ -28,6 +27,7 @@ import { useReduceMotion } from "@/hooks/useReduceMotion";
 import { useConnectionStore } from "@/stores/useConnectionStore";
 import { useProfileStore } from "@/stores/useProfileStore";
 import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
+import { Badge, Button, DepthBackground, GlassView } from "@/components/ui";
 
 function greetingFor(date: Date): string {
 	const day = date.toLocaleDateString(undefined, { weekday: "long" });
@@ -107,29 +107,28 @@ function useBriefingData(isPaired: boolean) {
 
 function SectionCard({
 	title,
+	count,
 	children,
 }: {
 	title: string;
+	count?: number;
 	children: React.ReactNode;
 }) {
 	const { colors } = useTheme();
 	return (
-		<View
-			style={[
-				styles.card,
-				{ backgroundColor: colors.card, borderColor: colors.border },
-			]}
-		>
-			<Text
-				style={[
-					typography.meta,
-					{ color: colors.mutedForeground, fontWeight: "700", marginBottom: Spacing.sm },
-				]}
-			>
-				{title.toUpperCase()}
-			</Text>
-			{children}
-		</View>
+		<GlassView borderRadius={SemanticSpacing.radiusCard}>
+			<View style={styles.cardInner}>
+				<View style={styles.cardHeader}>
+					<Text style={[typography.titleSmall, { color: colors.foreground }]}>
+						{title}
+					</Text>
+					{typeof count === "number" ? (
+						<Badge variant="secondary">{String(count)}</Badge>
+					) : null}
+				</View>
+				{children}
+			</View>
+		</GlassView>
 	);
 }
 
@@ -178,265 +177,224 @@ export default function BriefingScreen() {
 	const ambientOn = data?.status.config?.enabled === true;
 
 	return (
-		<ScrollView
-			style={[styles.container, { backgroundColor: colors.background }]}
-			contentContainerStyle={[
-				styles.content,
-				{ paddingTop: insets.top + Spacing.md, paddingBottom: 120 },
-			]}
-			refreshControl={
-				<RefreshControl
-					refreshing={refreshing}
-					onRefresh={() => void onRefresh()}
-					tintColor={colors.primary}
-				/>
-			}
-		>
-			<View style={styles.hero}>
-				<AvatarStatusPill
-					avatarId={avatarId}
-					agentName={agentName || "shadow"}
-					state={agentState}
-					size={96}
-				/>
-				<Text
-					style={[typography.h1, { color: colors.foreground, textAlign: "center" }]}
-					accessibilityRole="header"
-				>
-					{greeting}
-				</Text>
-				<Text
-					style={[
-						typography.body,
-						{ color: colors.mutedForeground, textAlign: "center", marginTop: 4 },
-					]}
-				>
-					{isPaired
-						? "Here is what your node has been up to."
-						: "Link your node to get briefings on what it has been doing."}
-				</Text>
-			</View>
-
-			{!isPaired ? (
-				<View
-					style={[
-						styles.card,
-						{ backgroundColor: colors.card, borderColor: colors.border },
-					]}
-				>
-					<Text style={[typography.body, { color: colors.foreground }]}>
-						No node linked
-					</Text>
-					<Text
-						style={[
-							typography.body,
-							{ color: colors.mutedForeground, marginTop: 4 },
-						]}
-					>
-						Briefings come from your SHADOW node: its runs, executions,
-						and claims. Link a node to start receiving them.
-					</Text>
-					<Pressable
-						onPress={() => router.push("/settings/link-node")}
-						style={({ pressed }) => [
-							styles.cta,
-							{
-								backgroundColor: colors.primary,
-								opacity: pressed ? 0.8 : 1,
-							},
-						]}
-						accessibilityRole="button"
-						accessibilityLabel="Link a node in settings"
-					>
-						<Text
-							style={[typography.uiLabel, { color: colors.primaryForeground, fontWeight: "700" }]}
-						>
-							Link a node
-						</Text>
-					</Pressable>
-				</View>
-			) : loading && !data ? (
-				<View style={styles.centered}>
-					<ActivityIndicator
-						size="large"
-						color={colors.primary}
-						animating={!reduceMotion}
+		<View style={styles.container}>
+			<DepthBackground />
+			<ScrollView
+				style={styles.scroll}
+				contentContainerStyle={[
+					styles.content,
+					{ paddingTop: insets.top + Spacing.md, paddingBottom: 120 },
+				]}
+				refreshControl={
+					<RefreshControl
+						refreshing={refreshing}
+						onRefresh={() => void onRefresh()}
+						tintColor={colors.primary}
+					/>
+				}
+			>
+				<View style={styles.hero}>
+					<AvatarStatusPill
+						avatarId={avatarId}
+						agentName={agentName || "shadow"}
+						state={agentState}
+						size={96}
 					/>
 					<Text
-						style={[
-							typography.body,
-							{ color: colors.mutedForeground, marginTop: Spacing.sm },
-						]}
+						style={[typography.titleLarge, { color: colors.foreground, textAlign: "center" }]}
+						accessibilityRole="header"
 					>
-						Asking your node for the latest...
-					</Text>
-				</View>
-			) : error && !data ? (
-				<View
-					style={[
-						styles.card,
-						{ backgroundColor: colors.card, borderColor: colors.border },
-					]}
-				>
-					<Text style={[typography.body, { color: colors.foreground }]}>
-						Could not reach the node
+						{greeting}
 					</Text>
 					<Text
 						style={[
 							typography.body,
-							{ color: colors.mutedForeground, marginTop: 4 },
+							{ color: colors.mutedForeground, textAlign: "center", marginTop: 4 },
 						]}
 					>
-						{error}
+						{isPaired
+							? "Here is what your node has been up to."
+							: "Link your node to get briefings on what it has been doing."}
 					</Text>
-					<Pressable
-						onPress={() => void reload()}
-						style={({ pressed }) => [
-							styles.cta,
-							{
-								backgroundColor: colors.card,
-								borderColor: colors.border,
-								opacity: pressed ? 0.7 : 1,
-							},
-						]}
-						accessibilityRole="button"
-						accessibilityLabel="Try again"
-					>
-						<Text
-							style={[
-								typography.uiLabel,
-								{ color: colors.foreground, fontWeight: "600" },
-							]}
-						>
-							Try again
-						</Text>
-					</Pressable>
 				</View>
-			) : data ? (
-				<>
-					<SectionCard title="Node status">
-						<View style={styles.kvRow}>
-							<Text style={[typography.body, { color: colors.foreground }]}>
-								Ambient scheduler
+
+				{!isPaired ? (
+					<GlassView borderRadius={SemanticSpacing.radiusCard}>
+						<View style={styles.cardInner}>
+							<Text style={[typography.titleSmall, { color: colors.foreground }]}>
+								No node linked
 							</Text>
-							<View
+							<Text
 								style={[
-									styles.badge,
-									{
-										backgroundColor: ambientOn
-											? colors.success
-											: colors.muted,
-									},
+									typography.body,
+									{ color: colors.mutedForeground, marginTop: 4 },
 								]}
 							>
-								<Text
-									style={[
-										typography.meta,
-										{
-											color: ambientOn ? colors.successForeground : colors.mutedForeground,
-											fontWeight: "700",
-										},
-									]}
-								>
+								Briefings come from your SHADOW node: its runs, executions,
+								and claims. Link a node to start receiving them.
+							</Text>
+							<Button
+								variant="primary"
+								size="md"
+								onPress={() => router.push("/settings/link-node")}
+								accessibilityLabel="Link a node in settings"
+								style={styles.cta}
+							>
+								Link a node
+							</Button>
+						</View>
+					</GlassView>
+				) : loading && !data ? (
+					<View style={styles.centered}>
+						<ActivityIndicator
+							size="large"
+							color={colors.primary}
+							animating={!reduceMotion}
+						/>
+						<Text
+							style={[
+								typography.body,
+								{ color: colors.mutedForeground, marginTop: Spacing.sm },
+							]}
+						>
+							Asking your node for the latest...
+						</Text>
+					</View>
+				) : error && !data ? (
+					<GlassView borderRadius={SemanticSpacing.radiusCard}>
+						<View style={styles.cardInner}>
+							<Text style={[typography.titleSmall, { color: colors.foreground }]}>
+								Could not reach the node
+							</Text>
+							<Text
+								style={[
+									typography.body,
+									{ color: colors.mutedForeground, marginTop: 4 },
+								]}
+							>
+								{error}
+							</Text>
+							<Button
+								variant="outline"
+								size="md"
+								onPress={() => void reload()}
+								accessibilityLabel="Try again"
+								style={styles.cta}
+							>
+								Try again
+							</Button>
+						</View>
+					</GlassView>
+				) : data ? (
+					<>
+						<SectionCard title="Node status">
+							<View style={styles.kvRow}>
+								<Text style={[typography.body, { color: colors.foreground }]}>
+									Ambient scheduler
+								</Text>
+								<Badge variant={ambientOn ? "success" : "secondary"}>
 									{ambientOn ? "ON" : "OFF"}
+								</Badge>
+							</View>
+							<View style={styles.kvRow}>
+								<Text style={[typography.body, { color: colors.foreground }]}>
+									Background work
+								</Text>
+								<Text style={[typography.body, { color: colors.mutedForeground }]}>
+									{data.status.background_running ? "running" : "idle"}
 								</Text>
 							</View>
-						</View>
-						<View style={styles.kvRow}>
-							<Text style={[typography.body, { color: colors.foreground }]}>
-								Background work
-							</Text>
-							<Text style={[typography.body, { color: colors.mutedForeground }]}>
-								{data.status.background_running ? "running" : "idle"}
-							</Text>
-						</View>
-					</SectionCard>
+						</SectionCard>
 
-					<SectionCard title={`Recent runs (${data.runs.length})`}>
-						{data.runs.length === 0 ? (
-							<Text style={[typography.body, { color: colors.mutedForeground }]}>
-								No runs recorded yet.
-							</Text>
-						) : (
-							data.runs.slice(0, 5).map((run) => (
-								<View key={run.run_id} style={styles.itemRow}>
-									<View style={styles.itemText}>
-										<Text
-											style={[typography.body, { color: colors.foreground }]}
-											numberOfLines={1}
-										>
-											{run.objective || run.run_id}
-										</Text>
-										<Text style={[typography.meta, { color: colors.mutedForeground }]}>
-											{[run.status, timeAgo(run.started_at)]
-												.filter(Boolean)
-												.join(" · ")}
-										</Text>
+						<SectionCard title="Recent runs" count={data.runs.length}>
+							{data.runs.length === 0 ? (
+								<Text style={[typography.body, { color: colors.mutedForeground }]}>
+									No runs recorded yet.
+								</Text>
+							) : (
+								data.runs.slice(0, 5).map((run) => (
+									<View key={run.run_id} style={styles.itemRow}>
+										<View style={styles.itemText}>
+											<Text
+												style={[typography.body, { color: colors.foreground }]}
+												numberOfLines={1}
+											>
+												{run.objective || run.run_id}
+											</Text>
+											<Text style={[typography.meta, { color: colors.mutedForeground }]}>
+												{[run.status, timeAgo(run.started_at)]
+													.filter(Boolean)
+													.join(" · ")}
+											</Text>
+										</View>
 									</View>
-								</View>
-							))
-						)}
-					</SectionCard>
+								))
+							)}
+						</SectionCard>
 
-					<SectionCard title={`Recent executions (${data.executions.length})`}>
-						{data.executions.length === 0 ? (
-							<Text style={[typography.body, { color: colors.mutedForeground }]}>
-								No executions verified yet.
-							</Text>
-						) : (
-							data.executions.slice(0, 5).map((exec) => (
-								<View key={exec.execution_id} style={styles.itemRow}>
-									<View
-										style={[
-											styles.dot,
-											{
-												backgroundColor: verdictColor(exec.verification, colors),
-											},
-										]}
-									/>
-									<View style={styles.itemText}>
-										<Text
-											style={[typography.body, { color: colors.foreground }]}
-											numberOfLines={1}
-										>
-											{exec.intent || exec.tool_name || exec.execution_id}
-										</Text>
-										<Text style={[typography.meta, { color: colors.mutedForeground }]}>
-											{[exec.verification, timeAgo(exec.started_at)]
-												.filter(Boolean)
-												.join(" · ")}
-										</Text>
+						<SectionCard title="Recent executions" count={data.executions.length}>
+							{data.executions.length === 0 ? (
+								<Text style={[typography.body, { color: colors.mutedForeground }]}>
+									No executions verified yet.
+								</Text>
+							) : (
+								data.executions.slice(0, 5).map((exec) => (
+									<View key={exec.execution_id} style={styles.itemRow}>
+										<View
+											style={[
+												styles.dot,
+												{
+													backgroundColor: verdictColor(exec.verification, colors),
+												},
+											]}
+										/>
+										<View style={styles.itemText}>
+											<Text
+												style={[typography.body, { color: colors.foreground }]}
+												numberOfLines={1}
+											>
+												{exec.intent || exec.tool_name || exec.execution_id}
+											</Text>
+											<Text style={[typography.meta, { color: colors.mutedForeground }]}>
+												{[exec.verification, timeAgo(exec.started_at)]
+													.filter(Boolean)
+													.join(" · ")}
+											</Text>
+										</View>
 									</View>
-								</View>
-							))
-						)}
-					</SectionCard>
+								))
+							)}
+						</SectionCard>
 
-					<SectionCard title={`Open claims (${openClaims.length})`}>
-						{openClaims.length === 0 ? (
-							<Text style={[typography.body, { color: colors.mutedForeground }]}>
-								Nothing waiting on confirmation.
-							</Text>
-						) : (
-							<View style={styles.claimList}>
-								{openClaims.slice(0, 5).map((claim) => (
-									<ClaimCard
-										key={claim.claim_id}
-										claim={claim}
-										onResolved={handleClaimResolved}
-									/>
-								))}
-							</View>
-						)}
-					</SectionCard>
-				</>
-			) : null}
-		</ScrollView>
+						<SectionCard title="Open claims" count={openClaims.length}>
+							{openClaims.length === 0 ? (
+								<Text style={[typography.body, { color: colors.mutedForeground }]}>
+									Nothing waiting on confirmation.
+								</Text>
+							) : (
+								<View style={styles.claimList}>
+									{openClaims.slice(0, 5).map((claim) => (
+										<ClaimCard
+											key={claim.claim_id}
+											claim={claim}
+											onResolved={handleClaimResolved}
+										/>
+									))}
+								</View>
+							)}
+						</SectionCard>
+					</>
+				) : null}
+			</ScrollView>
+		</View>
 	);
 }
 
 const styles = StyleSheet.create({
 	container: {
+		flex: 1,
+	},
+	scroll: {
 		flex: 1,
 	},
 	content: {
@@ -447,10 +405,15 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		marginBottom: Spacing.sm,
 	},
-	card: {
-		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: SemanticSpacing.radiusCard,
+	cardInner: {
 		padding: Spacing.md,
+	},
+	cardHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: Spacing.sm,
+		marginBottom: Spacing.sm,
 	},
 	centered: {
 		alignItems: "center",
@@ -458,12 +421,7 @@ const styles = StyleSheet.create({
 	},
 	cta: {
 		marginTop: Spacing.md,
-		borderRadius: 999,
-		borderWidth: StyleSheet.hairlineWidth,
-		minHeight: SemanticSpacing.buttonHeightMd,
-		alignItems: "center",
-		justifyContent: "center",
-		paddingHorizontal: Spacing.lg,
+		alignSelf: "flex-start",
 	},
 	kvRow: {
 		flexDirection: "row",
@@ -471,11 +429,6 @@ const styles = StyleSheet.create({
 		justifyContent: "space-between",
 		paddingVertical: Spacing.xs,
 		minHeight: SemanticSpacing.buttonHeightMd,
-	},
-	badge: {
-		borderRadius: 999,
-		paddingHorizontal: Spacing.sm,
-		paddingVertical: 4,
 	},
 	itemRow: {
 		flexDirection: "row",
