@@ -3,10 +3,15 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent_core import *
+from agent_core import (
+    RunJournal, CheckpointStore, ClaimRegistry, GhostRunSession,
+    AmbientScheduler, InMemoryKV,
+)
 from memory_engine import *
 from axiom_adapter import AxiomAdapter
 from ghost_adapter import GhostAdapter, LocalActionExecutor
 from .connectors import read_local_document
+from .ambient_tasks import build_task_map, BUILTIN_TASKS
 from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
 from .providers import build_frontier, CATALOG
@@ -79,6 +84,23 @@ store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); g
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
 for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params, explicit_consent=t in action_executor.CONSENT_REQUIRED)))(_tool))
+# Ambient GHOST capabilities: journaled, checkpointed multi-step runs, world-state
+# claims, and the opt-in background scheduler. Backed by the encrypted runtime
+# DB when configured, in-memory otherwise. Ambient is OFF by default; nothing
+# runs in the background until the operator enables it explicitly.
+_ambient_kv=_runtime_store if _runtime_db else InMemoryKV()
+ambient_journal=RunJournal(_ambient_kv, event_sink=bus.publish)
+ambient_checkpoints=CheckpointStore(_ambient_kv)
+ambient_claims=ClaimRegistry(_ambient_kv)
+ghost_runs=GhostRunSession(core, journal=ambient_journal, checkpoints=ambient_checkpoints,
+                           claims=ambient_claims, event_sink=bus.publish, audit=sentinel_audit)
+ambient_scheduler=AmbientScheduler(store=_ambient_kv, journal=ambient_journal,
+                                   tasks=build_task_map(), event_sink=bus.publish,
+                                   audit=sentinel_audit,
+                                   context={"core": core, "memory": memory,
+                                            "claims": ambient_claims, "sessions": sessions},
+                                   checkpoints=ambient_checkpoints)
+ambient_scheduler.start_background()
 # Hybrid local+frontier router and provider credential store.
 hybrid=HybridRouter(model, axiom)
 credentials=provider_auth.CredentialStore()
@@ -279,6 +301,106 @@ def get_execution(execution_id:str):
     rec=core.executions.get(execution_id)
     if rec is None: raise HTTPException(404,"unknown execution")
     return rec
+class AmbientConfigRequest(BaseModel):
+    enabled:bool|None=None; interval_seconds:int|None=None; stealth_mode:bool|None=None; tasks:list[str]|None=None
+class GhostRunRequest(BaseModel):
+    objective:str; steps:list[dict]; approval_id:str|None=None; double_confirmed:bool=False
+class ClaimRequest(BaseModel):
+    statement:str; run_id:str|None=None
+class ClaimDecisionRequest(BaseModel):
+    evidence:str
+@app.get("/ambient/status")
+def ambient_status():
+    """Ambient scheduler state. Disabled by default; enabling is explicit opt-in."""
+    cfg=ambient_scheduler.get_config()
+    return {"config":cfg.model_dump(mode="json"), "tasks_available":sorted(build_task_map()),
+            "background_running":ambient_scheduler.background_running}
+@app.post("/ambient/config")
+def ambient_config(req:AmbientConfigRequest):
+    """Enable/disable ambient work, set interval and stealth mode, choose tasks."""
+    try:
+        cfg=ambient_scheduler.configure(enabled=req.enabled, interval_seconds=req.interval_seconds,
+                                        stealth_mode=req.stealth_mode, tasks=req.tasks)
+    except ValueError as e:
+        raise HTTPException(400,str(e))
+    return cfg
+@app.post("/ambient/tick")
+def ambient_tick():
+    """Run one ambient iteration now (operator-initiated, not scheduled)."""
+    return ambient_scheduler.tick()
+@app.get("/ambient/runs")
+def ambient_runs(limit:int=50):
+    """Checkpointed runs (ghost agent runs and ambient ticks), newest first."""
+    return [cp.model_dump(mode="json") for cp in ambient_checkpoints.all()[:max(1,min(limit,200))]]
+@app.get("/ambient/runs/{run_id}")
+def ambient_run_detail(run_id:str):
+    """Run detail: checkpoint, full journal, linked claims, linked executions."""
+    cp=ambient_checkpoints.load(run_id)
+    if cp is None: raise HTTPException(404,"unknown run")
+    exec_ids=[r.get("execution_id") for r in cp.results if r.get("execution_id")]
+    return {
+        "checkpoint":cp.model_dump(mode="json"),
+        "journal":[e.model_dump(mode="json") for e in ambient_journal.for_run(run_id)],
+        "claims":[c.model_dump(mode="json") for c in ambient_claims.for_run(run_id)],
+        "executions":[core.executions[eid].summary() for eid in exec_ids if eid in core.executions],
+    }
+@app.post("/ghost/runs")
+def ghost_run_start(req:GhostRunRequest):
+    """Start a checkpointed multi-step run. Every step executes through the
+    policy gate with evidence and a verification verdict; progress is
+    checkpointed after each step so an interrupted run can be resumed."""
+    if not req.objective.strip(): raise HTTPException(400,"objective required")
+    if not req.steps: raise HTTPException(400,"at least one step required")
+    for s in req.steps:
+        if not isinstance(s, dict) or "tool" not in s: raise HTTPException(400,"every step needs a tool")
+    run_id=ghost_runs.start(req.objective, req.steps, approval_id=req.approval_id,
+                            double_confirmed=req.double_confirmed)
+    return ghost_runs.run_all(run_id)
+@app.post("/ghost/runs/{run_id}/resume")
+def ghost_run_resume(run_id:str):
+    """Resume an interrupted run from its checkpoint. Finished steps are not re-executed."""
+    try:
+        return ghost_runs.resume(run_id)
+    except KeyError:
+        raise HTTPException(404,"unknown run")
+    except ValueError as e:
+        raise HTTPException(409,str(e))
+@app.post("/ghost/runs/{run_id}/interrupt")
+def ghost_run_interrupt(run_id:str):
+    """Stop a run mid-flight. The checkpoint remains and the run can be resumed later."""
+    try:
+        return ghost_runs.interrupt(run_id)
+    except KeyError:
+        raise HTTPException(404,"unknown run")
+    except ValueError as e:
+        raise HTTPException(409,str(e))
+@app.get("/claims")
+def claims_list(status:str|None=None):
+    """World-state claims. Filter with ?status=unconfirmed|confirmed|refuted."""
+    try:
+        return [c.model_dump(mode="json") for c in ambient_claims.list(status=status)]
+    except ValueError:
+        raise HTTPException(400,"unknown status")
+@app.post("/claims")
+def claim_register(req:ClaimRequest):
+    if not req.statement.strip(): raise HTTPException(400,"statement required")
+    return ambient_claims.register(req.statement, run_id=req.run_id)
+@app.post("/claims/{claim_id}/confirm")
+def claim_confirm(claim_id:str, req:ClaimDecisionRequest):
+    try:
+        return ambient_claims.confirm(claim_id, req.evidence)
+    except KeyError:
+        raise HTTPException(404,"unknown claim")
+    except ValueError as e:
+        raise HTTPException(409,str(e))
+@app.post("/claims/{claim_id}/refute")
+def claim_refute(claim_id:str, req:ClaimDecisionRequest):
+    try:
+        return ambient_claims.refute(claim_id, req.evidence)
+    except KeyError:
+        raise HTTPException(404,"unknown claim")
+    except ValueError as e:
+        raise HTTPException(409,str(e))
 @app.post("/approvals")
 def create_approval(req:ApprovalCreateRequest):
     approval=core.approvals.create(req.action, req.reason); audit.append(AuditEvent(actor="user", event_type="approval_created", proposed_action=req.action.description, status="pending", metadata={"approval_id":approval.id})); return approval
