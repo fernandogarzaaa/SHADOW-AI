@@ -9,9 +9,11 @@ export default function OnboardingLayout() {
 			}}
 		>
 			<Stack.Screen name="index" />
+			<Stack.Screen name="provider" />
+			<Stack.Screen name="key" />
+			<Stack.Screen name="personality" />
 			<Stack.Screen name="scan" />
 			<Stack.Screen name="manual" />
-			<Stack.Screen name="directory" />
 		</Stack>
 	);
 }

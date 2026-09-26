@@ -39,28 +39,35 @@ export const WarmSandDark = {
 	border: dark.interactive.border,
 	input: dark.surface.muted,
 	ring: dark.primary.base,
+	/** Pale periwinkle bubble for the user's own messages. */
+	userBubble: "#2A3350",
+	userBubbleForeground: "#EDEFF7",
+	/** Soft beige blob behind the agent mark. */
+	blob: "#4A4033",
 } as const;
 
 /**
  * Warm Sand Light Theme Colors
- * Matches the desktop app's default light theme
+ * Chat-first companion theme: warm cream background (#F6F1EA) with a
+ * single cobalt accent (#0064E0). The accent is reserved for send and
+ * primary actions; everything else stays neutral.
  */
 export const WarmSandLight = {
-	background: light.surface.background,
+	background: "#F6F1EA",
 	foreground: light.surface.foreground,
-	card: light.surface.elevated,
-	cardForeground: light.surface.elevatedForeground,
-	popover: light.surface.elevated,
-	popoverForeground: light.surface.elevatedForeground,
-	primary: light.primary.base,
-	primaryHover: light.primary.hover ?? light.primary.base,
-	primaryForeground: light.primary.foreground ?? light.surface.background,
-	muted: light.surface.muted,
-	mutedForeground: light.surface.mutedForeground,
-	secondary: light.surface.subtle,
+	card: "#FFFFFF",
+	cardForeground: light.surface.foreground,
+	popover: "#FFFFFF",
+	popoverForeground: light.surface.foreground,
+	primary: "#0064E0",
+	primaryHover: "#0053BC",
+	primaryForeground: "#FFFFFF",
+	muted: "#ECE7DB",
+	mutedForeground: "#6D6860",
+	secondary: "#ECE7DB",
 	secondaryForeground: light.surface.foreground,
-	accent: light.surface.subtle,
-	accentForeground: light.surface.foreground,
+	accent: "#0064E0",
+	accentForeground: "#FFFFFF",
 	destructive: light.status.error,
 	destructiveForeground: light.status.errorForeground,
 	success: light.status.success,
@@ -69,9 +76,14 @@ export const WarmSandLight = {
 	infoForeground: light.status.infoForeground,
 	warning: light.status.warning,
 	warningForeground: light.status.warningForeground,
-	border: light.interactive.border,
-	input: light.surface.muted,
-	ring: light.primary.base,
+	border: "#E2DCCF",
+	input: "#ECE7DB",
+	ring: "#0064E0",
+	/** Pale periwinkle bubble for the user's own messages. */
+	userBubble: "#E3E9FA",
+	userBubbleForeground: "#232838",
+	/** Soft beige blob behind the agent mark. */
+	blob: "#EDE0C8",
 } as const;
 
 export type ThemeColors = typeof WarmSandDark | typeof WarmSandLight;

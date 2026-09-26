@@ -32,7 +32,7 @@ interface ThemeModeContextValue {
 }
 
 const ThemeModeContext = createContext<ThemeModeContextValue>({
-	themeMode: "system",
+	themeMode: "light",
 	setThemeMode: () => {},
 });
 
@@ -42,6 +42,7 @@ export function useThemeMode() {
 
 function createColors(theme: Theme): ThemeColors {
 	const { colors } = theme;
+	const isDark = theme.metadata.variant === "dark";
 
 	return {
 		background: colors.surface.background,
@@ -60,6 +61,11 @@ function createColors(theme: Theme): ThemeColors {
 		primaryActive: colors.primary.active ?? colors.primary.base,
 		primaryForeground: colors.primary.foreground ?? colors.surface.background,
 		primaryMuted: colors.primary.muted ?? colors.primary.base,
+
+		// Pale periwinkle user bubble; soft beige agent blob.
+		userBubble: isDark ? "#2A3350" : "#E3E9FA",
+		userBubbleForeground: isDark ? "#EDEFF7" : "#232838",
+		blob: isDark ? "#4A4033" : "#EDE0C8",
 
 		border: colors.interactive.border,
 		borderHover: colors.interactive.borderHover,
@@ -176,7 +182,7 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children, forcedTheme }: ThemeProviderProps) {
 	const systemColorScheme = useColorScheme();
-	const [themeMode, setThemeModeState] = useState<ThemeMode>("system");
+	const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
 	const [isLoaded, setIsLoaded] = useState(false);
 
 	useEffect(() => {

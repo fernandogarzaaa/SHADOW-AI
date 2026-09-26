@@ -118,7 +118,7 @@ export default function ScanScreen() {
 		try {
 			await pair(payload.url, payload.pairingId, defaultDeviceName());
 			Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-			router.replace("/(tabs)/approvals");
+			router.replace("/settings/link-node");
 		} catch {
 			// pairError from the store is shown inline below.
 			setScanned(false);

@@ -1,4 +1,3 @@
-import { router } from "expo-router";
 import { Alert } from "react-native";
 import {
 	SettingsGroup,
@@ -24,18 +23,15 @@ function getConnectionType(url: string | null): {
 }
 
 export default function ConnectionScreen() {
-	const { serverUrl, directory } = useConnectionStore();
+	const { serverUrl } = useConnectionStore();
 
 	const serverHost = serverUrl ? new URL(serverUrl).host : "Not connected";
 	const connectionInfo = getConnectionType(serverUrl);
-	const directoryDisplay = directory
-		? directory.split("/").slice(-2).join("/")
-		: "Not selected";
 
 	const handleRestartOpenCode = async () => {
 		Alert.alert(
-			"Restart OpenCode",
-			"This will restart the OpenCode server. Continue?",
+			"Restart backend",
+			"This will restart the node server. Continue?",
 			[
 				{ text: "Cancel", style: "cancel" },
 				{
@@ -43,7 +39,7 @@ export default function ConnectionScreen() {
 					onPress: async () => {
 						try {
 							await settingsApi.restartOpenCode();
-							Alert.alert("Success", "OpenCode is restarting...");
+							Alert.alert("Success", "Node is restarting...");
 						} catch (err) {
 							Alert.alert(
 								"Error",
@@ -67,15 +63,7 @@ export default function ConnectionScreen() {
 
 			<SettingsGroup>
 				<SettingsRow
-					title="Directory"
-					value={directoryDisplay}
-					onPress={() => router.push("/onboarding/directory")}
-				/>
-			</SettingsGroup>
-
-			<SettingsGroup footer="Restart the backend server if you encounter issues.">
-				<SettingsRow
-					title="Restart OpenCode"
+					title="Restart backend"
 					onPress={handleRestartOpenCode}
 				/>
 			</SettingsGroup>

@@ -1,386 +1,371 @@
-import { useEffect, useRef, useState } from "react";
+import BottomSheet from "@gorhom/bottom-sheet";
+import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	FlatList,
 	KeyboardAvoidingView,
 	Platform,
 	Pressable,
+	StyleSheet,
 	Text,
-	TextInput,
 	View,
 } from "react-native";
-import { router } from "expo-router";
-import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-	AlertCircleIcon,
-	ChatIcon,
-	CopyIcon,
-	RefreshIcon,
-	SendIcon,
-	StopIcon,
-} from "@/components/icons";
-import { MarkdownRenderer } from "@/components/markdown/MarkdownRenderer";
-import { useChatStream, type ChatMessage } from "@/hooks/useChatStream";
-import { useConnectionStore } from "@/stores/useConnectionStore";
-import { useTheme } from "@/theme";
+import { Composer } from "@/components/companion/Composer";
+import { AgentMark } from "@/components/companion/AgentMark";
+import { AgentStateLine } from "@/components/companion/AgentStateLine";
+import { KeySheet } from "@/components/companion/KeySheet";
+import { MessageView } from "@/components/companion/MessageView";
+import { ModelSheet } from "@/components/companion/ModelSheet";
+import { SmartReplies } from "@/components/companion/SmartReplies";
+import { ThreadSheet } from "@/components/companion/ThreadSheet";
+import { useProviderChat } from "@/hooks/useProviderChat";
+import { getProvider, type ProviderId } from "@/providers";
+import { useChatStore, type ChatMessage } from "@/stores/useChatStore";
+import { useProfileStore } from "@/stores/useProfileStore";
+import { useProviderStore } from "@/stores/useProviderStore";
+import { Spacing, typography, useTheme } from "@/theme";
 
-async function copyText(text: string): Promise<void> {
-	await Clipboard.setStringAsync(text);
-	await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-}
+const SUGGESTIONS = [
+	"plan my day",
+	"explain a tricky idea simply",
+	"draft a message",
+	"brainstorm with me",
+];
 
-function MessageBubble({
-	message,
-	onCopy,
-	onRetry,
-}: {
-	message: ChatMessage;
-	onCopy: () => void;
-	onRetry: () => void;
-}) {
+export default function ChatScreen() {
 	const { colors } = useTheme();
-	const isUser = message.role === "user";
+	const router = useRouter();
+	const insets = useSafeAreaInsets();
 
-	if (isUser) {
-		return (
-			<View style={{ alignItems: "flex-end", marginVertical: 4 }}>
-				<View
-					style={{
-						maxWidth: "85%",
-						backgroundColor: colors.primary,
-						borderRadius: 16,
-						borderBottomRightRadius: 4,
-						paddingHorizontal: 14,
-						paddingVertical: 10,
-					}}
-				>
-					<Text style={{ color: colors.primaryForeground, fontSize: 15 }}>
-						{message.text}
-					</Text>
-				</View>
+	const { threads, activeThreadId, setActiveThread, createThread } = useChatStore();
+	const { providerId, modelId, initialized, setProvider, setModel } = useProviderStore();
+	const agentName = useProfileStore((s) => s.profile.agentName);
+	const {
+		streaming,
+		streamingThreadId,
+		error,
+		agentState,
+		stateProviderLabel,
+		stateModelId,
+		stateStartedAt,
+		smartReplies,
+		send,
+		retry,
+		stop,
+		clearError,
+		refreshSmartReplies,
+	} = useProviderChat();
+
+	const threadSheetRef = useRef<BottomSheet>(null);
+	const modelSheetRef = useRef<BottomSheet>(null);
+	const keySheetRef = useRef<BottomSheet>(null);
+	const [keyProvider, setKeyProvider] = useState<ProviderId>("anthropic");
+	const listRef = useRef<FlatList<ChatMessage>>(null);
+
+	const thread = threads.find((t) => t.id === activeThreadId) ?? null;
+	const messages = useMemo(
+		() => (thread ? [...thread.messages].reverse() : []),
+		[thread],
+	);
+
+	// Ensure there is always an active thread once stores are ready.
+	useEffect(() => {
+		if (!initialized) return;
+		if (!activeThreadId) {
+			void createThread(providerId, modelId);
+		}
+	}, [initialized, activeThreadId, createThread, providerId, modelId]);
+
+	// Refresh smart replies when the active thread changes.
+	useEffect(() => {
+		if (activeThreadId && !streaming) {
+			refreshSmartReplies(activeThreadId);
+		}
+	}, [activeThreadId, streaming, refreshSmartReplies]);
+
+	const ensureThread = useCallback(async (): Promise<string | null> => {
+		if (activeThreadId) return activeThreadId;
+		return createThread(providerId, modelId);
+	}, [activeThreadId, createThread, providerId, modelId]);
+
+	const handleSend = useCallback(
+		async (text: string) => {
+			clearError();
+			const id = await ensureThread();
+			if (id) {
+				await send(id, text);
+			}
+		},
+		[ensureThread, send, clearError],
+	);
+
+	const handleRetry = useCallback(async () => {
+		if (!activeThreadId) return;
+		clearError();
+		// Retry re-runs the failed turn; it never duplicates the user message.
+		await retry(activeThreadId);
+	}, [activeThreadId, retry, clearError]);
+
+	const handleNewThread = useCallback(async () => {
+		if (streaming) stop();
+		threadSheetRef.current?.close();
+		await createThread(providerId, modelId);
+	}, [createThread, providerId, modelId, streaming, stop]);
+
+	const handlePickModel = useCallback(
+		async (pickedProvider: ProviderId, pickedModel: string) => {
+			modelSheetRef.current?.close();
+			if (streaming) stop();
+			if (pickedProvider !== providerId) {
+				await setProvider(pickedProvider);
+			}
+			if (pickedModel !== modelId || pickedProvider !== providerId) {
+				await setModel(pickedModel);
+			}
+			// A thread snapshots its provider/model, so a switch starts fresh.
+			await createThread(pickedProvider, pickedModel);
+		},
+		[providerId, modelId, setProvider, setModel, createThread, streaming, stop],
+	);
+
+	const handleAddKey = useCallback((id: ProviderId) => {
+		modelSheetRef.current?.close();
+		setKeyProvider(id);
+		setTimeout(() => keySheetRef.current?.snapToIndex(0), 300);
+	}, []);
+
+	const handleKeySaved = useCallback(async () => {
+		keySheetRef.current?.close();
+		await useProviderStore.getState().refreshKeyPresence();
+		const savedProvider = keyProvider;
+		await handlePickModel(savedProvider, getProvider(savedProvider).defaultModel);
+	}, [handlePickModel, keyProvider]);
+
+	const threadProvider = thread ? getProvider(thread.providerId) : getProvider(providerId);
+	const threadModelLabel =
+		threadProvider.models.find((m) => m.id === (thread?.modelId ?? modelId))?.label ??
+		(thread?.modelId ?? modelId);
+
+	return (
+		<KeyboardAvoidingView
+			style={[styles.container, { backgroundColor: colors.background }]}
+			behavior={Platform.OS === "ios" ? "padding" : "height"}
+			keyboardVerticalOffset={insets.top + 56}
+		>
+			<View
+				style={[
+					styles.header,
+					{
+						paddingTop: insets.top + Spacing.sm,
+						borderBottomColor: colors.border,
+					},
+				]}
+			>
 				<Pressable
-					onPress={onCopy}
-					hitSlop={8}
-					style={{ padding: 6 }}
-					accessibilityLabel="Copy message"
-				>
-					<CopyIcon size={14} color={colors.mutedForeground} />
-				</Pressable>
-			</View>
-		);
-	}
-
-	if (message.failed) {
-		return (
-			<View style={{ alignItems: "flex-start", marginVertical: 4 }}>
-				<View
-					style={{
-						maxWidth: "90%",
-						backgroundColor: colors.card,
-						borderRadius: 16,
-						borderBottomLeftRadius: 4,
-						borderWidth: 1,
-						borderColor: colors.destructive,
-						paddingHorizontal: 14,
-						paddingVertical: 10,
-						gap: 8,
+					onPress={() => {
+						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+						threadSheetRef.current?.snapToIndex(0);
 					}}
+					style={styles.headerButton}
+					hitSlop={10}
+					accessibilityRole="button"
+					accessibilityLabel="Open chat list"
 				>
-					<View
-						style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+					<Text style={[typography.h2, { color: colors.foreground }]}>☰</Text>
+				</Pressable>
+
+				<View style={styles.headerTitle}>
+					<Text
+						style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}
+						numberOfLines={1}
 					>
-						<AlertCircleIcon size={16} color={colors.destructive} />
-						<Text
-							style={{
-								color: colors.destructive,
-								fontSize: 13,
-								fontWeight: "600",
-							}}
-						>
-							Send failed
-						</Text>
-					</View>
-					<Text style={{ color: colors.foreground, fontSize: 14 }}>
-						{message.text}
+						{thread?.title ?? "New chat"}
 					</Text>
 					<Pressable
-						onPress={onRetry}
-						style={{
-							flexDirection: "row",
-							alignItems: "center",
-							gap: 6,
-							alignSelf: "flex-start",
-							paddingVertical: 6,
-							paddingHorizontal: 12,
-							borderRadius: 999,
-							backgroundColor: colors.muted,
+						onPress={() => {
+							Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+							modelSheetRef.current?.snapToIndex(0);
 						}}
-						accessibilityLabel="Retry request"
+						hitSlop={8}
+						accessibilityRole="button"
+						accessibilityLabel="Change model"
 					>
-						<RefreshIcon size={14} color={colors.foreground} />
-						<Text style={{ color: colors.foreground, fontSize: 13 }}>
-							Retry
+						<Text style={[typography.meta, { color: colors.mutedForeground }]}>
+							{threadProvider.label} · {threadModelLabel}
 						</Text>
 					</Pressable>
 				</View>
-			</View>
-		);
-	}
 
-	return (
-		<View style={{ alignItems: "flex-start", marginVertical: 4 }}>
-			<View
-				style={{
-					maxWidth: "90%",
-					backgroundColor: colors.card,
-					borderRadius: 16,
-					borderBottomLeftRadius: 4,
-					paddingHorizontal: 14,
-					paddingVertical: 10,
-				}}
-			>
-				{message.streaming ? (
-					<Text style={{ color: colors.foreground, fontSize: 15 }}>
-						{message.text}
-						<Text style={{ color: colors.primary }}>{"\u25cd"}</Text>
-					</Text>
-				) : (
-					<MarkdownRenderer content={message.text} />
-				)}
-			</View>
-			{!message.streaming && message.text.length > 0 ? (
 				<Pressable
-					onPress={onCopy}
-					hitSlop={8}
-					style={{ padding: 6 }}
-					accessibilityLabel="Copy message"
+					onPress={() => {
+						Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+						void handleNewThread();
+					}}
+					style={styles.headerButton}
+					hitSlop={10}
+					accessibilityRole="button"
+					accessibilityLabel="Start a new chat"
 				>
-					<CopyIcon size={14} color={colors.mutedForeground} />
+					<Text style={[typography.h2, { color: colors.foreground }]}>＋</Text>
 				</Pressable>
-			) : null}
-		</View>
-	);
-}
+			</View>
 
-export default function ChatScreen() {
-	const insets = useSafeAreaInsets();
-	const { colors } = useTheme();
-	const { isPaired } = useConnectionStore();
-	const { messages, sending, send, cancel, retry } = useChatStream();
-	const [draft, setDraft] = useState("");
-	const listRef = useRef<FlatList<ChatMessage>>(null);
+			{/* Agent state (thinking/working/error/offline) renders above the composer. */}
 
-	useEffect(() => {
-		if (messages.length > 0) {
-			listRef.current?.scrollToEnd({ animated: true });
-		}
-	}, [messages]);
-
-	const canSend = draft.trim().length > 0 && !sending;
-
-	const handleSend = () => {
-		const text = draft.trim();
-		if (!text || sending) return;
-		void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-		setDraft("");
-		send(text);
-	};
-
-	if (!isPaired) {
-		return (
-			<View
-				style={{
-					flex: 1,
-					backgroundColor: colors.background,
-					alignItems: "center",
-					justifyContent: "center",
-					paddingHorizontal: 32,
-					gap: 12,
-				}}
-			>
-				<ChatIcon size={48} color={colors.mutedForeground} />
-				<Text
-					style={{
-						color: colors.foreground,
-						fontSize: 18,
-						fontWeight: "600",
-						textAlign: "center",
-					}}
-				>
-					Not connected
-				</Text>
-				<Text
-					style={{
-						color: colors.mutedForeground,
-						fontSize: 14,
-						textAlign: "center",
-					}}
-				>
-					Pair with your SHADOW node to start chatting.
-				</Text>
-				<Pressable
-					onPress={() => router.push("/onboarding/scan")}
-					style={{
-						marginTop: 8,
-						backgroundColor: colors.primary,
-						borderRadius: 999,
-						paddingVertical: 12,
-						paddingHorizontal: 28,
-					}}
-					accessibilityLabel="Pair with node"
-				>
+			{messages.length === 0 ? (
+				<View style={styles.empty}>
+					<View style={styles.emptyMark}>
+						<AgentMark size={72} />
+					</View>
+					<Text style={[typography.h1, { color: colors.foreground, textAlign: "center" }]}>
+						what's on your mind?
+					</Text>
 					<Text
-						style={{
-							color: colors.primaryForeground,
-							fontSize: 15,
-							fontWeight: "600",
-						}}
+						style={[
+							typography.body,
+							{ color: colors.mutedForeground, textAlign: "center", marginTop: 8 },
+						]}
 					>
-						Pair node
+						i'm {agentName || "shadow"}, your personal ai.{"\n"}
+						{threadProvider.label} · {threadModelLabel}
 					</Text>
-				</Pressable>
-			</View>
-		);
-	}
-
-	return (
-		<View style={{ flex: 1, backgroundColor: colors.background }}>
-			<KeyboardAvoidingView
-				behavior={Platform.OS === "ios" ? "padding" : "height"}
-				style={{ flex: 1 }}
-				keyboardVerticalOffset={insets.top}
-			>
+					<View style={styles.suggestions}>
+						{SUGGESTIONS.map((s) => (
+							<Pressable
+								key={s}
+								onPress={() => void handleSend(s)}
+								style={({ pressed }) => [
+									styles.suggestion,
+									{
+										borderColor: colors.border,
+										backgroundColor: colors.card,
+										opacity: pressed ? 0.6 : 1,
+									},
+								]}
+								accessibilityRole="button"
+								accessibilityLabel={`Ask: ${s}`}
+							>
+								<Text style={[typography.body, { color: colors.foreground }]}>
+									{s}
+								</Text>
+							</Pressable>
+						))}
+					</View>
+				</View>
+			) : (
 				<FlatList
 					ref={listRef}
 					data={messages}
-					keyExtractor={(item) => item.id}
-					renderItem={({ item }) => (
-						<MessageBubble
-							message={item}
-							onCopy={() => void copyText(item.text)}
-							onRetry={() => retry(item.id)}
-						/>
-					)}
-					contentContainerStyle={{
-						paddingHorizontal: 16,
-						paddingTop: 12,
-						paddingBottom: 12,
-						flexGrow: 1,
-					}}
-					ListEmptyComponent={
-						<View
-							style={{
-								flex: 1,
-								alignItems: "center",
-								justifyContent: "center",
-								gap: 8,
-								paddingVertical: 48,
-							}}
-						>
-							<Text
-								style={{
-									color: colors.foreground,
-									fontSize: 17,
-									fontWeight: "600",
-								}}
-							>
-								Ask SHADOW anything
-							</Text>
-							<Text
-								style={{
-									color: colors.mutedForeground,
-									fontSize: 14,
-									textAlign: "center",
-								}}
-							>
-								Your node answers here. Responses stream in live.
-							</Text>
-						</View>
-					}
+					keyExtractor={(m) => m.id}
+					renderItem={({ item }) => <MessageView message={item} />}
+					inverted
+					keyboardDismissMode="interactive"
 					keyboardShouldPersistTaps="handled"
+					maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+					contentContainerStyle={styles.listContent}
+					removeClippedSubviews={false}
 				/>
-				<View
-					style={{
-						borderTopWidth: 1,
-						borderTopColor: colors.border,
-						backgroundColor: colors.background,
-						paddingHorizontal: 12,
-						paddingTop: 8,
-						paddingBottom: Math.max(insets.bottom, 12),
-					}}
-				>
-					<View
-						style={{
-							flexDirection: "row",
-							alignItems: "flex-end",
-							gap: 8,
-						}}
-					>
-						<TextInput
-							value={draft}
-							onChangeText={setDraft}
-							placeholder="Message SHADOW"
-							placeholderTextColor={colors.mutedForeground}
-							multiline
-							maxLength={8000}
-							editable={!sending}
-							style={{
-								flex: 1,
-								maxHeight: 120,
-								minHeight: 40,
-								backgroundColor: colors.card,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: colors.border,
-								paddingHorizontal: 16,
-								paddingVertical: 10,
-								color: colors.foreground,
-								fontSize: 15,
-							}}
-							onSubmitEditing={handleSend}
-							blurOnSubmit={false}
-							returnKeyType="send"
-						/>
-						{sending ? (
-							<Pressable
-								onPress={cancel}
-								style={{
-									width: 40,
-									height: 40,
-									borderRadius: 20,
-									backgroundColor: colors.muted,
-									alignItems: "center",
-									justifyContent: "center",
-								}}
-								accessibilityLabel="Stop generating"
-							>
-								<StopIcon size={18} color={colors.foreground} />
-							</Pressable>
-						) : (
-							<Pressable
-								onPress={handleSend}
-								disabled={!canSend}
-								style={{
-									width: 40,
-									height: 40,
-									borderRadius: 20,
-									backgroundColor: canSend ? colors.primary : colors.muted,
-									alignItems: "center",
-									justifyContent: "center",
-									opacity: canSend ? 1 : 0.6,
-								}}
-								accessibilityLabel="Send message"
-							>
-								<SendIcon
-									size={18}
-									color={canSend ? colors.primaryForeground : colors.mutedForeground}
-								/>
-							</Pressable>
-						)}
-					</View>
-				</View>
-			</KeyboardAvoidingView>
-		</View>
+			)}
+
+			{!streaming && smartReplies.length > 0 && messages.length > 0 ? (
+				<SmartReplies
+					replies={smartReplies}
+					onPick={(reply) => void handleSend(reply)}
+				/>
+			) : null}
+
+			<AgentStateLine
+				state={agentState}
+				agentName={agentName}
+				providerLabel={stateProviderLabel}
+				modelId={stateModelId}
+				startedAt={stateStartedAt}
+				errorMessage={error}
+				onRetry={() => void handleRetry()}
+				onDismiss={clearError}
+				onViewApproval={() => router.replace("/(tabs)/approvals")}
+			/>
+
+			<Composer
+				onSend={(text) => void handleSend(text)}
+				onStop={stop}
+				onNewChat={() => void handleNewThread()}
+				onSwitchModel={() => {
+					Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+					modelSheetRef.current?.snapToIndex(0);
+				}}
+				streaming={streaming && streamingThreadId === activeThreadId}
+				disabled={!initialized}
+			/>
+
+			<ThreadSheet
+				ref={threadSheetRef}
+				onSelect={(id) => {
+					if (streaming) stop();
+					threadSheetRef.current?.close();
+					setActiveThread(id);
+				}}
+				onNewThread={() => void handleNewThread()}
+			/>
+			<ModelSheet
+				ref={modelSheetRef}
+				onPick={(p, m) => void handlePickModel(p, m)}
+				onAddKey={handleAddKey}
+			/>
+			<KeySheet
+				ref={keySheetRef}
+				providerId={keyProvider}
+				onSaved={() => void handleKeySaved()}
+			/>
+		</KeyboardAvoidingView>
 	);
 }
+
+const styles = StyleSheet.create({
+	container: {
+		flex: 1,
+	},
+	header: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingHorizontal: Spacing.md,
+		paddingBottom: Spacing.sm,
+		borderBottomWidth: StyleSheet.hairlineWidth,
+	},
+	headerButton: {
+		width: 40,
+		height: 40,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	headerTitle: {
+		flex: 1,
+		alignItems: "center",
+		gap: 2,
+	},
+	listContent: {
+		paddingTop: Spacing.md,
+		paddingBottom: Spacing.sm,
+	},
+	empty: {
+		flex: 1,
+		justifyContent: "center",
+		paddingHorizontal: Spacing.xl,
+	},
+	emptyMark: {
+		alignItems: "center",
+		marginBottom: Spacing.lg,
+	},
+	suggestions: {
+		marginTop: Spacing.xl,
+		gap: Spacing.sm,
+	},
+	suggestion: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 14,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.md,
+	},
+});

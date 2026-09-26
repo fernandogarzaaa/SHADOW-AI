@@ -15,6 +15,8 @@ export default function SettingsLayout() {
 			}}
 		>
 			<Stack.Screen name="index" />
+			<Stack.Screen name="link-node" />
+			<Stack.Screen name="profile" />
 			<Stack.Screen name="connection" />
 			<Stack.Screen name="appearance" />
 			<Stack.Screen name="preferences" />

@@ -70,7 +70,7 @@ export default function ManualScreen() {
 		try {
 			await pair(nodeUrl, pairingCode, deviceName);
 			Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-			router.replace("/(tabs)/approvals");
+			router.replace("/settings/link-node");
 		} catch {
 			Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
 			// pairError from the store is shown inline below.

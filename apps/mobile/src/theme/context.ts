@@ -62,6 +62,12 @@ export interface ThemeColors {
 	chatTimestamp: string;
 	chatDivider: string;
 
+	/** Pale periwinkle bubble for the user's own messages. */
+	userBubble: string;
+	userBubbleForeground: string;
+	/** Soft beige blob behind the agent mark. */
+	blob: string;
+
 	toolBackground: string;
 	toolBorder: string;
 	toolHeaderHover: string;

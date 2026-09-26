@@ -1,4 +1,3 @@
-import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
 	ActivityIndicator,
@@ -249,16 +248,8 @@ export default function FilesScreen() {
 							},
 						]}
 					>
-						Select a project directory to browse files
+						No directory was shared when this node was paired.
 					</Text>
-				<Button
-					variant="primary"
-					size="lg"
-					onPress={() => router.push("/onboarding/directory")}
-					style={{ marginTop: 24 }}
-				>
-					<Button.Label>Select Directory</Button.Label>
-				</Button>
 				</View>
 			</View>
 		);
@@ -272,8 +263,7 @@ export default function FilesScreen() {
 			]}
 		>
 			<View style={[styles.header, { borderBottomColor: colors.border }]}>
-				<Pressable
-					onPress={() => router.push("/onboarding/directory")}
+				<View
 					style={[styles.directoryButton, { backgroundColor: colors.muted }]}
 				>
 					<FolderIcon color={colors.primary} />
@@ -283,10 +273,7 @@ export default function FilesScreen() {
 					>
 						{directoryName}
 					</Text>
-					<Text style={[typography.micro, { color: colors.mutedForeground }]}>
-						Change
-					</Text>
-				</Pressable>
+				</View>
 				<Text style={[typography.uiHeader, { color: colors.foreground }]}>
 					Files
 				</Text>
