@@ -1,6 +1,7 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, Tabs, type Href } from "expo-router";
 import type { ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
@@ -68,6 +69,15 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 					},
 				]}
 			>
+				{/* Specular top edge: the Liquid Glass light catch. */}
+				<LinearGradient
+					pointerEvents="none"
+					colors={[
+						isDark ? withOpacity("#FFFFFF", 0.18) : withOpacity("#FFFFFF", 0.8),
+						"transparent",
+					]}
+					style={styles.specular}
+				/>
 				{visible.map((route) => {
 					const { options } = descriptors[route.key];
 					const tabHref = (
@@ -204,6 +214,15 @@ const styles = StyleSheet.create({
 		borderRadius: 999,
 		alignItems: "center",
 		justifyContent: "center",
+	},
+	specular: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		right: 0,
+		height: 28,
+		borderTopLeftRadius: 999,
+		borderTopRightRadius: 999,
 	},
 	tabActive: {
 		// Darker pill behind the active icon, via backgroundColor above.

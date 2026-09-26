@@ -1,15 +1,10 @@
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
-import {
-	ActivityIndicator,
-	Pressable,
-	StyleSheet,
-	Text,
-	View,
-} from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { confirmClaim, refuteClaim, type Claim } from "@/api/shadow";
 import { CheckIcon, XIcon } from "@/components/icons";
-import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
+import { Button, GlassView } from "@/components/ui";
+import { Spacing, typography, useTheme } from "@/theme";
 
 type Decision = "confirmed" | "refuted";
 
@@ -24,10 +19,11 @@ function shortStatement(claim: Claim): string {
 }
 
 /**
- * One open claim as a tappable decision card. Confirm and Refute hit the
- * real node endpoints; the card removes itself optimistically and rolls
- * back with an inline error if the request fails. Icon plus text label on
- * both actions: the decision is never conveyed by color alone.
+ * One open claim as a glass decision card. Confirm is the solid
+ * primary action; Refute is the quieter outline action. Both hit the
+ * real node endpoints; the card removes itself optimistically and
+ * rolls back with an inline error if the request fails. Icon plus text
+ * label on both actions: the decision is never conveyed by color alone.
  */
 export function ClaimCard({ claim, onResolved }: ClaimCardProps) {
 	const { colors } = useTheme();
@@ -58,112 +54,79 @@ export function ClaimCard({ claim, onResolved }: ClaimCardProps) {
 	}
 
 	return (
-		<View
-			style={[
-				styles.card,
-				{ backgroundColor: colors.card, borderColor: colors.border },
-			]}
+		<GlassView
+			borderRadius={20}
 			accessibilityLabel={`Open claim: ${statement}`}
+			style={styles.card}
 		>
-			<Text
-				style={[typography.body, { color: colors.foreground }]}
-				numberOfLines={3}
-			>
-				{statement}
-			</Text>
-			<Text
-				style={[
-					typography.meta,
-					{ color: colors.mutedForeground, marginTop: 4 },
-				]}
-			>
-				awaiting confirmation
-			</Text>
-
-			{error ? (
+			<View style={styles.inner}>
+				<Text
+					style={[typography.body, { color: colors.foreground }]}
+					numberOfLines={3}
+				>
+					{statement}
+				</Text>
 				<Text
 					style={[
 						typography.meta,
-						{ color: colors.destructive, marginTop: Spacing.sm },
+						{ color: colors.mutedForeground, marginTop: 4 },
 					]}
-					accessibilityRole="alert"
 				>
-					{error} Tap an action to try again.
+					awaiting confirmation
 				</Text>
-			) : null}
 
-			<View style={styles.actions}>
-				<Pressable
-					onPress={() => void decide("refuted")}
-					disabled={busy !== null}
-					style={({ pressed }) => [
-						styles.action,
-						{
-							borderColor: colors.border,
-							backgroundColor: colors.card,
-							opacity: pressed || busy === "confirmed" ? 0.6 : 1,
-						},
-					]}
-					accessibilityRole="button"
-					accessibilityLabel={`Refute claim: ${statement}`}
-					accessibilityState={{ disabled: busy !== null, busy: busy === "refuted" }}
-				>
-					{busy === "refuted" ? (
-						<ActivityIndicator size="small" color={colors.mutedForeground} />
-					) : (
-						<>
+				{error ? (
+					<Text
+						style={[
+							typography.meta,
+							{ color: colors.destructive, marginTop: Spacing.sm },
+						]}
+						accessibilityRole="alert"
+					>
+						{error} Tap an action to try again.
+					</Text>
+				) : null}
+
+				<View style={styles.actions}>
+					<Button
+						variant="outline"
+						size="md"
+						isLoading={busy === "refuted"}
+						isDisabled={busy !== null}
+						onPress={() => void decide("refuted")}
+						accessibilityLabel={`Refute claim: ${statement}`}
+						style={styles.action}
+					>
+						<View style={styles.actionContent}>
 							<XIcon size={18} color={colors.destructive} />
-							<Text
-								style={[
-									typography.uiLabel,
-									{ color: colors.foreground, fontWeight: "600" },
-								]}
-							>
-								Refute
-							</Text>
-						</>
-					)}
-				</Pressable>
-				<Pressable
-					onPress={() => void decide("confirmed")}
-					disabled={busy !== null}
-					style={({ pressed }) => [
-						styles.action,
-						{
-							borderColor: colors.border,
-							backgroundColor: colors.card,
-							opacity: pressed || busy === "refuted" ? 0.6 : 1,
-						},
-					]}
-					accessibilityRole="button"
-					accessibilityLabel={`Confirm claim: ${statement}`}
-					accessibilityState={{ disabled: busy !== null, busy: busy === "confirmed" }}
-				>
-					{busy === "confirmed" ? (
-						<ActivityIndicator size="small" color={colors.mutedForeground} />
-					) : (
-						<>
-							<CheckIcon size={18} color={colors.success} />
-							<Text
-								style={[
-									typography.uiLabel,
-									{ color: colors.foreground, fontWeight: "600" },
-								]}
-							>
-								Confirm
-							</Text>
-						</>
-					)}
-				</Pressable>
+							<Button.Label>Refute</Button.Label>
+						</View>
+					</Button>
+					<Button
+						variant="primary"
+						size="md"
+						isLoading={busy === "confirmed"}
+						isDisabled={busy !== null}
+						onPress={() => void decide("confirmed")}
+						accessibilityLabel={`Confirm claim: ${statement}`}
+						style={styles.action}
+					>
+						<View style={styles.actionContent}>
+							<CheckIcon size={18} color={colors.primaryForeground} />
+							<Button.Label>Confirm</Button.Label>
+						</View>
+					</Button>
+				</View>
 			</View>
-		</View>
+		</GlassView>
 	);
 }
 
 const styles = StyleSheet.create({
 	card: {
-		borderWidth: StyleSheet.hairlineWidth,
-		borderRadius: SemanticSpacing.radiusCard,
+		// GlassView carries the surface.
+	},
+	inner: {
 		padding: Spacing.md,
 	},
 	actions: {
@@ -173,13 +136,11 @@ const styles = StyleSheet.create({
 	},
 	action: {
 		flex: 1,
+	},
+	actionContent: {
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "center",
-		gap: Spacing.xs,
-		minHeight: SemanticSpacing.buttonHeightMd,
-		borderRadius: SemanticSpacing.radiusButton,
-		borderWidth: StyleSheet.hairlineWidth,
-		paddingHorizontal: Spacing.md,
+		gap: 8,
 	},
 });

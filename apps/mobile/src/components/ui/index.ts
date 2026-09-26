@@ -46,8 +46,7 @@ export type {
 export { textFieldStyles } from "./textfield";
 
 // Skeleton
-export { Skeleton } from "./skeleton";
-export type {
+export { Skeleton } from "./skeleton";export type {
   SkeletonProps,
   SkeletonAvatarProps,
   SkeletonTextProps,
@@ -62,6 +61,13 @@ export const SkeletonAvatar = SkeletonComponent.Avatar;
 export const SkeletonText = SkeletonComponent.Text;
 export const SkeletonCard = SkeletonComponent.Card;
 export const SkeletonMessage = SkeletonComponent.Message;
+
+// Badge
+export { Badge } from "./badge";
+export type { BadgeVariant } from "./badge";
+
+// Glass (Liquid Glass surfaces)
+export { GlassView, DepthBackground } from "./glass";
 
 export { Sheet, SheetScrollView, SheetTextInput, SheetView } from "./sheet";
 

@@ -135,6 +135,11 @@ export const FontSizes = {
 	h2: Math.round(remToPixels(MOBILE_TYPOGRAPHY.markdown) * 1.0625), // ~17px (PWA: 1.0625em)
 	h3: remToPixels(MOBILE_TYPOGRAPHY.markdown), // 16px (PWA: 1em)
 	h4: remToPixels(MOBILE_TYPOGRAPHY.markdown), // 16px (PWA: 1em)
+	// Screen titles: a real display scale for app chrome (headers, empty
+	// states). Markdown content headings above stay PWA-proportional.
+	titleLarge: 28,
+	title: 22,
+	titleSmall: 18,
 } as const;
 
 export const LineHeights = {
@@ -166,6 +171,10 @@ interface TypographyStyles {
 	h2: TextStyle;
 	h3: TextStyle;
 	h4: TextStyle;
+	// Screen title styles (use Sans)
+	titleLarge: TextStyle;
+	title: TextStyle;
+	titleSmall: TextStyle;
 	// Body styles (use Sans)
 	body: TextStyle;
 	bodySmall: TextStyle;
@@ -237,6 +246,25 @@ export const typography = StyleSheet.create<TypographyStyles>({
 		fontFamily: FontFamilySans.semiBold,
 		fontSize: FontSizes.markdown, // 16px (PWA: 1em)
 		lineHeight: Math.round(FontSizes.markdown * LineHeights.tight),
+	},
+	// Screen titles: display scale for app chrome. Tighter leading and
+	// semibold weight so headers read as headers, not body text.
+	titleLarge: {
+		fontFamily: FontFamilySans.semiBold,
+		fontSize: FontSizes.titleLarge,
+		lineHeight: Math.round(FontSizes.titleLarge * LineHeights.tight),
+		letterSpacing: -0.3,
+	},
+	title: {
+		fontFamily: FontFamilySans.semiBold,
+		fontSize: FontSizes.title,
+		lineHeight: Math.round(FontSizes.title * LineHeights.tight),
+		letterSpacing: -0.2,
+	},
+	titleSmall: {
+		fontFamily: FontFamilySans.semiBold,
+		fontSize: FontSizes.titleSmall,
+		lineHeight: Math.round(FontSizes.titleSmall * LineHeights.tight),
 	},
 	body: {
 		fontFamily: FontFamilySans.regular,
