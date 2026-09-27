@@ -48,3 +48,21 @@ export function decisionForActionIdentifier(
 export function approvalDeepLink(approvalId: string): string {
 	return `${APPROVAL_DEEP_LINK_SCHEME}://${APPROVAL_DEEP_LINK_PATH}/${encodeURIComponent(approvalId)}`;
 }
+
+/**
+ * Reminder notifications: the node sends pushes with
+ *   data: { type: "reminder.fired", reminder_id: "<id>" }
+ * (see `_notify_proactive` / `fire_due` in the Shadow Node). Tapping one
+ * deep-links to the Feed tab's Reminders segment.
+ */
+
+/** Deep-link URL that opens the Feed tab (Reminders live there). */
+export const REMINDER_DEEP_LINK = `${APPROVAL_DEEP_LINK_SCHEME}://feed`;
+
+/** True when a notification's data payload is a fired-reminder push. Pure. */
+export function isReminderNotification(data: unknown): boolean {
+	if (!data || typeof data !== "object") {
+		return false;
+	}
+	return (data as Record<string, unknown>)["type"] === "reminder.fired";
+}

@@ -15,6 +15,8 @@ import {
 	approvalDeepLink,
 	approvalIdFromData,
 	decisionForActionIdentifier,
+	isReminderNotification,
+	REMINDER_DEEP_LINK,
 } from "../approvalNotificationRouting";
 
 describe("approval notification routing", () => {
@@ -53,5 +55,13 @@ describe("approval notification routing", () => {
 	it("builds the approval deep link", () => {
 		assert.equal(approvalDeepLink("abc-123"), "shadow://approvals/abc-123");
 		assert.equal(approvalDeepLink("a/b"), "shadow://approvals/a%2Fb");
+	});
+
+	it("detects fired-reminder pushes and routes them to the feed tab", () => {
+		assert.equal(REMINDER_DEEP_LINK, "shadow://feed");
+		assert.equal(isReminderNotification({ type: "reminder.fired", reminder_id: "rem_1" }), true);
+		assert.equal(isReminderNotification({ type: "approval.created" }), false);
+		assert.equal(isReminderNotification(null), false);
+		assert.equal(isReminderNotification("reminder.fired"), false);
 	});
 });

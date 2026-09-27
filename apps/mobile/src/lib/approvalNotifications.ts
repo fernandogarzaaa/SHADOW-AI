@@ -9,6 +9,8 @@ import {
 	approvalDeepLink,
 	approvalIdFromData,
 	decisionForActionIdentifier,
+	isReminderNotification,
+	REMINDER_DEEP_LINK,
 } from "./approvalNotificationRouting";
 
 /**
@@ -24,6 +26,9 @@ import {
  *
  * Everything here is defensive: category setup and response handling never
  * throw, because a notification tap must never crash the app.
+ *
+ * The same response listener also routes reminder pushes
+ * (data.type === "reminder.fired") to the Feed tab's Reminders segment.
  */
 
 /**
@@ -76,6 +81,11 @@ export function startApprovalNotificationResponses(): {
 			const approvalId = approvalIdFromData(
 				response.notification.request.content.data,
 			);
+			if (isReminderNotification(response.notification.request.content.data)) {
+				// A fired-reminder push: open the Feed tab where reminders live.
+				await Linking.openURL(REMINDER_DEEP_LINK);
+				return;
+			}
 			if (!approvalId) {
 				return;
 			}

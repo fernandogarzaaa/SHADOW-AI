@@ -21,7 +21,10 @@ MAX_BODY_LEN = 8000
 FEED_CAP = 200  # keep the newest N units
 MIN_REGEN_SECONDS = 20 * 3600  # one unit per kind per ~20h
 
-FEED_KINDS = ("morning_brief", "goals_briefing", "memory_digest")
+FEED_KINDS = ("morning_brief", "goals_briefing", "memory_digest", "reminder")
+# Kinds the feed_digest ambient task generates on its interval. "reminder"
+# units are event-driven (fired reminders), never scheduled.
+DIGEST_KINDS = ("morning_brief", "goals_briefing", "memory_digest")
 
 
 class FeedUnit(BaseModel):
