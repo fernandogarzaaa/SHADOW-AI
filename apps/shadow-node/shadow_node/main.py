@@ -121,7 +121,14 @@ class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title
 class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
 class PairConfirm(BaseModel): pairing_id:str; device_name:str; public_key:str
 class DenyRequest(BaseModel): reason:str
-class ExecuteRequest(BaseModel): action:AgentAction; approved:bool=False; double_confirmed:bool=False; approval_id:str|None=None
+class ExecuteRequest(BaseModel):
+    action: AgentAction
+    # Legacy client hint. IGNORED by the server: approval is derived
+    # exclusively from a server-side approval record referenced by
+    # approval_id (see _resolve_server_approval). Never trust this flag.
+    approved: bool = False
+    double_confirmed: bool = False
+    approval_id: str | None = None
 class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User requested approval"
 class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
 class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:str="local_only"
@@ -283,10 +290,35 @@ def set_push_token(device_id:str, req:PushTokenRequest):
     return {"device_id":device_id,"push_registered":True}
 @app.post("/agent/plan")
 def plan(req:AskRequest): return core.propose(req.prompt)
+
+def _resolve_server_approval(approval_id: str | None, action: AgentAction) -> bool:
+    """Derive the approved flag from a server-side approval record.
+
+    The client-supplied `approved` boolean is never trusted: a paired
+    device must reference a granted approval. Returns True only when the
+    approval exists, is APPROVED, is unexpired, and was granted for the
+    same action (tool_name + params + description). Raises 404/403
+    BEFORE any execution takes place.
+    """
+    if approval_id is None:
+        return False
+    req = core.approvals.requests.get(approval_id)
+    if req is None:
+        raise HTTPException(404, "unknown approval")
+    if req.status != ApprovalStatus.APPROVED:
+        raise HTTPException(403, f"approval is {req.status.value}, not granted")
+    if now() > req.expires_at:
+        raise HTTPException(403, "approval is expired")
+    granted = req.action
+    if (granted.tool_name, granted.params, granted.description) != (action.tool_name, action.params, action.description):
+        raise HTTPException(403, "approval does not match the requested action")
+    return True
+
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
-    if req.action.tool_name=="ghost_handoff": return ghost.execute(ghost.to_ir(AgentPlan(user_intent=req.action.description, actions=[req.action])), approved=req.approved)
-    res=core.execute(req.action,req.approved,req.double_confirmed,approval_id=req.approval_id); audit.extend(core.drain_audit())
+    server_approved = _resolve_server_approval(req.approval_id, req.action)
+    if req.action.tool_name=="ghost_handoff": return ghost.execute(ghost.to_ir(AgentPlan(user_intent=req.action.description, actions=[req.action])), approved=server_approved)
+    res=core.execute(req.action,server_approved,req.double_confirmed,approval_id=req.approval_id); audit.extend(core.drain_audit())
     if req.approval_id:
         try:
             core.approvals.attach_execution(req.approval_id, res["execution_id"], res["verification"])
