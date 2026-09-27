@@ -441,7 +441,13 @@ def ask_stream(req:AskRequest):
                              headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
 class PushTokenRequest(BaseModel): push_token:str
 @app.post("/devices/{device_id}/push-token")
-def set_push_token(device_id:str, req:PushTokenRequest):
+def set_push_token(device_id:str, req:PushTokenRequest, request:Request):
+    # Ownership boundary (audit P1): a device may only register its own
+    # push token. Without this, any authenticated device could overwrite
+    # another device's token and hijack its approval notifications.
+    if AUTH_REQUIRED and request.headers.get("x-shadow-device-id")!=device_id:
+        audit.append(AuditEvent(actor="user",event_type="push_token_rejected",status="blocked",metadata={"device_id":device_id}))
+        raise HTTPException(403,"a device may only register its own push token")
     if device_id not in sessions.devices: raise HTTPException(404,"unknown device")
     if not req.push_token.startswith("ExponentPushToken["): raise HTTPException(400,"not an Expo push token")
     sessions.push_tokens[device_id]=req.push_token
