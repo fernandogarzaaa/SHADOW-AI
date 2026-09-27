@@ -136,21 +136,21 @@ function hmacSha256Hex(key: string, message: string): string {
 
 /**
  * Cryptographically random hex string of `byteLength` random bytes.
- * Uses the platform WebCrypto RNG when available; falls back to Math.random
- * only on platforms without one (never expected in the Expo runtime).
+ * Requires the platform WebCrypto RNG. There is intentionally no
+ * Math.random fallback: these bytes seed HMAC nonces, and a predictable
+ * PRNG would defeat replay protection. Fail closed instead.
  */
 export function randomHexBytes(byteLength: number): string {
 	const bytes = new Uint8Array(byteLength);
 	const webCrypto = (
 		globalThis as { crypto?: { getRandomValues?: (arr: Uint8Array) => void } }
 	).crypto;
-	if (webCrypto?.getRandomValues) {
-		webCrypto.getRandomValues(bytes);
-	} else {
-		for (let i = 0; i < byteLength; i++) {
-			bytes[i] = Math.floor(Math.random() * 256);
-		}
+	if (!webCrypto?.getRandomValues) {
+		throw new Error(
+			"Secure RNG unavailable: crypto.getRandomValues is required for request nonces.",
+		);
 	}
+	webCrypto.getRandomValues(bytes);
 	return bytesToHex(bytes);
 }
 

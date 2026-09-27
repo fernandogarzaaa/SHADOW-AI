@@ -13,10 +13,20 @@ class AutonomyMode(str, Enum):
 class RiskClass(str, Enum): LOW="low"; MEDIUM="medium"; HIGH="high"; BLOCKED="blocked"
 class ApprovalStatus(str, Enum): PENDING="pending"; APPROVED="approved"; DENIED="denied"; EXPIRED="expired"; CONSUMED="consumed"
 class ApprovalKind(str, Enum): ONE_TIME="one_time"; TRUSTED_WORKFLOW="trusted_workflow"
+class ModelAccessLevel(str, Enum):
+    """Cloud fallback policy for a consent grant.
+
+    local_only: data from this source never goes to a cloud model.
+    cloud_allowed: cloud escalation is allowed with an explicit approval
+        or in trusted mode.
+    ask_each_time: cloud escalation requires an explicit approval every
+        time; trusted mode does not waive it.
+    """
+    LOCAL_ONLY="local_only"; CLOUD_ALLOWED="cloud_allowed"; ASK_EACH_TIME="ask_each_time"
 class UserProfile(BaseModel):
     id: str = Field(default_factory=lambda:new_id("usr")); display_name: str="Local User"; privacy_mode: str="strict_local"; autonomy_mode: AutonomyMode=AutonomyMode.SUGGEST_ONLY; emergency_paused: bool=False
 class ConsentGrant(BaseModel):
-    id: str = Field(default_factory=lambda:new_id("cns")); data_source: str; scope: str; purpose: str; retention_days: int=30; model_access_level: str="local_only"; approved_at: datetime=Field(default_factory=now); revoked_at: datetime|None=None; last_used_at: datetime|None=None
+    id: str = Field(default_factory=lambda:new_id("cns")); data_source: str; scope: str; purpose: str; retention_days: int=30; model_access_level: ModelAccessLevel=ModelAccessLevel.LOCAL_ONLY; approved_at: datetime=Field(default_factory=now); revoked_at: datetime|None=None; last_used_at: datetime|None=None
     def is_active(self) -> bool: return self.revoked_at is None
 class AgentAction(BaseModel):
     id: str = Field(default_factory=lambda:new_id("act")); tool_name: str; description: str; params: dict[str, Any]={}; risk: RiskClass=RiskClass.LOW; requires_approval: bool=True; destructive: bool=False; destination: str|None=None; data_used: list[str]=[]; model_used: str|None=None

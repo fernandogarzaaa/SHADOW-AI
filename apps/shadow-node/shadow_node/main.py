@@ -235,7 +235,7 @@ class ExecuteRequest(BaseModel):
     approval_id: str | None = None
 class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User requested approval"
 class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
-class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:str="local_only"
+class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:ModelAccessLevel=ModelAccessLevel.LOCAL_ONLY
 class ProviderConnectRequest(BaseModel): api_key:str
 class OAuthExchangeRequest(BaseModel): state:str; code:str
 @app.exception_handler(HTTPException)

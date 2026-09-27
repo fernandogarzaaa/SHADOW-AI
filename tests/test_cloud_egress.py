@@ -41,7 +41,7 @@ def _result(item):
                         attribution="test", explanation="test")
 
 
-def _grant(grant_id, model_access_level="cloud", revoked=False):
+def _grant(grant_id, model_access_level="cloud_allowed", revoked=False):
     from datetime import datetime, timezone
     return ConsentGrant(id=grant_id, data_source="manual",
                         scope="memory", purpose="answer_user_question",

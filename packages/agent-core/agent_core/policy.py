@@ -283,9 +283,22 @@ class PolicyEngine:
         return decision.outcome == PolicyOutcome.ALLOW, decision.reason
 
     def cloud_allowed(self, grants: list[ConsentGrant], explicit_approval: bool, trusted_mode: bool = False) -> bool:
-        return (explicit_approval or trusted_mode) and any(
-            g.model_access_level != "local_only" and g.revoked_at is None for g in grants
-        )
+        """Cloud escalation gate with the explicit fallback policy.
+
+        local_only: never. cloud_allowed: explicit approval or trusted mode.
+        ask_each_time: explicit approval only; trusted mode cannot waive it.
+        """
+        for g in grants:
+            if g.revoked_at is not None:
+                continue
+            if g.model_access_level == ModelAccessLevel.LOCAL_ONLY:
+                continue
+            if g.model_access_level == ModelAccessLevel.ASK_EACH_TIME:
+                if explicit_approval:
+                    return True
+            elif explicit_approval or trusted_mode:
+                return True
+        return False
 
     # -- data-bound cloud egress authorization -------------------------------
     def authorize_cloud_context(
@@ -340,7 +353,7 @@ class PolicyEngine:
                         decision = (False, f"consent grant {gid} not found")
                     elif g.revoked_at is not None:
                         decision = (False, f"consent grant {gid} is revoked")
-                    elif g.model_access_level == "local_only":
+                    elif g.model_access_level == ModelAccessLevel.LOCAL_ONLY:
                         decision = (False, f"consent grant {gid} is local-only")
                     else:
                         decision = (
