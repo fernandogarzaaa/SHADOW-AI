@@ -5,6 +5,34 @@ import httpx
 from .persona import get_system_prompt
 
 
+def sanitize_proxy_env() -> None:
+    """Normalize bracketed IPv6 entries in no_proxy/NO_PROXY.
+
+    httpx (<=0.28) raises ``InvalidURL: Invalid port`` when a no_proxy entry
+    looks like ``[::1]`` -- it parses the entry as a URL and chokes on the
+    brackets. curl and urllib accept both forms, and bare ``::1`` matches the
+    same hosts in httpx, so stripping the brackets is semantics-preserving.
+    Without this, every provider call fails in proxied environments whose
+    no_proxy contains bracketed IPv6 literals (common on corporate networks).
+    Process-local and idempotent.
+    """
+    for key in ("no_proxy", "NO_PROXY"):
+        raw = os.environ.get(key)
+        if not raw:
+            continue
+        parts = []
+        for entry in raw.split(","):
+            entry = entry.strip()
+            if len(entry) > 2 and entry.startswith("[") and entry.endswith("]"):
+                entry = entry[1:-1]
+            if entry:
+                parts.append(entry)
+        os.environ[key] = ",".join(parts)
+
+
+sanitize_proxy_env()
+
+
 class LocalMockModel:
     """Deterministic offline model used by default and as a safe fallback."""
     name = "local_mock"
