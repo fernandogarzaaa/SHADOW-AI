@@ -228,3 +228,25 @@ def test_local_path_unaffected_by_egress_boundary():
                 cloud_context="authorized only")
     assert out["route"] == "local"
     assert frontier.contexts == []
+
+
+def test_memory_search_endpoint_excludes_sensitive_by_default():
+    """Adversarial: /memory/search must not leak sensitive items unless the
+    caller explicitly opts in with include_sensitive=true."""
+    from fastapi.testclient import TestClient
+    import shadow_node.main as main
+    main.AUTH_REQUIRED = False
+    client = TestClient(main.app)
+    client.post('/memory/ingest',
+                json={'text': 'sensitive default probe api key',
+                      'source_title': 'probe'})
+    # no explicit flag: sensitive item must be withheld
+    default_hits = client.get('/memory/search',
+                              params={'q': 'sensitive default probe'}).json()
+    assert default_hits == []
+    # explicit opt-in: sensitive item returned
+    optin_hits = client.get('/memory/search',
+                            params={'q': 'sensitive default probe',
+                                    'include_sensitive': 'true'}).json()
+    assert len(optin_hits) == 1
+    assert 'api key' in optin_hits[0]['item']['text']

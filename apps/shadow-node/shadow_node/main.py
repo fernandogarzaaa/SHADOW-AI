@@ -274,7 +274,7 @@ def ingest_file(req:FileIngestRequest):
 @app.get("/memory")
 def list_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
 @app.get("/memory/search")
-def search(q:str, limit:int=5, include_sensitive:bool=True): return memory.search(q,limit,include_sensitive)
+def search(q:str, limit:int=5, include_sensitive:bool=False): return memory.search(q,limit,include_sensitive)
 @app.delete("/memory/source/{source_id}")
 def delete_source(source_id:str): memory.delete_by_source(source_id); audit.append(AuditEvent(actor="user",event_type="memory_source_deleted",status="revoked",metadata={"source_id":source_id})); return {"deleted_source":source_id}
 @app.get("/memory/export")
