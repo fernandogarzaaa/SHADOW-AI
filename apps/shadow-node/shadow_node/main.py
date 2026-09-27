@@ -461,6 +461,9 @@ def claim_refute(claim_id:str, req:ClaimDecisionRequest):
         raise HTTPException(409,str(e))
 @app.post("/approvals")
 def create_approval(req:ApprovalCreateRequest):
+    # Normalize destructiveness server-side so the card's double-confirmation
+    # requirement matches what policy will enforce at execution (audit P0-4).
+    req.action.destructive=core.policy.is_destructive(req.action)
     approval=core.approvals.create(req.action, req.reason); audit.append(AuditEvent(actor="user", event_type="approval_created", proposed_action=req.action.description, status="pending", metadata={"approval_id":approval.id})); return approval
 @app.get("/approvals")
 def approvals(): return list(core.approvals.requests.values())
