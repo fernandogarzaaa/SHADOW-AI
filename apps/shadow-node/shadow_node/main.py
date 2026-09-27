@@ -57,6 +57,14 @@ sessions.event_sink=lambda actor, event_type, payload: sentinel_audit.record(act
 _POLICY_FILE=os.getenv("SHADOW_POLICY_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "policy.yaml")
 if not os.path.isfile(_POLICY_FILE): _POLICY_FILE=None  # fall back to built-in defaults
 profile=UserProfile()
+if _runtime_db:
+    # Durable emergency pause (audit P1): the kill switch survives
+    # restarts. Conservative startup: a missing flag means never paused;
+    # an unreadable flag fails closed (stays paused).
+    from .runtime_store import load_pause_flag
+    profile.emergency_paused=load_pause_flag(_runtime_store)
+    if profile.emergency_paused:
+        audit.append(AuditEvent(actor="safety",event_type="emergency_pause_restored",status="paused",result="pause flag restored from runtime DB at startup"))
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
 def _send_expo_push(token:str, title:str, body:str, data:dict, category_id:str|None=None):
@@ -614,7 +622,11 @@ def deny(id:str, req:DenyRequest):
 def get_emergency_pause(): return {"paused":profile.emergency_paused}
 @app.post("/emergency_pause")
 def set_emergency_pause(req:EmergencyPauseRequest):
-    profile.emergency_paused=req.paused; audit.append(AuditEvent(actor="user", event_type="emergency_pause", status="paused" if req.paused else "resumed", result=req.reason)); return {"paused":profile.emergency_paused}
+    profile.emergency_paused=req.paused
+    if _runtime_db:
+        from .runtime_store import save_pause_flag
+        save_pause_flag(_runtime_store, req.paused)
+    audit.append(AuditEvent(actor="user", event_type="emergency_pause", status="paused" if req.paused else "resumed", result=req.reason)); return {"paused":profile.emergency_paused}
 @app.get("/audit")
 def get_audit(): return audit + core.drain_audit() + sessions.audit
 @app.get("/model/providers")

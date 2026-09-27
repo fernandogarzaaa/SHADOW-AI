@@ -92,6 +92,35 @@ class _Secret(BaseModel):
     value: str
 
 
+class _PauseFlag(BaseModel):
+    """Durable emergency-pause flag (audit P1). Stored under
+    collection='safety', id='emergency_pause'."""
+    id: str = "emergency_pause"
+    paused: bool = False
+    updated_at: float = 0.0
+
+
+def load_pause_flag(store: EncryptedRuntimeStore) -> bool:
+    """Conservative load: no row means never paused (False); a row that
+    cannot be decrypted means tampering or corruption -> True (fail
+    closed: a broken kill switch must not silently disarm)."""
+    rows = store.conn.execute(
+        "SELECT ciphertext FROM runtime WHERE collection='safety' AND id='emergency_pause' ORDER BY seq"
+    ).fetchall()
+    if not rows:
+        return False
+    try:
+        return _PauseFlag.model_validate_json(store.cipher.decrypt(rows[-1][0]).decode()).paused
+    except (InvalidToken, ValueError):
+        return True
+
+
+def save_pause_flag(store: EncryptedRuntimeStore, paused: bool) -> None:
+    import time as _time
+    store.put("safety", "emergency_pause",
+              _PauseFlag(paused=paused, updated_at=_time.time()))
+
+
 def build_runtime(db_path: str):
     """Return (store, audit_list, consents_list, sessions) wired for persistence."""
     store = EncryptedRuntimeStore(db_path)
