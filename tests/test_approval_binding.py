@@ -105,3 +105,31 @@ def test_granted_matching_approval_executes(api):
     # The approval card is linked to the execution after the run.
     card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
     assert card["execution_id"] == r["execution_id"]
+
+
+def test_ghost_handoff_without_approval_blocked_by_policy(api):
+    # ghost_handoff flows through central policy like every other tool:
+    # no valid approval means no execution, even in mock mode.
+    client, m, workspace = api
+    action = {"id": "act_ghost2", "tool_name": "ghost_handoff",
+              "description": "Safe Ghost mock", "params": {}, "risk": "low",
+              "requires_approval": True, "destructive": False, "data_used": []}
+    r = client.post("/agent/execute", json={"action": action, "approved": True}).json()
+    assert r["ok"] is False
+
+
+def test_ghost_handoff_with_approval_gets_evidence_and_audit(api):
+    client, m, workspace = api
+    action = {"id": "act_ghost3", "tool_name": "ghost_handoff",
+              "description": "Safe Ghost mock", "params": {}, "risk": "low",
+              "requires_approval": True, "destructive": False, "data_used": []}
+    rid = _grant(client, action)
+    r = client.post("/agent/execute", json={"action": action, "approval_id": rid}).json()
+    assert r["ok"] is True
+    assert r["result"]["status"] == "mock_executed"
+    # Execution record with evidence exists; approval card is linked.
+    rec = client.get(f"/executions/{r['execution_id']}").json()
+    assert rec["action"]["tool_name"] == "ghost_handoff"
+    assert len(rec["evidence"]) > 0
+    card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
+    assert card["execution_id"] == r["execution_id"]
