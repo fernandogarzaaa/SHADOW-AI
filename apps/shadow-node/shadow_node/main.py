@@ -364,6 +364,21 @@ def list_memory(include_sensitive:bool=False): return memory.export(include_sens
 def search(q:str, limit:int=5, include_sensitive:bool=False): return memory.search(q,limit,include_sensitive)
 @app.delete("/memory/source/{source_id}")
 def delete_source(source_id:str): memory.delete_by_source(source_id); audit.append(AuditEvent(actor="user",event_type="memory_source_deleted",status="revoked",metadata={"source_id":source_id})); return {"deleted_source":source_id}
+@app.get("/memory/recent")
+def recent_memory(limit:int=20,offset:int=0,include_sensitive:bool=False):
+    """Newest-first memory cards for the mobile Memory screen. Paginated;
+    sensitive items are excluded by default."""
+    limit=max(1,min(limit,200)); offset=max(0,offset)
+    items,total=memory.recent(limit,offset,include_sensitive)
+    return {"items":items,"count":len(items),"total":total,"limit":limit,"offset":offset}
+@app.delete("/memory/{item_id}")
+def delete_memory_item(item_id:str):
+    """Revoke one memory item (soft delete; the ciphertext stays but is
+    excluded from search, export, and recent)."""
+    if memory.store.get(item_id) is None: raise HTTPException(404,"memory item not found")
+    memory.store.revoke(item_id)
+    audit.append(AuditEvent(actor="user",event_type="memory_item_deleted",status="revoked",metadata={"item_id":item_id}))
+    return {"deleted_item":item_id}
 @app.get("/memory/export")
 def export_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
 @app.get("/agent/self")

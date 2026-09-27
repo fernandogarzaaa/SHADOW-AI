@@ -233,6 +233,12 @@ export default function SettingsIndexScreen() {
 					icon={<AiAgentIcon size={ICON_SIZE} color={colors.foreground} />}
 					onPress={() => router.push("/settings/assistant")}
 				/>
+				<SettingsRow
+					title="Memory"
+					value="Dated cards, search"
+					icon={<AiAgentIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/memory")}
+				/>
 			</SettingsGroup>
 
 			<SettingsGroup>

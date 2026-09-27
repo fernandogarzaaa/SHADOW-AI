@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import {
+	getMemoryRecent,
 	getPersona,
 	updatePersona,
 	ShadowApiError,
@@ -29,6 +30,11 @@ function formatDate(updatedAt: number): string {
 	return `${mm}.${dd}.${yy}`;
 }
 
+function formatIsoDate(iso: string): string {
+	if (!iso) return "";
+	return formatDate(Math.floor(new Date(iso).getTime() / 1000));
+}
+
 /**
  * Assistant: the node's Cookie-style identity. Name, avatar emoji, vibe,
  * and status live on the node (encrypted at rest) and are shared by every
@@ -41,6 +47,8 @@ export default function AssistantScreen() {
 	const isPaired = useConnectionStore((s) => s.isPaired);
 
 	const [persona, setPersona] = useState<PersonaProfile | null>(null);
+	const [memoryTotal, setMemoryTotal] = useState<number | null>(null);
+	const [memoryLatest, setMemoryLatest] = useState<string>("");
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [editing, setEditing] = useState(false);
@@ -65,6 +73,13 @@ export default function AssistantScreen() {
 			setEmoji(p.avatar_emoji);
 			setVibe(p.vibe);
 			setStatus(p.status);
+			try {
+				const recent = await getMemoryRecent(1);
+				setMemoryTotal(recent.total);
+				setMemoryLatest(recent.items[0]?.created_at ?? "");
+			} catch {
+				// Memory summary is best-effort; the identity is what matters here.
+			}
 		} catch (e) {
 			setError(
 				e instanceof ShadowApiError
@@ -340,6 +355,39 @@ export default function AssistantScreen() {
 										{persona?.vibe || "No vibe set yet. Edit to tell your assistant how to talk and think."}
 									</Text>
 								</View>
+								<Pressable
+									onPress={() => router.push("/settings/memory")}
+									style={({ pressed }) => [
+										styles.card,
+										{
+											backgroundColor: colors.card,
+											borderColor: colors.border,
+											marginTop: Spacing.md,
+											opacity: pressed ? 0.85 : 1,
+										},
+									]}
+									accessibilityRole="button"
+									accessibilityLabel="Open memory"
+								>
+									<View style={styles.cardHeader}>
+										<Text style={[typography.uiLabel, { color: colors.foreground, fontWeight: "700" }]}>
+											MEMORY
+										</Text>
+										<Text style={[typography.meta, { color: colors.mutedForeground }]}>
+											{formatIsoDate(memoryLatest)}
+										</Text>
+									</View>
+									<Text style={[typography.body, { color: colors.mutedForeground, marginTop: Spacing.xs }]}>
+										Access with care
+									</Text>
+									<Text style={[typography.body, { color: colors.foreground, marginTop: Spacing.sm }]}>
+										{memoryTotal === null
+											? "Loading memory"
+											: memoryTotal === 0
+												? "Nothing remembered yet. Tap to add your first memory."
+												: `${memoryTotal} ${memoryTotal === 1 ? "memory" : "memories"} stored, encrypted on the node. Tap to search or add.`}
+									</Text>
+								</Pressable>
 								<Text style={[typography.meta, { color: colors.mutedForeground, marginTop: Spacing.md, textAlign: "center" }]}>
 									The vibe becomes your assistant's system prompt. Stored encrypted on the node.
 								</Text>
