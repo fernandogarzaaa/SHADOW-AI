@@ -21,6 +21,10 @@ from .self_model import build_self_model, classify_self_intent, render_self_answ
 from .persona import (default_persona, load_persona, save_persona, apply_update,
                       PersonaUpdate, system_prompt_for, set_system_prompt_override)
 from .goals import (GoalStore, GoalCreate, GoalUpdate, ProgressCreate, GoalStatus)
+from .feed import (FeedStore, FeedGenerateRequest, FEED_KINDS, generate_units,
+                   render_goals_briefing, render_memory_digest, render_morning_brief)
+from .ideas import (IdeaStore, IdeaCreate, IdeaUpdate, PlannedAction)
+from .ambient_tasks import morning_brief as _amb_morning_brief, memory_digest as _amb_memory_digest
 from . import provider_auth
 from .events import EventBus
 from pathlib import Path
@@ -73,6 +77,8 @@ if _runtime_db:
 # frontier-model system prompt via the process-wide override below.
 persona=load_persona(_runtime_store) if _runtime_db else default_persona()
 goal_store=GoalStore(_runtime_store if _runtime_db else None)
+feed_store=FeedStore(_runtime_store if _runtime_db else None)
+idea_store=IdeaStore(_runtime_store if _runtime_db else None)
 set_system_prompt_override(system_prompt_for(persona))
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
@@ -165,7 +171,8 @@ ambient_scheduler=AmbientScheduler(store=_ambient_kv, journal=ambient_journal,
                                    tasks=build_task_map(), event_sink=bus.publish,
                                    audit=sentinel_audit,
                                    context={"core": core, "memory": memory,
-                                            "claims": ambient_claims, "sessions": sessions},
+                                            "claims": ambient_claims, "sessions": sessions,
+                                            "goals": goal_store, "feed_store": feed_store},
                                    checkpoints=ambient_checkpoints)
 ambient_scheduler.start_background()
 # Hybrid local+frontier router and provider credential store.
@@ -453,6 +460,81 @@ def log_progress(goal_id: str, data: ProgressCreate):
     if entry is None: raise HTTPException(404, "goal not found")
     audit.append(AuditEvent(actor="user",event_type="goal_progress",status="stored",metadata={"goal_id":goal_id,"entry_id":entry.id}))
     return entry.model_dump()
+def _feed_renderers():
+    ctx={"core": core, "memory": memory, "claims": ambient_claims, "sessions": sessions}
+    return {
+        "morning_brief": lambda: render_morning_brief(_amb_morning_brief(ctx)["data"]),
+        "goals_briefing": lambda: render_goals_briefing(goal_store.briefing()),
+        "memory_digest": lambda: render_memory_digest(_amb_memory_digest(ctx)["data"]),
+    }
+@app.post("/feed/generate")
+def feed_generate(req: FeedGenerateRequest):
+    """Render editorial feed units from live node state (offline, no cloud
+    model). Empty kinds = all; force = bypass the ~20h per-kind dedupe."""
+    for k in req.kinds:
+        if k not in FEED_KINDS:
+            raise HTTPException(422, f"unknown feed kind {k!r}; kinds: {FEED_KINDS}")
+    kinds=req.kinds or list(FEED_KINDS)
+    units=generate_units(feed_store, kinds, _feed_renderers(), force=req.force)
+    audit.append(AuditEvent(actor="user",event_type="feed_generated",status="ok",
+                            metadata={"kinds":[u.kind for u in units],"forced":req.force}))
+    return {"units":[u.model_dump() for u in units],"count":len(units)}
+@app.get("/feed")
+def feed_list(limit:int=20, offset:int=0):
+    """Feed units newest-first, paginated."""
+    units,total=feed_store.list(limit=limit, offset=offset)
+    return {"items":[u.model_dump() for u in units],"count":len(units),"total":total,
+            "limit":max(1,min(limit,200)),"offset":max(0,offset)}
+@app.post("/ideas", status_code=201)
+def create_idea(data: IdeaCreate):
+    """Create an idea card."""
+    idea=idea_store.create(data)
+    audit.append(AuditEvent(actor="user",event_type="idea_created",status="stored",metadata={"idea_id":idea.id}))
+    return idea.model_dump()
+@app.get("/ideas")
+def list_ideas(status: str | None = None):
+    """List idea cards newest-updated first."""
+    from .ideas import IDEA_STATUSES
+    if status is not None and status not in IDEA_STATUSES:
+        raise HTTPException(422, f"status must be one of {IDEA_STATUSES}")
+    return [i.model_dump() for i in idea_store.list(status)]
+@app.get("/ideas/{idea_id}")
+def get_idea(idea_id: str):
+    idea=idea_store.get(idea_id)
+    if idea is None: raise HTTPException(404, "idea not found")
+    return idea.model_dump()
+@app.patch("/ideas/{idea_id}")
+def update_idea(idea_id: str, patch: IdeaUpdate):
+    try:
+        idea=idea_store.update(idea_id, patch)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if idea is None: raise HTTPException(404, "idea not found")
+    audit.append(AuditEvent(actor="user",event_type="idea_updated",status="ok",metadata={"idea_id":idea_id}))
+    return idea.model_dump()
+@app.delete("/ideas/{idea_id}")
+def delete_idea(idea_id: str):
+    if not idea_store.delete(idea_id): raise HTTPException(404, "idea not found")
+    audit.append(AuditEvent(actor="user",event_type="idea_deleted",status="revoked",metadata={"idea_id":idea_id}))
+    return {"deleted_idea": idea_id}
+@app.post("/ideas/{idea_id}/run")
+def run_idea(idea_id: str):
+    """Turn an idea into a real agent plan via AgentCore.propose. Risky
+    actions raise approval requests and execute only through the
+    approval-gated /agent/execute path; nothing runs here."""
+    idea=idea_store.get(idea_id)
+    if idea is None: raise HTTPException(404, "idea not found")
+    prompt=f"Idea: {idea.title}\n{idea.description}".strip()
+    plan=core.propose(prompt)
+    audit.extend(core.drain_audit())
+    actions=[PlannedAction(description=a.description, requires_approval=bool(a.requires_approval))
+             for a in plan.actions]
+    idea=idea_store.mark_running(idea_id, actions)
+    audit.append(AuditEvent(actor="user",event_type="idea_run",status="planned",
+                            metadata={"idea_id":idea_id,"actions":len(actions),
+                                      "approvals_needed":sum(1 for a in actions if a.requires_approval)}))
+    return {"idea": idea.model_dump(),
+            "plan": {"actions":[{"description":a.description,"requires_approval":a.requires_approval} for a in actions]}}
 @app.post("/agent/ask")
 def ask(req:AskRequest): return _run_ask_pipeline(req)
 def _run_ask_pipeline(req:AskRequest):

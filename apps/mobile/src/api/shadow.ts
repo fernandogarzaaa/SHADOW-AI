@@ -725,3 +725,92 @@ export async function logGoalProgress(
 export async function getGoalsBriefing(): Promise<GoalsBriefing> {
 	return readJson<GoalsBriefing>(await shadowFetch("/goals/briefing"));
 }
+
+export type FeedKind = "morning_brief" | "goals_briefing" | "memory_digest";
+
+export interface FeedUnit {
+	id: string;
+	kind: FeedKind;
+	title: string;
+	body: string;
+	created_at: number;
+}
+
+export interface FeedPage {
+	items: FeedUnit[];
+	count: number;
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export type IdeaStatus = "new" | "running" | "done" | "dismissed";
+
+export interface PlannedAction {
+	description: string;
+	requires_approval: boolean;
+}
+
+export interface Idea {
+	id: string;
+	title: string;
+	description: string;
+	status: IdeaStatus;
+	plan: PlannedAction[];
+	created_at: number;
+	updated_at: number;
+}
+
+/** Feed units newest-first, paginated. */
+export async function listFeed(limit = 20, offset = 0): Promise<FeedPage> {
+	return readJson<FeedPage>(
+		await shadowFetch(`/feed?limit=${limit}&offset=${offset}`),
+	);
+}
+
+/** Generate editorial units now. Empty kinds = all; force bypasses the per-kind dedupe. */
+export async function generateFeed(
+	kinds: FeedKind[] = [],
+	force = false,
+): Promise<{ units: FeedUnit[]; count: number }> {
+	return readJson<{ units: FeedUnit[]; count: number }>(
+		await shadowFetch("/feed/generate", { method: "POST", body: { kinds, force } }),
+	);
+}
+
+/** List idea cards newest-updated first. */
+export async function listIdeas(status?: IdeaStatus): Promise<Idea[]> {
+	const q = status ? `?status=${encodeURIComponent(status)}` : "";
+	return readJson<Idea[]>(await shadowFetch(`/ideas${q}`));
+}
+
+/** Create an idea card. */
+export async function createIdea(title: string, description?: string): Promise<Idea> {
+	return readJson<Idea>(
+		await shadowFetch("/ideas", { method: "POST", body: { title, description: description ?? "" } }),
+	);
+}
+
+/** Update an idea card. */
+export async function updateIdea(
+	id: string,
+	patch: { title?: string; description?: string; status?: IdeaStatus },
+): Promise<Idea> {
+	return readJson<Idea>(
+		await shadowFetch(`/ideas/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
+	);
+}
+
+/** Delete an idea card. */
+export async function deleteIdea(id: string): Promise<void> {
+	await shadowFetch(`/ideas/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Turn an idea into an agent plan. Risky actions raise approvals; nothing executes here. */
+export async function runIdea(
+	id: string,
+): Promise<{ idea: Idea; plan: { actions: PlannedAction[] } }> {
+	return readJson<{ idea: Idea; plan: { actions: PlannedAction[] } }>(
+		await shadowFetch(`/ideas/${encodeURIComponent(id)}/run`, { method: "POST" }),
+	);
+}

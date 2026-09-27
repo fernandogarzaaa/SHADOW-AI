@@ -30,7 +30,7 @@ Each phase ships as its own PR, one at a time, green CI before merge.
   complete/reopen/abandon/delete actions. Audited
   (`goal_created/updated/deleted/progress`) and persisted encrypted in the
   runtime DB when configured. (shipped)
-- Phase 4: Feed + Ideas. Scheduled editorial feed and idea cards.
+- Phase 4: Feed + Ideas. Scheduled editorial feed and idea cards. (shipped)
 - Phase 5: Scheduling + proactive. Crons, reminders, notification digests.
 - Phase 6: Artifacts, voice, media. Documents, TTS/voice notes, image generation.
 
