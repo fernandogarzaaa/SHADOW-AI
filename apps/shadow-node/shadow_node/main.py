@@ -18,6 +18,8 @@ from .crypto_config import load_fernet_key
 from .providers import build_frontier, CATALOG
 from .hybrid import HybridRouter
 from .self_model import build_self_model, classify_self_intent, render_self_answer
+from .persona import (default_persona, load_persona, save_persona, apply_update,
+                      PersonaUpdate, system_prompt_for, set_system_prompt_override)
 from . import provider_auth
 from .events import EventBus
 from pathlib import Path
@@ -65,6 +67,11 @@ if _runtime_db:
     profile.emergency_paused=load_pause_flag(_runtime_store)
     if profile.emergency_paused:
         audit.append(AuditEvent(actor="safety",event_type="emergency_pause_restored",status="paused",result="pause flag restored from runtime DB at startup"))
+# Cookie-style persona (Phase 1): the assistant's editable identity, persisted
+# encrypted in the runtime DB when configured. The vibe becomes the
+# frontier-model system prompt via the process-wide override below.
+persona=load_persona(_runtime_store) if _runtime_db else default_persona()
+set_system_prompt_override(system_prompt_for(persona))
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
 def _send_expo_push(token:str, title:str, body:str, data:dict, category_id:str|None=None):
@@ -363,7 +370,25 @@ def export_memory(include_sensitive:bool=False): return memory.export(include_se
 def agent_self():
     """Runtime-derived self-description: what SHADOW is, where it runs, and
     what it can do. Every field is read from the live node process."""
-    return build_self_model(core, sessions, memory, model_config, APP_VERSION)
+    return build_self_model(core, sessions, memory, model_config, APP_VERSION, persona_name=persona.name)
+@app.get("/persona")
+def get_persona():
+    """The assistant's Cookie-style identity: name, avatar emoji, vibe, status."""
+    return persona.model_dump()
+@app.put("/persona")
+def put_persona(update: PersonaUpdate):
+    """Update the assistant's identity. Validated; audited; the vibe takes
+    effect as the frontier-model system prompt immediately."""
+    global persona
+    try:
+        persona=apply_update(persona, update)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if _runtime_db:
+        save_persona(_runtime_store, persona)
+    set_system_prompt_override(system_prompt_for(persona))
+    audit.append(AuditEvent(actor="user",event_type="persona_updated",status="ok",result=f"name={persona.name!r}"))
+    return persona.model_dump()
 @app.post("/agent/ask")
 def ask(req:AskRequest): return _run_ask_pipeline(req)
 def _run_ask_pipeline(req:AskRequest):
@@ -374,7 +399,7 @@ def _run_ask_pipeline(req:AskRequest):
     # the LLM, so the answers stay honest about this node.
     self_intent=classify_self_intent(req.prompt)
     if self_intent:
-        model=build_self_model(core, sessions, memory, model_config, APP_VERSION)
+        model=build_self_model(core, sessions, memory, model_config, APP_VERSION, persona_name=persona.name)
         answer=render_self_answer(self_intent, model)
         audit.append(AuditEvent(actor="agent",event_type="agent_ask",model_used="self_model",status="answered",metadata={"intent":"self_"+self_intent,"route":"local"}))
         return {"answer":answer,"sources":[],"why":[],"model_used":"self_model","cloud_allowed":False,"untrusted_context":False,"context_package":{},"plan":None,"route":"local","routing_reason":"self-model intent","grounding":{},"regrounded":False,"savings":{"tokens_saved_estimate":0}}

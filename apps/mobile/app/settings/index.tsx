@@ -227,6 +227,12 @@ export default function SettingsIndexScreen() {
 					icon={<UsersIcon size={ICON_SIZE} color={colors.foreground} />}
 					onPress={() => router.push("/settings/profile")}
 				/>
+				<SettingsRow
+					title="Assistant"
+					value="Name, avatar, vibe"
+					icon={<AiAgentIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/assistant")}
+				/>
 			</SettingsGroup>
 
 			<SettingsGroup>

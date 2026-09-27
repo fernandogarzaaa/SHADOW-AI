@@ -32,7 +32,7 @@ def test_classify_self_intent():
 
 def test_agent_self_endpoint(client):
     m=client.get("/agent/self").json()
-    assert m["identity"]["name"]=="SHADOW"
+    assert m["identity"]["name"]=="Shadow"  # Phase 1 persona default (was "SHADOW")
     assert m["identity"]["version"]
     assert m["runtime"]["local_first"] is True
     assert m["runtime"]["platform"]
@@ -44,7 +44,7 @@ def test_agent_self_endpoint(client):
 def test_ask_identity(client):
     r=client.post("/agent/ask",json={"prompt":"what are you?"}).json()
     assert r["model_used"]=="self_model"
-    assert "SHADOW" in r["answer"] and "local-first" in r["answer"]
+    assert "Shadow" in r["answer"] and "local-first" in r["answer"]
 
 def test_ask_location(client):
     r=client.post("/agent/ask",json={"prompt":"where are you?"}).json()

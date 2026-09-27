@@ -511,3 +511,30 @@ export async function refuteClaim(claimId: string): Promise<Claim> {
 		}),
 	);
 }
+
+export interface PersonaProfile {
+	name: string;
+	avatar_emoji: string;
+	vibe: string;
+	status: string;
+	updated_at: number;
+}
+
+export interface PersonaUpdate {
+	name?: string;
+	avatar_emoji?: string;
+	vibe?: string;
+	status?: string;
+}
+
+/** The assistant's Cookie-style identity, stored on the node. */
+export async function getPersona(): Promise<PersonaProfile> {
+	return readJson<PersonaProfile>(await shadowFetch("/persona"));
+}
+
+/** Update the assistant's identity. The vibe takes effect immediately. */
+export async function updatePersona(patch: PersonaUpdate): Promise<PersonaProfile> {
+	return readJson<PersonaProfile>(
+		await shadowFetch("/persona", { method: "PUT", body: patch }),
+	);
+}
