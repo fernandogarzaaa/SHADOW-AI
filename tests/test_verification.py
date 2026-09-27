@@ -292,7 +292,7 @@ def test_approval_card_carries_verdict_and_sse_fires(api_client):
         r = client.post("/agent/execute", json={"action": _note_action("Card Note", "card body"),
                                                 "approved": True, "approval_id": rid}).json()
         assert r["verification"] == "verified"
-        card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
+        card = next(a for a in client.get("/approvals").json()["items"] if a["id"] == rid)
         assert card["execution_id"] == r["execution_id"]
         assert card["verification_status"] == "verified"
         # The execute path now emits approval.consumed (one-shot claim) before

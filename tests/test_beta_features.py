@@ -184,7 +184,7 @@ def test_api_delete_source(client):
     r=client.post('/memory/ingest',json={'text':'source delete marker','source_title':'sd'}).json(); sid=r['source']['id']; assert client.delete(f'/memory/source/{sid}').json()['deleted_source']==sid
 
 def test_api_approval_deny_reason(client):
-    client.post('/agent/plan',json={'prompt':'send email'}); reqs=client.get('/approvals').json(); rid=reqs[-1]['id']; r=client.post(f'/approvals/{rid}/deny',json={'reason':'unsafe'}).json(); assert r['deny_reason']=='unsafe'
+    client.post('/agent/plan',json={'prompt':'send email'}); reqs=client.get('/approvals').json()["items"]; rid=reqs[-1]['id']; r=client.post(f'/approvals/{rid}/deny',json={'reason':'unsafe'}).json(); assert r['deny_reason']=='unsafe'
 
 def test_api_model_provider_safe(client):
     assert 'api_key_configured' in client.get('/model/providers').json()

@@ -58,9 +58,19 @@ export interface PairConfirmResponse {
 	shared_secret: string;
 }
 
-export interface ApprovalsResponse {
-	approvals: ApprovalRequest[];
+export interface Page<T> {
+	items: T[];
 	count: number;
+	next_cursor: string | null;
+}
+
+export interface ApprovalsResponse extends Page<ApprovalRequest> {}
+
+export interface DevicesResponse extends Page<PairedDevice> {}
+
+export interface SweepResponse {
+	expired: string[];
+	remaining_pending: number;
 }
 
 export interface AskAgentResponse {
@@ -238,14 +248,22 @@ export async function pairConfirm(
 	);
 }
 
-export async function listDevices(): Promise<{ devices: PairedDevice[] }> {
+export async function listDevices(): Promise<DevicesResponse> {
 	return readJson(await shadowFetch("/devices"));
 }
 
+export async function revokeDevice(deviceId: string): Promise<{ revoked: string }> {
+	return readJson(
+		await shadowFetch(`/devices/${encodeURIComponent(deviceId)}/revoke`, {
+			method: "POST",
+			body: {},
+		}),
+	);
+}
+
+/** @deprecated Use revokeDevice. Kept as an alias during the contract migration. */
 export async function deleteDevice(deviceId: string): Promise<void> {
-	await shadowFetch(`/devices/${encodeURIComponent(deviceId)}`, {
-		method: "DELETE",
-	});
+	await revokeDevice(deviceId);
 }
 
 export async function listApprovals(
@@ -278,8 +296,8 @@ export async function denyApproval(
 	);
 }
 
-export async function sweepApprovals(): Promise<ApprovalsResponse> {
-	return readJson<ApprovalsResponse>(
+export async function sweepApprovals(): Promise<SweepResponse> {
+	return readJson<SweepResponse>(
 		await shadowFetch("/approvals/sweep", { method: "POST", body: {} }),
 	);
 }

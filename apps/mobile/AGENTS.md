@@ -43,14 +43,21 @@ src/
 ```
 
 ## Node auth contract (do not break)
-
 HMAC-SHA256, required on every endpoint except `/pair/*` and `/health`.
 Signature = lowercase hex of HMAC-SHA256(shared_secret, `"METHOD\npath\nbody\nnonce\ntimestamp"`).
 METHOD uppercase; **path is the URL path only, no query string** (the node signs `request.url.path`, so `shadowFetch` strips `?...` before signing); body is the raw request body string (`""` for GET); nonce is random hex per request; timestamp is unix seconds (server allows +-300s skew). Headers: `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, `x-shadow-timestamp`. Test vector: secret `s3cr3t`, `GET /devices` with nonce `abc123` ts `1700000000` signs the exact string `"GET\n/devices\n\nabc123\n1700000000"`.
 
+## List endpoint contract (do not break)
+
+Every node list endpoint (`GET /approvals`, `GET /devices`, ...) returns a page object, never a bare array:
+
+`{"items": [...], "count": n, "next_cursor": null}`
+
+Typed in `src/api/shadow.ts` as `Page<T>`. `GET /approvals` accepts `?status=` to filter (pending/approved/denied/expired/consumed). Device revocation is `POST /devices/{id}/revoke` (self or owner); there is no `DELETE /devices/{id}`.
+
 ## SSE contract
 
-`GET /agent/stream` emits `data: {"type","properties"}` lines; `:heartbeat` comments every ~25s (ignored). Events: `node.hello`, `approval.created`, `approval.updated`. `POST /agent/ask_stream` emits `agent.message.delta` then `agent.message.done`.
+`GET /agent/stream` emits `data: {"type","properties"}` lines; `:heartbeat` comments every ~25s (ignored). Events: `node.hello`, `approval.created`, `approval.updated`, `approval.consumed` (one-shot claim). `POST /agent/ask_stream` emits `agent.message.delta` then `agent.message.done`.
 
 ## Native modules used
 

@@ -197,8 +197,8 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
 		// Best-effort: tell the node to revoke this device before wiping.
 		if (isPaired && deviceId) {
 			try {
-				const { deleteDevice } = await import("@/api/shadow");
-				await deleteDevice(deviceId);
+				const { revokeDevice } = await import("@/api/shadow");
+				await revokeDevice(deviceId);
 			} catch (error) {
 				console.warn("[Connection] Device revoke failed, wiping locally:", error);
 			}

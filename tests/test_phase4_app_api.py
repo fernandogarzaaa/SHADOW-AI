@@ -122,7 +122,10 @@ def test_search_result_contract(client):
     assert {'item','score','freshness','attribution','explanation'} <= set(data[0].keys())
 
 def test_devices_contract(client):
-    assert isinstance(client.get('/devices').json(), list)
+    data = client.get('/devices').json()
+    assert set(data.keys()) == {'items', 'count', 'next_cursor'}
+    assert data['count'] == len(data['items'])
+    assert data['next_cursor'] is None
 
 def test_model_provider_contract(client):
     data=client.get('/model/providers').json(); assert {'cloud_enabled','provider','endpoint_configured','api_key_configured'} <= set(data.keys())

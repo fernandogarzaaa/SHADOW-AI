@@ -103,7 +103,7 @@ def test_granted_matching_approval_executes(api):
     assert r["ok"] is True
     assert (workspace / "grantedexec.md").exists()
     # The approval card is linked to the execution after the run.
-    card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
+    card = next(a for a in client.get("/approvals").json()["items"] if a["id"] == rid)
     assert card["execution_id"] == r["execution_id"]
 
 
@@ -116,7 +116,7 @@ def test_derived_destructiveness_blocks_without_double_confirm(api):
               "destructive": False, "data_used": []}
     rid = _grant(client, action)
     # The approval card reflects the derived destructiveness.
-    card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
+    card = next(a for a in client.get("/approvals").json()["items"] if a["id"] == rid)
     assert card["requires_double_confirmation"] is True
     r = client.post("/agent/execute", json={"action": action, "approval_id": rid}).json()
     assert r["ok"] is False
@@ -150,5 +150,5 @@ def test_ghost_handoff_with_approval_gets_evidence_and_audit(api):
     rec = client.get(f"/executions/{r['execution_id']}").json()
     assert rec["action"]["tool_name"] == "ghost_handoff"
     assert len(rec["evidence"]) > 0
-    card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
+    card = next(a for a in client.get("/approvals").json()["items"] if a["id"] == rid)
     assert card["execution_id"] == r["execution_id"]
