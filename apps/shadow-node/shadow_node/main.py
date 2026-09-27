@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, WebSocket, Request
+from starlette.websockets import WebSocketDisconnect
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -515,6 +516,20 @@ def sweep_approvals():
     return {"expired": expired_ids, "remaining_pending": len([r for r in core.approvals.requests.values() if r.status == ApprovalStatus.PENDING])}
 @app.websocket("/ws/tasks")
 async def ws_tasks(ws:WebSocket):
+    # The HTTP auth middleware does not run for websocket routes, so the
+    # handshake is verified here with the same HMAC scheme (signed
+    # GET /ws/tasks, headers only: browsers cannot set them, native
+    # clients can). Rejected before accept with a 4401 close.
+    if AUTH_REQUIRED:
+        h=ws.headers
+        ok,reason=sessions.verify(h.get("x-shadow-device-id"),h.get("x-shadow-signature"),h.get("x-shadow-nonce"),h.get("x-shadow-timestamp"),"GET","/ws/tasks","")
+        if not ok:
+            audit.append(AuditEvent(actor="transport",event_type="ws_auth_failed",status="blocked",result=reason,metadata={"device_id":h.get("x-shadow-device-id")}))
+            await ws.close(code=4401,reason=reason)
+            return
     await ws.accept(); await ws.send_json({"type":"hello","node":"shadow-node","version":APP_VERSION})
-    while True:
-        data=await ws.receive_json(); await ws.send_json({"type":"ack","received":data})
+    try:
+        while True:
+            data=await ws.receive_json(); await ws.send_json({"type":"ack","received":data})
+    except WebSocketDisconnect:
+        pass
