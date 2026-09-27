@@ -39,6 +39,34 @@ export default {
       supportsTablet: true,
       bundleIdentifier: getBundleId(),
       buildNumber: '1',
+      // Apple privacy manifest: SHADOW is local-first, runs no ads, uses no
+      // tracking SDKs, and collects no analytics. API keys the user enters
+      // are stored in the iOS keychain (expo-secure-store) and are only ever
+      // sent to the provider the user chose. Validate against the privacy
+      // report of the first EAS build and adjust if it flags more APIs.
+      privacyManifests: {
+        NSPrivacyTracking: false,
+        NSPrivacyTrackingDomains: [],
+        NSPrivacyCollectedDataTypes: [],
+        NSPrivacyAccessedAPITypes: [
+          {
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
+            NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
+          },
+          {
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp',
+            NSPrivacyAccessedAPITypeReasons: ['C617.1'],
+          },
+          {
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime',
+            NSPrivacyAccessedAPITypeReasons: ['35F9.1'],
+          },
+          {
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryDiskSpace',
+            NSPrivacyAccessedAPITypeReasons: ['E174.1'],
+          },
+        ],
+      },
       infoPlist: {
         NSCameraUsageDescription:
           'SHADOW needs camera access to scan QR codes for node pairing',
