@@ -70,7 +70,7 @@ def test_cloud_model_error_falls_back_to_local(monkeypatch):
     monkeypatch.delenv("SHADOW_MEMORY_DB", raising=False)
     monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # fallback behavior under test, not auth
     client, _ = _client()
-    client.post("/consent", json={"data_source": "docs", "scope": "selected", "purpose": "answer", "model_access_level": "cloud_redacted"})
+    client.post("/consent", json={"data_source": "docs", "scope": "selected", "purpose": "answer", "model_access_level": "cloud_allowed"})
     r = client.post("/agent/ask", json={"prompt": "summarize", "allow_cloud": True, "cloud_approval": True})
     assert r.status_code == 200
     assert r.json()["model_used"] == "local_mock"  # degraded gracefully

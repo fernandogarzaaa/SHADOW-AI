@@ -12,7 +12,7 @@ def test_policy_blocks_spyware():
 
 def test_cloud_escalation_requires_grant_and_approval():
     p=PolicyEngine(); assert not p.cloud_allowed([], True)
-    assert p.cloud_allowed([ConsentGrant(data_source="docs",scope="selected",purpose="answer",model_access_level="cloud_redacted")], True)
+    assert p.cloud_allowed([ConsentGrant(data_source="docs",scope="selected",purpose="answer",model_access_level="cloud_allowed")], True)
 
 def test_memory_ingest_search_revoke():
     store=EncryptedMemoryStore(path=tempfile.NamedTemporaryFile().name); engine=MemoryEngine(store)

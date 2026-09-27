@@ -99,11 +99,14 @@ def render_self_answer(intent: str, model: dict) -> str:
                 f"running on {ident['runs_on']}. I answer with {route}, and "
                 f"anything sensitive waits for your approval first.")
     if intent == "location":
-        cloud = ("I can reach a cloud model only when you explicitly allow it; "
+        cloud = (f"I can reach a cloud model only when you explicitly allow it; "
+                 f"when I answer with it, your prompt goes to that provider, "
+                 f"so it leaves the node. "
                  if run["cloud_model"] else
-                 "I'm not using any cloud model right now; ")
+                 "I'm not using any cloud model right now, so your data "
+                 "stays on the node. ")
         return (f"I run on {ident['runs_on']} ({run['platform']}), not in a "
-                f"vendor cloud. {cloud}Your data stays on the node. "
+                f"vendor cloud. {cloud}"
                 f"{run['paired_devices']} device(s) paired.")
     # capabilities
     feats = "; ".join(caps["features"])

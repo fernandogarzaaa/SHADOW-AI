@@ -119,12 +119,29 @@ def test_bypass_cloud_consent_denied():
     assert PolicyEngine().cloud_allowed([], explicit_approval=True) is False
 
 def test_cloud_requires_explicit_approval():
-    grant=ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='cloud_redacted')
+    grant=ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='cloud_allowed')
     assert PolicyEngine().cloud_allowed([grant], explicit_approval=False) is False
 
 def test_cloud_allowed_with_grant_and_approval():
-    grant=ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='cloud_redacted')
+    grant=ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='cloud_allowed')
     assert PolicyEngine().cloud_allowed([grant], explicit_approval=True)
+
+def test_cloud_allowed_trusted_mode_waives_approval():
+    grant=ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='cloud_allowed')
+    assert PolicyEngine().cloud_allowed([grant], explicit_approval=False, trusted_mode=True) is True
+
+def test_ask_each_time_not_waived_by_trusted_mode():
+    grant=ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='ask_each_time')
+    assert PolicyEngine().cloud_allowed([grant], explicit_approval=False, trusted_mode=True) is False
+    assert PolicyEngine().cloud_allowed([grant], explicit_approval=True) is True
+
+def test_local_only_never_cloud():
+    grant=ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='local_only')
+    assert PolicyEngine().cloud_allowed([grant], explicit_approval=True, trusted_mode=True) is False
+
+def test_invalid_access_level_rejected():
+    with pytest.raises(Exception):
+        ConsentGrant(data_source='x',scope='s',purpose='p',model_access_level='nope')
 
 def test_emergency_pause_blocks():
     p=UserProfile(emergency_paused=True); assert not PolicyEngine().can_execute(AgentAction(tool_name='answer_question',description='x'),p,approved=True)[0]
