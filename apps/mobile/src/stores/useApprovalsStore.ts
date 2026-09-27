@@ -88,7 +88,7 @@ export const useApprovalsStore = create<ApprovalsStore>((set, get) => ({
 		);
 
 		try {
-			const { approvals: pending } = await listApprovals("pending");
+			const { items: pending } = await listApprovals("pending");
 			const pendingIds = new Set(pending.map((approval) => approval.id));
 			// Keep decided items the node no longer lists so the inbox keeps
 			// context after a refresh. Server data always wins on conflicts.

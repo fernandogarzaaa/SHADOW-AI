@@ -41,5 +41,8 @@ class AuditEvent(BaseModel):
     id: str = Field(default_factory=lambda:new_id("aud")); actor: str; event_type: str; data_used: list[str]=[]; model_used: str|None=None; permission_checked: str|None=None; proposed_action: str|None=None; status: str="recorded"; result: str|None=None; timestamp: datetime=Field(default_factory=now); metadata: dict[str, Any]={}
 class Device(BaseModel):
     id: str = Field(default_factory=lambda:new_id("dev")); name: str; public_key: str; fingerprint: str; trusted: bool=False; revoked: bool=False; session_expires_at: datetime=Field(default_factory=lambda: now()+timedelta(days=30)); registered_at: datetime=Field(default_factory=now)
+    # Owner devices may manage other devices (revoke, approve pairings,
+    # initiate enrollment). The first-ever (bootstrap) device becomes owner.
+    is_owner: bool=False
 class CloudEscalationRequest(BaseModel):
     id: str = Field(default_factory=lambda:new_id("clr")); purpose: str; redacted_context: str; model: str; approved: bool=False

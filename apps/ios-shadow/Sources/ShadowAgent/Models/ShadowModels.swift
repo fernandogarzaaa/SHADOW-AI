@@ -2,7 +2,7 @@ import Foundation
 
 enum AutonomyMode: String, CaseIterable, Codable, Identifiable { case off, suggestOnly = "suggest_only", draftOnly = "draft_only", executeWithApproval = "execute_with_approval", trustedWorkflow = "trusted_workflow", fullAutonomousDisabled = "full_autonomous_disabled"; var id: String { rawValue } }
 enum RiskClass: String, Codable { case low, medium, high, blocked }
-enum ApprovalStatus: String, Codable { case pending, approved, denied, expired }
+enum ApprovalStatus: String, Codable { case pending, approved, denied, expired, consumed }
 struct PairingChallenge: Codable { var pairingId: String; var code: String; var expiresInSeconds: Int; enum CodingKeys: String, CodingKey { case pairingId = "pairing_id", code, expiresInSeconds = "expires_in_seconds" } }
 struct Device: Identifiable, Codable { var id: String; var name: String; var publicKey: String?; var fingerprint: String?; var trusted: Bool; var revoked: Bool?; var sessionExpiresAt: Date?; enum CodingKeys: String, CodingKey { case id, name, trusted, revoked, fingerprint, publicKey = "public_key", sessionExpiresAt = "session_expires_at" } }
 struct ConsentGrant: Identifiable, Codable { var id: String; var dataSource: String; var scope: String; var purpose: String; var modelAccessLevel: String; enum CodingKeys: String, CodingKey { case id, dataSource = "data_source", scope, purpose, modelAccessLevel = "model_access_level" } }

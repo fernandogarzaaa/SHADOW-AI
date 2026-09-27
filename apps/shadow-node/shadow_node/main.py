@@ -290,15 +290,33 @@ def _pairing_sweep(now=None):
     for _pid,_entry in list(pairing.items()):
         if now-_entry["created_at"]>PAIRING_TTL_SECONDS: del pairing[_pid]
 def _require_owner(request:Request):
-    """The HMAC-authenticated caller must be a trusted, non-revoked device.
-    Returns the approver device id. In dev mode (auth disabled) there is no
-    caller to check, so enrollment proceeds as owner-initiated."""
+    """The HMAC-authenticated caller must be an owner device: trusted,
+    non-revoked, and flagged is_owner. Returns the approver device id.
+
+    Grandfathering: nodes enrolled before the owner flag existed have no
+    owner devices; there, any trusted non-revoked device still passes, so
+    existing deployments are not locked out. The first bootstrap pairing
+    mints an owner, so fresh nodes get the strict rule immediately.
+
+    In dev mode (auth disabled) there is no caller to check, so enrollment
+    proceeds as owner-initiated."""
     if not AUTH_REQUIRED: return "devmode-owner"
     device_id=request.headers.get("x-shadow-device-id")
     dev=sessions.devices.get(device_id or "")
-    if dev is None or not dev.trusted or dev.revoked:
+    if dev is None or dev.revoked:
+        raise HTTPException(403,"approver is not a trusted owner device")
+    owners=[d for d in sessions.devices.values() if d.is_owner and not d.revoked]
+    if owners:
+        if not dev.is_owner:
+            raise HTTPException(403,"owner device required")
+    elif not dev.trusted:
         raise HTTPException(403,"approver is not a trusted owner device")
     return device_id
+# Serializes enrollment: the bootstrap "no devices yet" check and the
+# device minting below must be atomic, otherwise two simultaneous
+# /pair/confirm calls could both pass the bootstrap condition and mint
+# two owners (re-audit item 11).
+_pairing_lock=threading.Lock()
 def _new_pairing(device_name,public_key,approved_by=None):
     _pairing_sweep()
     if len(pairing)>=MAX_PENDING_PAIRINGS:
@@ -347,16 +365,27 @@ def pair_confirm(req:PairConfirm):
         audit.append(AuditEvent(actor="pairing",event_type="pairing_expired",status="blocked",metadata={"pairing_id":req.pairing_id}))
         raise HTTPException(410,"pairing expired")
     if entry["status"]!="approved":
-        if not sessions.devices:
-            # Bootstrap only: no device has ever been enrolled on this node.
-            # (Revoked devices still count as enrolled: revoking the last
-            # owner must not reopen self-service enrollment.)
-            entry["status"]="approved"; entry["approved_by"]="bootstrap"; entry["approved_at"]=time.time()
-            audit.append(AuditEvent(actor="pairing",event_type="pairing_approved",status="approved",metadata={"pairing_id":req.pairing_id,"approved_by":"bootstrap"}))
-        else:
-            return JSONResponse(status_code=202,content={"pairing_id":req.pairing_id,"status":"pending"})
+        with _pairing_lock:
+            # Re-check inside the lock: the bootstrap condition and the
+            # device minting below are one atomic enrollment.
+            entry=pairing.get(req.pairing_id)
+            if entry is None: raise HTTPException(404,"pairing not found")
+            if entry["status"]=="approved":
+                pass
+            elif not sessions.devices:
+                # Bootstrap only: no device has ever been enrolled on this node.
+                # (Revoked devices still count as enrolled: revoking the last
+                # owner must not reopen self-service enrollment.)
+                entry["status"]="approved"; entry["approved_by"]="bootstrap"; entry["approved_at"]=time.time()
+                audit.append(AuditEvent(actor="pairing",event_type="pairing_approved",status="approved",metadata={"pairing_id":req.pairing_id,"approved_by":"bootstrap"}))
+            else:
+                return JSONResponse(status_code=202,content={"pairing_id":req.pairing_id,"status":"pending"})
     entry=pairing.pop(req.pairing_id)
-    secret=secrets.token_hex(32); dev=sessions.register(entry["device_name"], entry["public_key"], secret); audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint,"approved_by":entry.get("approved_by")})); return {"device":dev,"secret":secret}
+    with _pairing_lock:
+        secret=secrets.token_hex(32); dev=sessions.register(entry["device_name"], entry["public_key"], secret)
+        if entry.get("approved_by")=="bootstrap":
+            dev.is_owner=True
+    audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint,"approved_by":entry.get("approved_by")})); return {"device":dev,"secret":secret}
 @app.post("/devices/register")
 def register(req:DeviceRegisterRequest, request:Request):
     """Owner-initiated enrollment. The caller's HMAC authentication IS the
@@ -369,9 +398,33 @@ def register(req:DeviceRegisterRequest, request:Request):
     audit.append(AuditEvent(actor="user",event_type="device_enrollment_initiated",status="pending",metadata={"pairing_id":pid,"approved_by":approver,"name":req.name}))
     return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":PAIRING_TTL_SECONDS}
 @app.post("/devices/{device_id}/revoke")
-def revoke_device(device_id:str): sessions.revoke(device_id); return {"revoked":device_id}
+def revoke_device(device_id:str, request:Request):
+    """Revoke a device. A device may always revoke itself; revoking any
+    OTHER device requires owner authority (a trusted, non-revoked owner
+    device). Capability model: the emergency pause is a kill-switch any
+    trusted device may hit, but cross-device management is owner-only."""
+    if device_id not in sessions.devices:
+        raise HTTPException(404, "unknown device")
+    if AUTH_REQUIRED:
+        caller = request.headers.get("x-shadow-device-id")
+        if caller != device_id:
+            _require_owner(request)
+    sessions.revoke(device_id)
+    audit.append(AuditEvent(actor="user", event_type="device_revoked", status="revoked", metadata={"device_id": device_id}))
+    return {"revoked":device_id}
+
+def _page(items):
+    """Uniform list envelope: {"items", "count", "next_cursor"}.
+
+    Contract-first rule: every list endpoint returns this object, never a
+    bare array, so generated clients and hand-written clients agree.
+    next_cursor is reserved for cursor pagination; currently always None.
+    """
+    items = list(items)
+    return {"items": items, "count": len(items), "next_cursor": None}
+
 @app.get("/devices")
-def list_devices(): return list(sessions.devices.values())
+def list_devices(): return _page(sessions.devices.values())
 @app.post("/consent")
 def grant_consent(req:ConsentRequest):
     c=ConsentGrant(**req.model_dump()); consents.append(c); return c
@@ -857,7 +910,13 @@ def create_approval(req:ApprovalCreateRequest):
     req.action.destructive=core.policy.is_destructive(req.action)
     approval=core.approvals.create(req.action, req.reason); audit.append(AuditEvent(actor="user", event_type="approval_created", proposed_action=req.action.description, status="pending", metadata={"approval_id":approval.id})); return approval
 @app.get("/approvals")
-def approvals(): return list(core.approvals.requests.values())
+def approvals(status: str | None = None):
+    """Uniform page envelope. ?status= filters by approval status
+    (pending/approved/denied/expired/consumed)."""
+    reqs = list(core.approvals.requests.values())
+    if status:
+        reqs = [r for r in reqs if r.status.value == status]
+    return _page(reqs)
 @app.post("/approvals/{id}/approve")
 def approve(id:str):
     try:
@@ -876,6 +935,11 @@ def deny(id:str, req:DenyRequest):
 def get_emergency_pause(): return {"paused":profile.emergency_paused}
 @app.post("/emergency_pause")
 def set_emergency_pause(req:EmergencyPauseRequest):
+    """Kill-switch capability: any HMAC-authenticated trusted device may
+    pause/resume the node. This is deliberate, not an oversight: the kill
+    switch must work from every trusted device. (Cross-device management
+    such as revoking another device is owner-only; see
+    POST /devices/{id}/revoke.)"""
     profile.emergency_paused=req.paused
     if _runtime_db:
         from .runtime_store import save_pause_flag

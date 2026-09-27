@@ -37,3 +37,17 @@ and granted for the same action (matching `tool_name`, `params`, and
 `description`). Unknown ids return 404; pending, denied, expired, or
 mismatched approvals return 403. All rejections happen before any
 execution takes place.
+
+## List endpoints and device revocation
+
+Every list endpoint (`GET /approvals`, `GET /devices`) returns a uniform
+page object `{"items": [...], "count": n, "next_cursor": null}`, never a
+bare array. `GET /approvals` accepts `?status=` to filter by
+`pending`, `approved`, `denied`, `expired`, or `consumed`.
+`POST /approvals/sweep` returns `{"expired": [...], "remaining_pending": n}`.
+
+Device revocation is `POST /devices/{id}/revoke`. A device may always
+revoke itself; revoking another device requires an owner device (the
+first-ever bootstrap-paired device is the owner; nodes enrolled before
+the owner flag existed grandfather existing trusted devices until an
+owner exists). Unknown device ids return 404.

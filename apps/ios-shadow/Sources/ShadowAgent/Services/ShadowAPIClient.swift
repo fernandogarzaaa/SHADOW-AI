@@ -13,11 +13,11 @@ final class ShadowNodeAPIClient: ShadowAPIClient {
     func searchMemory(_ query: String) async throws -> [MemorySearchResult] { if mockMode { return [] }; return try await request("GET", "/memory/search?q=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query)", auth: true) }
     func ask(_ prompt: String) async throws -> AgentAskResponse { if mockMode { return AgentAskResponse(answer: "Mock local answer", sources: [], why: ["Mock mode"], modelUsed: "local_mock", cloudAllowed: false, untrustedContext: true, plan: nil) }; return try await request("POST", "/agent/ask", body: AskBody(prompt: prompt, allow_cloud: false, cloud_approval: false), auth: true) }
     func createApproval(action: AgentAction, reason: String) async throws -> ApprovalRequest { try await request("POST", "/approvals", body: ApprovalCreateBody(action: action, reason: reason), auth: true) }
-    func approvals() async throws -> [ApprovalRequest] { if mockMode { return [] }; return try await request("GET", "/approvals", auth: true) }
+    func approvals() async throws -> [ApprovalRequest] { if mockMode { return [] }; let page: Page<ApprovalRequest> = try await request("GET", "/approvals", auth: true); return page.items }
     func approve(id: String) async throws -> ApprovalRequest { try await request("POST", "/approvals/\(id)/approve", auth: true) }
     func deny(id: String, reason: String) async throws -> ApprovalRequest { try await request("POST", "/approvals/\(id)/deny", body: DenyBody(reason: reason), auth: true) }
     func execute(action: AgentAction, approved: Bool, doubleConfirmed: Bool) async throws -> String { let value: GenericJSON = try await request("POST", "/agent/execute", body: ExecuteBody(action: action, approved: approved, double_confirmed: doubleConfirmed), auth: true); return value.description }
-    func devices() async throws -> [Device] { if mockMode { return [] }; return try await request("GET", "/devices", auth: true) }
+    func devices() async throws -> [Device] { if mockMode { return [] }; let page: Page<Device> = try await request("GET", "/devices", auth: true); return page.items }
     func audit() async throws -> [AuditEvent] { if mockMode { return [] }; return try await request("GET", "/audit", auth: true) }
     func setEmergencyPause(_ paused: Bool, reason: String?) async throws -> EmergencyPauseState { if mockMode { return EmergencyPauseState(paused: paused) }; return try await request("POST", "/emergency_pause", body: EmergencyPauseBody(paused: paused, reason: reason), auth: true) }
     private func request<T: Decodable>(_ method: String, _ path: String, auth: Bool) async throws -> T { try await request(method, path, bodyData: Data(), auth: auth) }
@@ -25,6 +25,10 @@ final class ShadowNodeAPIClient: ShadowAPIClient {
     private func request<T: Decodable>(_ method: String, _ path: String, bodyData: Data, auth: Bool) async throws -> T { guard let url = URL(string: path, relativeTo: baseURL) else { throw ShadowAPIError.badURL }; var req = URLRequest(url: url); req.httpMethod = method; if !bodyData.isEmpty { req.httpBody = bodyData; req.setValue("application/json", forHTTPHeaderField: "Content-Type") }; if auth { guard let identity = store.load() else { throw ShadowAPIError.notPaired }; signer.headers(identity: identity, method: method, path: URLComponents(url: url, resolvingAgainstBaseURL: true)?.path ?? path, body: bodyData).forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) } }; let (data, response) = try await session.data(for: req); let code = (response as? HTTPURLResponse)?.statusCode ?? 0; guard (200..<300).contains(code) else { throw ShadowAPIError.server(code, String(data: data, encoding: .utf8) ?? "") }; return try decoder.decode(T.self, from: data) }
 }
 struct HealthResponse: Codable { var emergencyPaused: Bool; enum CodingKeys: String, CodingKey { case emergencyPaused = "emergency_paused" } }
+/// Uniform list envelope returned by every node list endpoint
+/// (GET /approvals, GET /devices, ...). Contract-first: the server never
+/// returns a bare array, so clients decode Page<T> and read .items.
+struct Page<T: Decodable>: Decodable { var items: [T]; var count: Int; var nextCursor: String?; enum CodingKeys: String, CodingKey { case items, count, nextCursor = "next_cursor" } }
 struct PairConfirmBody: Codable { var pairing_id: String; var device_name: String; var public_key: String }
 struct PairConfirmResponse: Codable { var device: Device; var shared_secret: String }
 struct ConsentBody: Codable { var data_source: String; var scope: String; var purpose: String; var model_access_level: String }
