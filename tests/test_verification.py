@@ -168,8 +168,8 @@ def test_execute_failed_false_success_is_caught(workspace):
     core = AgentCore()
     core.tools.register("note.create", lambda params: {"ok": True, "action": "note.create"})
     res = core.execute(_action("note.create", {"title": "Liar", "body": "x"}), approved=True)
-    assert res["ok"] is True  # the tool claimed success...
-    assert res["verification"] == "failed"  # ...but verification caught the lie
+    assert res["ok"] is False  # verification caught the lie: a FAILED
+    assert res["verification"] == "failed"  # verification is a failed execution
     assert "did not change" in res["verification_reason"]
 
 
@@ -186,10 +186,20 @@ def test_execute_conflicting_when_tool_writes_wrong_thing(workspace):
 
 
 def test_execute_uncertain_for_unregistered_tool(workspace):
-    core = AgentCore()
+    # Explicit mock mode only: an unregistered tool reports mock_executed
+    # with an UNCERTAIN verification, never a clean success.
+    core = AgentCore(mock_tools=True)
     res = core.execute(_action("send_email", {"to": "x@y.z"}, description="send mail"), approved=True)
     assert res["ok"] is True
     assert res["verification"] == "uncertain"
+
+
+def test_execute_unknown_tool_fails_closed_by_default(workspace):
+    core = AgentCore()
+    res = core.execute(_action("send_email", {"to": "x@y.z"}, description="send mail"), approved=True)
+    assert res["ok"] is False
+    assert res["verification"] == "failed"
+    assert res["result"]["status"] == "unknown_tool"
 
 
 def test_execute_blocked_is_failed_with_evidence(workspace):

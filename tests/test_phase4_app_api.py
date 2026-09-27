@@ -110,7 +110,11 @@ def test_destructive_executes_with_double_confirm_api(client):
     rid=client.post('/approvals',json={'action':action,'reason':'test'}).json()['id']
     client.post(f'/approvals/{rid}/approve')
     r=client.post('/agent/execute',json={'action':action,'approval_id':rid,'double_confirmed':True}).json()
-    assert r['ok'] is True
+    # delete_file has no registered handler: policy passed, but execution
+    # fails closed rather than mocking a destructive run.
+    assert r['ok'] is False
+    assert r['result']['status'] == 'unknown_tool'
+    assert r['verification'] == 'failed'
 
 def test_cloud_block_error_envelope(client):
     r=client.post('/agent/ask',json={'prompt':'hello','allow_cloud':True,'cloud_approval':False})

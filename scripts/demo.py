@@ -12,5 +12,5 @@ consent=c.post('/consent',json={'data_source':'examples','scope':'selected_files
 print('consent', consent['id'])
 print(c.post('/memory/ingest_file',json={'path':'examples/sample_project_context.md','consent_grant_id':consent['id']}).json()['source']['title'])
 print(c.post('/agent/ask',json={'prompt':'What is Project Alpha focused on?'}).json()['answer'])
-print('approvals', len(c.get('/approvals').json()))
+print('approvals', len(c.get('/approvals').json()["items"]))
 print('audit', len(c.get('/audit').json()))
