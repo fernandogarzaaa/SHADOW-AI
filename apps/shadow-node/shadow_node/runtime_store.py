@@ -7,6 +7,7 @@ behaves exactly as before — these classes are drop-in and transparent.
 """
 from __future__ import annotations
 import sqlite3
+import time
 from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from agent_core import AuditEvent, ConsentGrant, Device, DeviceSessionStore
@@ -134,4 +135,61 @@ def build_runtime(db_path: str):
     audit = PersistentList(store, "audit", AuditEvent)
     consents = PersistentList(store, "consents", ConsentGrant)
     sessions = PersistentDeviceSessionStore(store)
+    # Durable nonce replay state (audit P1): restarts must not reopen the
+    # replay window. Falls back to the process-local ledger when the DB is
+    # unavailable.
+    sessions.nonce_ledger = PersistentNonceLedger(store)
     return store, audit, consents, sessions
+
+
+class _NonceRow(BaseModel):
+    """One seen HMAC nonce. Stored under collection='nonces',
+    id='<device_id>:<nonce>'."""
+    id: str
+    device_id: str
+    nonce: str
+    seen_at: float
+
+
+class PersistentNonceLedger:
+    """NonceLedger backed by the encrypted runtime DB.
+
+    seen()/record() are keyed (device_id, nonce) with the same semantics
+    as the in-memory ledger. Rows expire MAX_SKEW_SECONDS after being
+    seen; expired rows are pruned lazily (at most once a minute) since
+    expiry is embedded in the ciphertext and cannot be filtered in SQL.
+    Volume is bounded by design: one row per authenticated request, each
+    living at most five minutes."""
+
+    _PRUNE_INTERVAL = 60.0
+
+    def __init__(self, store: EncryptedRuntimeStore):
+        self._store = store
+        self._last_prune = 0.0
+
+    @staticmethod
+    def _key(device_id: str, nonce: str) -> str:
+        return f"{device_id}:{nonce}"
+
+    def seen(self, device_id: str, nonce: str) -> bool:
+        rows = self._store.conn.execute(
+            "SELECT ciphertext FROM runtime WHERE collection='nonces' AND id=?",
+            (self._key(device_id, nonce),),
+        ).fetchall()
+        return len(rows) > 0
+
+    def record(self, device_id: str, nonce: str, seen_at: float) -> None:
+        key = self._key(device_id, nonce)
+        self._store.put("nonces", key,
+                        _NonceRow(id=key, device_id=device_id, nonce=nonce, seen_at=seen_at))
+        now = time.time()
+        if now - self._last_prune >= self._PRUNE_INTERVAL:
+            self._last_prune = now
+            self._prune(now)
+
+    def _prune(self, now: float) -> None:
+        from agent_core import MAX_SKEW_SECONDS
+        expired = [row.id for row in self._store.all("nonces", _NonceRow)
+                   if now - row.seen_at > MAX_SKEW_SECONDS]
+        for row_id in expired:
+            self._store.delete("nonces", row_id)
