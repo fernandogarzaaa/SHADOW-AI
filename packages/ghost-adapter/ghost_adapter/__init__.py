@@ -1,13 +1,109 @@
 import os, time, json, socket, ipaddress
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 import httpx
 from pydantic import BaseModel
 
 from .skills import SkillRegistry, build_default_registry
 from .untrusted import fence_content
 from .web_search import web_search as _web_search
+
+
+# --- SSRF-hardened fetching -------------------------------------------------
+# Every redirect hop is validated independently: scheme, embedded
+# credentials, port, and ALL DNS resolutions (rebinding-safe: resolved
+# immediately before the request, and every returned address must be
+# globally routable). No proxies are honored, so a proxy cannot be used
+# to smuggle requests to internal hosts.
+
+SSRF_ALLOWED_PORTS = {80, 443}
+SSRF_MAX_REDIRECTS = 5
+SSRF_MAX_BODY_BYTES = 1 << 20  # 1 MiB
+
+
+def _resolve_public_ips(host: str) -> list[str]:
+    """Resolve ALL addresses for a host (IPv4 and IPv6); every one must be
+    globally routable. Fails closed on resolution errors or any non-public
+    address, which also defeats simple DNS-rebinding setups that mix a
+    public first answer with private alternates."""
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise ValueError(f"could not resolve host {host!r}") from e
+    ips = sorted({info[4][0] for info in infos})
+    if not ips:
+        raise ValueError(f"host {host!r} resolved to no addresses")
+    for ip_str in ips:
+        ip = ipaddress.ip_address(ip_str)
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise ValueError(f"blocked non-public address for {host!r}: {ip_str}")
+    return ips
+
+
+def _validate_http_hop(url: str) -> str:
+    """Validate one redirect hop and return the normalized URL. Raises
+    ValueError on anything that must not be fetched."""
+    u = urlparse(url)
+    if u.scheme not in ("http", "https"):
+        raise ValueError("only http/https URLs are allowed")
+    if u.username or u.password:
+        raise ValueError("credentials embedded in URLs are not allowed")
+    host = u.hostname
+    if not host:
+        raise ValueError("missing host")
+    try:
+        port = u.port
+    except ValueError as e:
+        raise ValueError("invalid port in URL") from e
+    if port is None:
+        port = 443 if u.scheme == "https" else 80
+    if port not in SSRF_ALLOWED_PORTS:
+        raise ValueError(f"blocked port {port}: only 80/443 are allowed")
+    _resolve_public_ips(host)
+    return u.geturl()
+
+
+def _ssrf_fetch(url: str, timeout: float = 15, client=None):
+    """Fetch a URL with SSRF hardening.
+
+    No automatic redirects: each hop is re-validated (scheme, host, port,
+    all DNS resolutions public) right before connecting, so a redirect
+    cannot hop to an internal address and a rebinding hostname cannot
+    slip a private address past an earlier check. Proxies are disabled
+    (trust_env=False). Bodies are capped at SSRF_MAX_BODY_BYTES.
+
+    Returns (body_text, status_code, content_type, final_url).
+    ``client`` is an injection point for tests (must support .stream()).
+    """
+    own_client = client is None
+    c = client if client is not None else httpx.Client(trust_env=False, timeout=timeout)
+    try:
+        current = url
+        for _ in range(SSRF_MAX_REDIRECTS + 1):
+            target = _validate_http_hop(current)
+            with c.stream("GET", target, follow_redirects=False) as r:
+                if r.is_redirect:
+                    location = r.headers.get("location")
+                    if not location:
+                        raise ValueError("redirect without a location header")
+                    current = urljoin(target, location)
+                    continue
+                chunks, total = [], 0
+                for chunk in r.iter_bytes(65536):
+                    if total + len(chunk) > SSRF_MAX_BODY_BYTES:
+                        chunks.append(chunk[: SSRF_MAX_BODY_BYTES - total])
+                        total = SSRF_MAX_BODY_BYTES
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                body = b"".join(chunks).decode("utf-8", errors="replace")
+                return body, r.status_code, r.headers.get("content-type", ""), target
+        raise ValueError("too many redirects")
+    finally:
+        if own_client:
+            c.close()
 
 
 def workspace_dir() -> Path:
@@ -127,34 +223,23 @@ class LocalActionExecutor:
 
     # --- network ---
     def http_get(self, p: dict) -> dict:
-        """Fetch a public URL. The body is fenced as untrusted web data."""
+        """Fetch a public URL. The body is fenced as untrusted web data.
+
+        SSRF-hardened: redirects are followed manually with each hop
+        re-validated (scheme, credentials, port 80/443 only, all DNS
+        resolutions globally routable), proxies are disabled, and the
+        body is capped."""
         url = p.get("url", "")
-        self._guard_url(url)
-        r = httpx.get(url, timeout=15, follow_redirects=True)
+        body, status, content_type, final_url = _ssrf_fetch(url)
         return {
-            "ok": True, "action": "http.get", "url": url, "status": r.status_code,
-            "content_type": r.headers.get("content-type", ""),
-            "body": fence_content(r.text[:2000], source="web"),
+            "ok": True, "action": "http.get", "url": final_url, "status": status,
+            "content_type": content_type,
+            "body": fence_content(body[:2000], source="web"),
         }
 
     def web_search(self, p: dict) -> dict:
         """Search the web via a SearXNG instance. Results are fenced as untrusted."""
         return _web_search(p.get("query", ""), max_results=int(p.get("max_results", 10) or 10))
-
-    @staticmethod
-    def _guard_url(url: str) -> None:
-        u = urlparse(url)
-        if u.scheme not in ("http", "https"):
-            raise ValueError("only http/https URLs are allowed")
-        host = u.hostname
-        if not host:
-            raise ValueError("missing host")
-        try:
-            ip = ipaddress.ip_address(socket.gethostbyname(host))
-        except socket.gaierror as e:
-            raise ValueError("could not resolve host") from e
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            raise ValueError("blocked non-public address")
 
 
 class GhostTaskIR(BaseModel):
