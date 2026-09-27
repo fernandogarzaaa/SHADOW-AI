@@ -5,3 +5,19 @@
 - v0.4 AXIOM compression
 - v0.5 Ghost autonomous desktop workflows
 - v1.0 App Store-ready release
+
+## Assistant parity program (Cookie / Muse.AI features, reimplemented local-first)
+
+Each phase ships as its own PR, one at a time, green CI before merge.
+- Phase 1: Persona (SOUL). Assistant identity API (`GET/PUT /persona`: name,
+  avatar emoji, vibe, status) + mobile Assistant profile screen. The vibe is
+  real behavior: it becomes the frontier-model system prompt. (shipped)
+- Phase 2: Memory cards. Dated memory entries UI with semantic search.
+- Phase 3: Goals. Goal tracking with progress and briefings.
+- Phase 4: Feed + Ideas. Scheduled editorial feed and idea cards.
+- Phase 5: Scheduling + proactive. Crons, reminders, notification digests.
+- Phase 6: Artifacts, voice, media. Documents, TTS/voice notes, image generation.
+
+Spine across all phases: local-first, encrypted at rest, user-owned data,
+Sentinel-audited, offline-capable. More robust than the reference: no vendor
+cloud dependency, every behavior in the real execution path.

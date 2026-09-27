@@ -10,6 +10,8 @@ This document formalizes the production seam implemented in code. Interfaces are
 
 Self-awareness: `GET /agent/self` returns SHADOW's runtime-derived self-model (identity, runtime, capabilities). `POST /agent/ask` answers "what are you", "where are you", and "what can you do" deterministically from the same live state (`model_used: "self_model"`) instead of sending them to the LLM.
 
+Persona (Cookie-style assistant identity): `GET /persona` returns the assistant's editable identity (name, avatar_emoji, vibe, status). `PUT /persona` updates it (all fields optional; name 1-32 chars, vibe up to 500 chars, status up to 120 chars); changes are audited as `persona_updated`, persisted encrypted in the runtime DB when configured, and take effect immediately: the vibe becomes the frontier-model system prompt, and `/agent/self` plus self-questions answer with the persona name.
+
 Ambient GHOST capabilities: `GET /ambient/status`, `POST /ambient/config`, `POST /ambient/tick`, `GET /ambient/runs`, `GET /ambient/runs/{id}`, `POST /ghost/runs`, `POST /ghost/runs/{id}/resume`, `POST /ghost/runs/{id}/interrupt`, `GET /claims`, `POST /claims`, `POST /claims/{id}/confirm`, `POST /claims/{id}/refute`.
 
 Approval binding: `POST /agent/execute` and every `POST /ghost/runs` step resolve their `approval_id` against the server-side approval store (must exist, be approved, be unexpired, and match the step's tool, params, and description). Approval is never manufactured: a ghost step without a valid referenced approval runs unapproved under the normal policy gate, and an unknown, denied, expired, or mismatched approval fails before that step executes. Steps may carry their own `approval_id`, falling back to the run-level one.

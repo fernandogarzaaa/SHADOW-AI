@@ -43,14 +43,16 @@ def classify_self_intent(prompt: str) -> str | None:
     return None
 
 
-def build_self_model(core, sessions, memory, model_config, app_version: str) -> dict:
-    """Assemble the self-model from live runtime objects."""
+def build_self_model(core, sessions, memory, model_config, app_version: str,
+                     persona_name: str | None = None) -> dict:
+    """Assemble the self-model from live runtime objects. persona_name, when
+    given, is the assistant's editable identity (Phase 1 persona)."""
     tools = core.tools.names()
     provider = getattr(model_config, "provider", "local_mock") or "local_mock"
     devices = getattr(sessions, "devices", None) or {}
     return {
         "identity": {
-            "name": "SHADOW",
+            "name": persona_name or "SHADOW",
             "version": app_version,
             "kind": "local-first personal AI agent",
             "runs_on": "your Shadow Node",
