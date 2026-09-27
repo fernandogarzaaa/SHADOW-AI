@@ -251,7 +251,9 @@ def _note_action(title="API Note", body="via api"):
 
 def test_execute_endpoint_returns_verification(api_client, workspace):
     client, m = api_client
-    r = client.post("/agent/execute", json={"action": _note_action(), "approved": True}).json()
+    rid = client.post("/approvals", json={"action": _note_action(), "reason": "test"}).json()["id"]
+    client.post(f"/approvals/{rid}/approve")
+    r = client.post("/agent/execute", json={"action": _note_action(), "approval_id": rid}).json()
     assert r["ok"] is True
     assert r["verification"] == "verified"
     assert r["execution_id"].startswith("exec_")
@@ -260,7 +262,9 @@ def test_execute_endpoint_returns_verification(api_client, workspace):
 
 def test_executions_list_and_detail(api_client):
     client, m = api_client
-    eid = client.post("/agent/execute", json={"action": _note_action(), "approved": True}).json()["execution_id"]
+    rid = client.post("/approvals", json={"action": _note_action(), "reason": "test"}).json()["id"]
+    client.post(f"/approvals/{rid}/approve")
+    eid = client.post("/agent/execute", json={"action": _note_action(), "approval_id": rid}).json()["execution_id"]
     listing = client.get("/executions").json()
     assert any(e["id"] == eid and e["verification"] == "verified" for e in listing)
     filtered = client.get("/executions", params={"status": "failed"}).json()

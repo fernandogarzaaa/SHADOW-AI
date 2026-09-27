@@ -71,7 +71,10 @@ def test_execute_endpoint_runs_real_action_after_approval(workspace, monkeypatch
     action = {"id": "act_note", "tool_name": "note.create", "description": "save a note",
               "params": {"title": "FromAPI", "body": "persisted via endpoint"},
               "risk": "low", "requires_approval": True, "destructive": False, "data_used": []}
-    r = client.post("/agent/execute", json={"action": action, "approved": True, "double_confirmed": False}).json()
+    r = client.post("/approvals", json={"action": action, "reason": "test"}).json()
+    rid = r["id"]
+    client.post(f"/approvals/{rid}/approve")
+    r = client.post("/agent/execute", json={"action": action, "approval_id": rid, "double_confirmed": False}).json()
     assert r["ok"] is True
     assert r["result"]["action"] == "note.create"
     assert (workspace / "fromapi.md").exists()

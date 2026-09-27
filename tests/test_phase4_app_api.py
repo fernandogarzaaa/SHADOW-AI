@@ -93,7 +93,9 @@ def test_revoked_signed_request_rejected(client):
 
 def test_ghost_mock_execute_from_ios_approval(client):
     action={'id':'act_ghost','tool_name':'ghost_handoff','description':'Safe Ghost mock','params':{},'risk':'low','requires_approval':True,'destructive':False,'data_used':[]}
-    r=client.post('/agent/execute',json={'action':action,'approved':True,'double_confirmed':False}).json()
+    rid=client.post('/approvals',json={'action':action,'reason':'iOS proposal'}).json()['id']
+    client.post(f'/approvals/{rid}/approve')
+    r=client.post('/agent/execute',json={'action':action,'approval_id':rid}).json()
     assert r['status']=='mock_executed'
 
 def test_destructive_requires_double_confirm_api(client):
@@ -103,7 +105,9 @@ def test_destructive_requires_double_confirm_api(client):
 
 def test_destructive_executes_with_double_confirm_api(client):
     action={'id':'act_delete2','tool_name':'delete_file','description':'delete','params':{},'risk':'high','requires_approval':True,'destructive':True,'data_used':[]}
-    r=client.post('/agent/execute',json={'action':action,'approved':True,'double_confirmed':True}).json()
+    rid=client.post('/approvals',json={'action':action,'reason':'test'}).json()['id']
+    client.post(f'/approvals/{rid}/approve')
+    r=client.post('/agent/execute',json={'action':action,'approval_id':rid,'double_confirmed':True}).json()
     assert r['ok'] is True
 
 def test_cloud_block_error_envelope(client):
