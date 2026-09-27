@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+	BookOpenIcon,
 	BulbIcon,
 	ChatIcon,
 	CheckIcon,
@@ -25,6 +26,7 @@ const TAB_ICONS: Record<
 > = {
 	chat: (p) => <ChatIcon {...p} />,
 	briefing: (p) => <BulbIcon {...p} />,
+	feed: (p) => <BookOpenIcon {...p} />,
 	goals: (p) => <ListCheckIcon {...p} />,
 	approvals: (p) => <CheckIcon {...p} />,
 	settings: (p) => <SettingsIcon {...p} />,
@@ -149,8 +151,8 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 }
 
 /**
- * Chat-first tabs: Chat (chats list), Briefing, Goals and Approvals (only
- * while a node is linked), Settings.
+ * Chat-first tabs: Chat (chats list), Briefing, Feed, Goals and Approvals
+ * (only while a node is linked), Settings.
  */
 export default function TabsLayout() {
 	const isPaired = useConnectionStore((s) => s.isPaired);
@@ -168,6 +170,14 @@ export default function TabsLayout() {
 			<Tabs.Screen
 				name="briefing"
 				options={{ title: "Briefing", href: "/(tabs)/briefing" as Href }}
+			/>
+			<Tabs.Screen
+				name="feed"
+				options={{
+					title: "Feed",
+					// The feed lives on the node; hidden entirely when no node is linked.
+					href: (isPaired ? "/(tabs)/feed" : null) as Href | null,
+				}}
 			/>
 			<Tabs.Screen
 				name="goals"
