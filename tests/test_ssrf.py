@@ -208,6 +208,75 @@ def test_mixed_public_private_resolution_is_blocked(monkeypatch):
         _validate_http_hop("http://mixed.example/")
 
 
+# -- same-hop DNS pinning (TOCTOU between validation and connect) ----------------
+# PR #43 re-validated every hop, but httpx resolves the hostname AGAIN when
+# it opens the socket. A malicious DNS server could answer the validation
+# query with a public IP and the connect-time query with a private one.
+# _pinned_dns() narrows connect-time resolution to the validated IPs.
+
+class _ResolvingClient(_FakeClient):
+    """Simulates what httpx does at connect time: resolve the hostname
+    again inside stream(), and record which addresses were actually used."""
+
+    def __init__(self, script):
+        super().__init__(script)
+        self.connect_ips = []
+
+    def stream(self, method, url, **kwargs):
+        from urllib.parse import urlparse
+        host = urlparse(url).hostname
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        self.connect_ips.extend(info[4][0] for info in infos)
+        return super().stream(method, url, **kwargs)
+
+
+def _flap_dns(monkeypatch, connect_answer):
+    """Validation-time answer is always PUBLIC_IP; connect-time answer is
+    whatever the attacker wants."""
+    real_getaddrinfo = socket.getaddrinfo
+    state = {"calls": 0}
+
+    def flapping(host, *a, **k):
+        if host == "flap2.example":
+            state["calls"] += 1
+            addrs = [PUBLIC_IP] if state["calls"] == 1 else connect_answer
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0)) for ip in addrs]
+        return real_getaddrinfo(host, *a, **k)
+
+    monkeypatch.setattr(socket, "getaddrinfo", flapping)
+
+
+def test_connect_time_rebinding_cannot_reach_private_ip(monkeypatch):
+    """Connect-time DNS flips to a private IP alongside the validated
+    public one: pinning filters the private address out."""
+    _flap_dns(monkeypatch, [PUBLIC_IP, "127.0.0.1"])
+    client = _ResolvingClient([_ok(b"pinned")])
+    body, _, _, _ = _ssrf_fetch("http://flap2.example/", client=client)
+    assert body == "pinned"
+    assert client.connect_ips == [PUBLIC_IP], \
+        f"connect used unvalidated addresses: {client.connect_ips}"
+
+
+def test_full_rebinding_flip_fails_closed(monkeypatch):
+    """Connect-time DNS flips entirely to a private IP: no validated
+    address remains, so resolution fails closed and no request goes out."""
+    _flap_dns(monkeypatch, ["127.0.0.1"])
+    client = _ResolvingClient([_ok(b"never")])
+    with pytest.raises(socket.gaierror, match="no longer resolves to a validated address"):
+        _ssrf_fetch("http://flap2.example/", client=client)
+    assert client.requested == []
+
+
+def test_pinning_does_not_affect_other_hosts(monkeypatch):
+    """While a pinned request is in flight, unrelated hostnames resolve
+    normally through the real resolver."""
+    _flap_dns(monkeypatch, [PUBLIC_IP])
+    from ghost_adapter import _pinned_dns
+    with _pinned_dns("flap2.example", [PUBLIC_IP]):
+        infos = socket.getaddrinfo(PUBLIC_IP, None, type=socket.SOCK_STREAM)
+        assert infos and infos[0][4][0] == PUBLIC_IP
+
+
 # -- proxy / body limits -------------------------------------------------------------
 
 def test_proxies_are_disabled(monkeypatch):
