@@ -100,6 +100,13 @@ export default {
         },
       ],
       [
+        'expo-av',
+        {
+          microphonePermission:
+            'Allow SHADOW to access your microphone to record voice messages for transcription',
+        },
+      ],
+      [
         'expo-local-authentication',
         {
           faceIDPermission:

@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, WebSocket, Request
+from fastapi import FastAPI, HTTPException, WebSocket, Request, UploadFile, File
 from starlette.websockets import WebSocketDisconnect
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent_core import *
@@ -26,11 +26,15 @@ from .feed import (FeedStore, FeedGenerateRequest, FEED_KINDS, generate_units,
 from .ideas import (IdeaStore, IdeaCreate, IdeaUpdate, PlannedAction)
 from .reminders import (ReminderStore, ReminderCreate, ReminderUpdate, fire_due)
 from .reminders import RECURRENCES as REMINDER_RECURRENCES, STATUSES as REMINDER_STATUSES
+from .artifacts import (ArtifactStore, ArtifactCreate, ArtifactUpdate, ARTIFACT_KINDS,
+                        AGENT_READ_LIMIT)
+from . import voice as voice_mod
+from . import media as media_mod
 from .ambient_tasks import morning_brief as _amb_morning_brief, memory_digest as _amb_memory_digest
 from . import provider_auth
 from .events import EventBus
 from pathlib import Path
-import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request
+import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
 APP_VERSION="1.0.0-rc"
 app=FastAPI(title="Shadow Node", version=APP_VERSION)
 # CORS: localhost by default; add deployed PWA/app origins via SHADOW_CORS_ORIGINS
@@ -82,6 +86,8 @@ goal_store=GoalStore(_runtime_store if _runtime_db else None)
 feed_store=FeedStore(_runtime_store if _runtime_db else None)
 idea_store=IdeaStore(_runtime_store if _runtime_db else None)
 reminder_store=ReminderStore(_runtime_store if _runtime_db else None)
+artifact_store=ArtifactStore(_runtime_store if _runtime_db else None)
+media_store=media_mod.MediaStore(_runtime_store if _runtime_db else None)
 set_system_prompt_override(system_prompt_for(persona))
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
@@ -139,6 +145,40 @@ def _ghost_handoff_tool(params):
     act=AgentAction(tool_name="ghost_handoff", description=desc, params=params)
     return ghost.execute(ghost.to_ir(AgentPlan(user_intent=desc, actions=[act])), approved=True)
 core.tools.register("ghost_handoff", _ghost_handoff_tool)
+def _artifact_create_tool(params):
+    """Create a durable artifact (document) the user can open later.
+
+    The mobile app renders `artifact:<id>` references as tappable cards,
+    so the agent should mention the id in its reply text.
+    """
+    req=ArtifactCreate(title=params.get("title") or "Untitled",
+                       kind=params.get("kind") or "markdown",
+                       content=params.get("content") or "",
+                       tags=params.get("tags") or [])
+    a=artifact_store.create(req)
+    return {"id":a.id,"title":a.title,"kind":a.kind,"version":a.version,
+            "reference":f"artifact:{a.id}"}
+def _artifact_update_tool(params):
+    artifact_id=params.get("id") or params.get("artifact_id")
+    if not artifact_id: return {"error":"id is required"}
+    a=artifact_store.update(artifact_id, ArtifactUpdate(
+        title=params.get("title"), kind=params.get("kind"), content=params.get("content")))
+    if a is None: return {"error":"artifact not found"}
+    return {"id":a.id,"title":a.title,"version":a.version,"reference":f"artifact:{a.id}"}
+def _artifact_read_tool(params):
+    artifact_id=params.get("id") or params.get("artifact_id")
+    if not artifact_id: return {"error":"id is required"}
+    a=artifact_store.get(artifact_id)
+    if a is None: return {"error":"artifact not found"}
+    content=a.content
+    truncated=False
+    if len(content) > AGENT_READ_LIMIT:
+        content=content[:AGENT_READ_LIMIT]; truncated=True
+    return {"id":a.id,"title":a.title,"kind":a.kind,"version":a.version,
+            "content":content,"truncated":truncated}
+core.tools.register("artifact_create", _artifact_create_tool)
+core.tools.register("artifact_update", _artifact_update_tool)
+core.tools.register("artifact_read", _artifact_read_tool)
 def _resolve_server_approval(approval_id: str | None, action: AgentAction) -> bool:
     """Derive the approved flag from a server-side approval record.
 
@@ -251,11 +291,23 @@ async def observability_middleware(request:Request, call_next):
     response=await call_next(request)
     log.info("request", extra={"method":request.method,"path":request.url.path,"status":response.status_code,"ms":round((time.perf_counter()-start)*1000,1),"client":client_key(request)})
     return response
+def _canonical_body(raw:bytes, content_type:str) -> str:
+    """Body text used in the HMAC canonical string.
+
+    Multipart bodies may carry arbitrary binary (audio recordings) that is
+    not valid UTF-8, and decoding it would crash before signature
+    verification. For multipart, sign "sha256:<hex>" of the raw bytes
+    instead; every other body keeps the exact legacy rule (raw UTF-8 text)
+    so existing clients are unaffected.
+    """
+    if "multipart/form-data" in content_type:
+        return "sha256:"+hashlib.sha256(raw).hexdigest()
+    return raw.decode()
 @app.middleware("http")
 async def auth_middleware(request:Request, call_next):
     exempt=request.method=="OPTIONS" or request.url.path in {"/","/health","/ready","/pair/start","/pair/confirm"} or request.url.path.startswith("/docs") or request.url.path.startswith("/openapi")
     if AUTH_REQUIRED and not exempt:
-        body=(await request.body()).decode()
+        body=_canonical_body(await request.body(), request.headers.get("content-type",""))
         ok,reason=sessions.verify(request.headers.get("x-shadow-device-id"),request.headers.get("x-shadow-signature"),request.headers.get("x-shadow-nonce"),request.headers.get("x-shadow-timestamp"),request.method,request.url.path,body)
         if not ok:
             # This middleware runs outside CORSMiddleware, so auth rejections
@@ -671,6 +723,134 @@ def check_reminders():
         audit.append(AuditEvent(actor="agent",event_type="reminder_fired",status="ok",
                                 metadata={"reminder_id":r.id,"recurrence":r.recurrence}))
     return {"fired": [r.model_dump() for r in fired], "held": [], "quiet": False}
+# --- Artifacts (assistant parity: durable documents) ---
+@app.post("/artifacts", status_code=201)
+def create_artifact(req: ArtifactCreate):
+    a=artifact_store.create(req)
+    audit.append(AuditEvent(actor="user",event_type="artifact_created",status="ok",
+                            metadata={"artifact_id":a.id,"kind":a.kind}))
+    return a.model_dump()
+@app.get("/artifacts")
+def list_artifacts(limit:int=20, offset:int=0, kind:str|None=None):
+    if kind is not None and kind not in ARTIFACT_KINDS:
+        raise HTTPException(422, f"kind must be one of {ARTIFACT_KINDS}")
+    items,total=artifact_store.list(limit=limit, offset=offset, kind=kind)
+    return {"artifacts":[a.meta() for a in items],"total":total,"limit":limit,"offset":offset}
+@app.get("/artifacts/{artifact_id}")
+def get_artifact(artifact_id:str):
+    a=artifact_store.get(artifact_id)
+    if a is None: raise HTTPException(404,"artifact not found")
+    return a.model_dump()
+@app.patch("/artifacts/{artifact_id}")
+def update_artifact(artifact_id:str, patch:ArtifactUpdate):
+    a=artifact_store.update(artifact_id, patch)
+    if a is None: raise HTTPException(404,"artifact not found")
+    audit.append(AuditEvent(actor="user",event_type="artifact_updated",status="ok",
+                            metadata={"artifact_id":a.id,"version":a.version}))
+    return a.model_dump()
+@app.get("/artifacts/{artifact_id}/versions")
+def artifact_versions(artifact_id:str):
+    v=artifact_store.versions(artifact_id)
+    if v is None: raise HTTPException(404,"artifact not found")
+    return {"artifact_id":artifact_id,"versions":v}
+@app.get("/artifacts/{artifact_id}/versions/{version}")
+def artifact_version(artifact_id:str, version:int):
+    a=artifact_store.get_version(artifact_id, version)
+    if a is None: raise HTTPException(404,"artifact version not found")
+    return a.model_dump()
+@app.delete("/artifacts/{artifact_id}")
+def delete_artifact(artifact_id:str):
+    if not artifact_store.delete(artifact_id): raise HTTPException(404,"artifact not found")
+    audit.append(AuditEvent(actor="user",event_type="artifact_deleted",status="revoked",
+                            metadata={"artifact_id":artifact_id}))
+    return {"deleted_artifact":artifact_id}
+# --- Voice (assistant parity: speak and listen) ---
+@app.get("/voice/capabilities")
+def voice_capabilities():
+    return voice_mod.capabilities()
+@app.post("/voice/speak")
+def voice_speak(req:dict):
+    text=(req.get("text") or "")
+    voice=req.get("voice")
+    fmt=req.get("format") or "mp3"
+    try:
+        data,mime=voice_mod.synthesize(text, voice=voice, format=fmt)
+    except voice_mod.VoiceNotConfigured as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except voice_mod.VoiceProviderError as e:
+        raise HTTPException(502, str(e))
+    audit.append(AuditEvent(actor="user",event_type="voice_speak",status="ok",
+                            metadata={"chars":len(text)}))
+    return Response(content=data, media_type=mime)
+@app.post("/voice/transcribe")
+async def voice_transcribe(request:Request, audio:UploadFile|None=File(None)):
+    # Two accepted shapes. Multipart (audio file field) is the classic file
+    # upload; JSON {audio_base64, filename?, mime_type?} is the binary-safe
+    # path mobile clients should use, since multipart bodies are signed by
+    # digest (see _canonical_body).
+    ctype=request.headers.get("content-type","")
+    filename="audio.m4a"
+    data=None
+    if "application/json" in ctype:
+        try: payload=await request.json()
+        except Exception: raise HTTPException(422,"invalid JSON body")
+        if not isinstance(payload,dict) or not payload.get("audio_base64"):
+            raise HTTPException(422,"audio_base64 is required")
+        try: data=base64.b64decode(payload["audio_base64"], validate=True)
+        except Exception: raise HTTPException(422,"audio_base64 is not valid base64")
+        filename=payload.get("filename") or filename
+    elif audio is not None:
+        data=await audio.read()
+        filename=audio.filename or filename
+    else:
+        raise HTTPException(422,"audio file or audio_base64 is required")
+    try:
+        out=voice_mod.transcribe(data, filename=filename)
+    except voice_mod.VoiceNotConfigured as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except voice_mod.VoiceProviderError as e:
+        raise HTTPException(502, str(e))
+    audit.append(AuditEvent(actor="user",event_type="voice_transcribe",status="ok",
+                            metadata={"bytes":len(data)}))
+    return out
+# --- Media (assistant parity: image generation) ---
+@app.get("/media/capabilities")
+def media_capabilities():
+    return media_mod.capabilities()
+@app.post("/media/generate", status_code=201)
+def media_generate(req:media_mod.MediaGenerateRequest):
+    try:
+        data,mime=media_mod.generate_image(req.prompt, req.size)
+    except media_mod.MediaNotConfigured as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except media_mod.MediaProviderError as e:
+        raise HTTPException(502, str(e))
+    item=media_store.add(req.prompt, req.size, data, mime)
+    audit.append(AuditEvent(actor="user",event_type="media_generated",status="ok",
+                            metadata={"media_id":item.id,"bytes":len(data)}))
+    return item.meta()
+@app.get("/media")
+def list_media(limit:int=20, offset:int=0):
+    items,total=media_store.list(limit=limit, offset=offset)
+    return {"items":[i.meta() for i in items],"total":total,"limit":limit,"offset":offset}
+@app.get("/media/{item_id}/content")
+def media_content(item_id:str):
+    got=media_store.content(item_id)
+    if got is None: raise HTTPException(404,"media not found")
+    data,mime=got
+    return Response(content=data, media_type=mime)
+@app.delete("/media/{item_id}")
+def delete_media(item_id:str):
+    if not media_store.delete(item_id): raise HTTPException(404,"media not found")
+    audit.append(AuditEvent(actor="user",event_type="media_deleted",status="revoked",
+                            metadata={"media_id":item_id}))
+    return {"deleted_media":item_id}
 @app.post("/agent/ask")
 def ask(req:AskRequest): return _run_ask_pipeline(req)
 def _run_ask_pipeline(req:AskRequest):

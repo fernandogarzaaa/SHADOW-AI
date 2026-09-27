@@ -19,6 +19,7 @@ export default function SettingsLayout() {
 			<Stack.Screen name="profile" />
 			<Stack.Screen name="avatar" />
 			<Stack.Screen name="appearance" />
+			<Stack.Screen name="voice" />
 			<Stack.Screen name="support" />
 			<Stack.Screen name="legal" />
 			<Stack.Screen name="about" />

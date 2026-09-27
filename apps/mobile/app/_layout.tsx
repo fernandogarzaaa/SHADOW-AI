@@ -19,6 +19,7 @@ import { setupShareReceive } from "../src/lib/shareReceive";
 import { LockIcon } from "../src/components/icons";
 import { unlockApp } from "../src/lib/appLock";
 import { useConnectionStore } from "../src/stores/useConnectionStore";
+import { useVoiceSettingsStore } from "../src/stores/useVoiceSettingsStore";
 import { Spacing, typography, ThemeProvider, useTheme } from "../src/theme";
 
 // Keep the splash screen visible until we explicitly hide it
@@ -130,6 +131,11 @@ export default function RootLayout() {
 	useEffect(() => {
 		restore();
 	}, [restore]);
+
+	// Load persisted voice preferences (speech rate, pitch, TTS toggles).
+	useEffect(() => {
+		void useVoiceSettingsStore.getState().initialize();
+	}, []);
 
 	// Approval notification actions: register the Approve / Deny category and
 	// route notification responses (decide in place, or deep-link on tap).

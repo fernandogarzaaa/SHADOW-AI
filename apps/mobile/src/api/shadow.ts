@@ -3,8 +3,9 @@
  * Auth: HMAC-SHA256 per request (see @/lib/shadowSigner).
  */
 
-import { authHeaders } from "@/lib/shadowSigner";
+import { authHeaders, randomHexBytes } from "@/lib/shadowSigner";
 import { useConnectionStore } from "@/stores/useConnectionStore";
+import * as FileSystem from "expo-file-system/legacy";
 
 export type ApprovalRisk = "low" | "medium" | "high";
 export type ApprovalStatus = "pending" | "approved" | "denied" | "expired";
@@ -928,5 +929,288 @@ export async function configureAmbient(
 ): Promise<AmbientStatus["config"]> {
 	return readJson<AmbientStatus["config"]>(
 		await shadowFetch("/ambient/config", { method: "POST", body: patch }),
+	);
+}
+
+/* ------------------------------------------------------------------ */
+/* Artifacts, voice, media (Phase 6). All requests go through the      */
+/* HMAC-signed shadowFetch like every other node endpoint.             */
+/* ------------------------------------------------------------------ */
+
+export type ArtifactKind =
+	| "markdown"
+	| "html"
+	| "code"
+	| "csv"
+	| "json"
+	| "text";
+
+export interface ArtifactSummary {
+	id: string;
+	title: string;
+	kind: ArtifactKind;
+	version: number;
+	tags: string[];
+	created_at: number;
+	updated_at: number;
+	size_bytes: number;
+}
+
+export interface Artifact extends ArtifactSummary {
+	content: string;
+}
+
+export interface ArtifactListResponse {
+	artifacts: ArtifactSummary[];
+	total: number;
+}
+
+export interface ArtifactVersion {
+	version: number;
+	created_at: number;
+	size_bytes: number;
+}
+
+export interface ArtifactCreate {
+	title: string;
+	kind: ArtifactKind;
+	content: string;
+	tags?: string[];
+}
+
+export interface ArtifactPatch {
+	title?: string;
+	kind?: ArtifactKind;
+	content?: string;
+}
+
+/** List artifacts newest-first, optionally filtered by kind. */
+export async function listArtifacts(
+	limit = 20,
+	offset = 0,
+	kind?: ArtifactKind,
+): Promise<ArtifactListResponse> {
+	const q = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+	if (kind) q.set("kind", kind);
+	return readJson<ArtifactListResponse>(await shadowFetch(`/artifacts?${q}`));
+}
+
+/** Create an artifact. */
+export async function createArtifact(data: ArtifactCreate): Promise<Artifact> {
+	return readJson<Artifact>(
+		await shadowFetch("/artifacts", { method: "POST", body: data }),
+	);
+}
+
+/** Fetch one artifact with its full content. */
+export async function getArtifact(id: string): Promise<Artifact> {
+	return readJson<Artifact>(
+		await shadowFetch(`/artifacts/${encodeURIComponent(id)}`),
+	);
+}
+
+/** Update title/kind/content; bumps the version. */
+export async function updateArtifact(
+	id: string,
+	patch: ArtifactPatch,
+): Promise<Artifact> {
+	return readJson<Artifact>(
+		await shadowFetch(`/artifacts/${encodeURIComponent(id)}`, {
+			method: "PATCH",
+			body: patch,
+		}),
+	);
+}
+
+/** Version history for an artifact. */
+export async function listArtifactVersions(
+	id: string,
+): Promise<{ versions: ArtifactVersion[] }> {
+	return readJson<{ versions: ArtifactVersion[] }>(
+		await shadowFetch(`/artifacts/${encodeURIComponent(id)}/versions`),
+	);
+}
+
+/** Fetch the artifact as it was at a specific version. */
+export async function getArtifactVersion(
+	id: string,
+	version: number,
+): Promise<Artifact> {
+	return readJson<Artifact>(
+		await shadowFetch(
+			`/artifacts/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`,
+		),
+	);
+}
+
+/** Delete an artifact. */
+export async function deleteArtifact(id: string): Promise<void> {
+	await shadowFetch(`/artifacts/${encodeURIComponent(id)}`, {
+		method: "DELETE",
+	});
+}
+
+export interface VoiceCapability {
+	available: boolean;
+	provider: string | null;
+	note: string;
+}
+
+export interface VoiceCapabilities {
+	tts: VoiceCapability;
+	stt: VoiceCapability;
+}
+
+export interface MediaCapabilities {
+	generate: VoiceCapability;
+}
+
+export type VoiceAudioFormat = "mp3" | "wav";
+
+/** What the node can do with voice right now. */
+export async function getVoiceCapabilities(): Promise<VoiceCapabilities> {
+	return readJson<VoiceCapabilities>(await shadowFetch("/voice/capabilities"));
+}
+
+/** What the node can do with media generation right now. */
+export async function getMediaCapabilities(): Promise<MediaCapabilities> {
+	return readJson<MediaCapabilities>(await shadowFetch("/media/capabilities"));
+}
+
+export interface TranscribeResult {
+	text: string;
+	language?: string;
+}
+
+/**
+ * Send a recorded audio file for transcription. The audio travels as
+ * base64 inside a JSON body: binary-safe for both the HMAC signature and
+ * the wire, unlike multipart (see the node's _canonical_body). Throws
+ * ShadowApiError with status 503 when the node has no STT provider
+ * configured.
+ */
+export async function transcribeAudio(
+	fileUri: string,
+	mimeType = "audio/m4a",
+): Promise<TranscribeResult> {
+	const info = await FileSystem.getInfoAsync(fileUri);
+	if (!info.exists) {
+		throw new ShadowApiError("Recording not found. Try recording again.", 0);
+	}
+	const audioBase64 = await FileSystem.readAsStringAsync(fileUri, {
+		encoding: FileSystem.EncodingType.Base64,
+	});
+	const filename = fileUri.split("/").pop() || "recording.m4a";
+	return readJson<TranscribeResult>(
+		await shadowFetch("/voice/transcribe", {
+			method: "POST",
+			body: { audio_base64: audioBase64, filename, mime_type: mimeType },
+		}),
+	);
+}
+
+export type MediaSize = "1024x1024" | "1792x1024" | "1024x1792";
+
+export interface GeneratedMedia {
+	id: string;
+	prompt: string;
+	size: MediaSize;
+	mime: string;
+	created_at: number;
+	bytes: number;
+}
+
+export interface MediaListResponse {
+	items: GeneratedMedia[];
+	total: number;
+}
+
+/** Generate an image on the node. 503 when no image provider is configured. */
+export async function generateMedia(
+	prompt: string,
+	size: MediaSize = "1024x1024",
+): Promise<GeneratedMedia> {
+	return readJson<GeneratedMedia>(
+		await shadowFetch("/media/generate", {
+			method: "POST",
+			body: { prompt, size },
+		}),
+	);
+}
+
+/** List generated images newest-first. */
+export async function listMedia(
+	limit = 30,
+	offset = 0,
+): Promise<MediaListResponse> {
+	return readJson<MediaListResponse>(
+		await shadowFetch(`/media?limit=${limit}&offset=${offset}`),
+	);
+}
+
+/** Delete a generated image. */
+export async function deleteMedia(id: string): Promise<void> {
+	await shadowFetch(`/media/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/**
+ * Authenticated binary download helper: computes the HMAC headers for a
+ * GET and hands the caller the base URL plus headers, so expo-file-system
+ * can download straight to disk. Used for /voice/speak and
+ * /media/{id}/content responses.
+ */
+export async function authedDownloadParams(
+	path: string,
+): Promise<{ url: string; headers: Record<string, string> }> {
+	const base = getBaseUrl();
+	const signPath = path.split("?")[0];
+	const { deviceId, deviceSecret } = useConnectionStore.getState();
+	if (!deviceId || !deviceSecret) {
+		throw new ShadowApiError("Not paired with a SHADOW node", 0);
+	}
+	const headers = await authHeaders({
+		deviceId,
+		secret: deviceSecret,
+		method: "GET",
+		path: signPath,
+		body: "",
+	});
+	return { url: `${base}${path}`, headers };
+}
+
+/** Binary endpoint result: raw bytes plus the response content type. */
+export interface BinaryResponse {
+	data: ArrayBuffer;
+	contentType: string;
+}
+
+async function readBinary(response: Response): Promise<BinaryResponse> {
+	const data = await response.arrayBuffer();
+	const contentType =
+		response.headers.get("content-type") ?? "application/octet-stream";
+	return { data, contentType };
+}
+
+/**
+ * POST /voice/speak: synthesize speech on the node.
+ * 503 when no TTS provider is configured.
+ */
+export async function synthesizeSpeech(
+	text: string,
+	voice?: string,
+	format: VoiceAudioFormat = "mp3",
+): Promise<BinaryResponse> {
+	return readBinary(await shadowFetch("/voice/speak", {
+		method: "POST",
+		body: { text, voice, format },
+	}));
+}
+
+/**
+ * GET /media/{id}/content: raw bytes of a generated image.
+ */
+export async function getMediaContent(id: string): Promise<BinaryResponse> {
+	return readBinary(
+		await shadowFetch(`/media/${encodeURIComponent(id)}/content`),
 	);
 }

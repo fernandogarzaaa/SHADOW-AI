@@ -17,6 +17,7 @@ import {
 	InfoIcon,
 	KeyIcon,
 	LockIcon,
+	MicIcon,
 	MoonIcon,
 	TrashIcon,
 	UsersIcon,
@@ -238,6 +239,12 @@ export default function SettingsIndexScreen() {
 					value="Dated cards, search"
 					icon={<AiAgentIcon size={ICON_SIZE} color={colors.foreground} />}
 					onPress={() => router.push("/settings/memory")}
+				/>
+				<SettingsRow
+					title="Voice"
+					value="Speech, mic input"
+					icon={<MicIcon size={ICON_SIZE} color={colors.foreground} />}
+					onPress={() => router.push("/settings/voice")}
 				/>
 			</SettingsGroup>
 
