@@ -61,7 +61,8 @@ def test_consent_required_for_file(client,tmp_path):
     f=tmp_path/'a.md'; f.write_text('hello project')
     assert client.post('/memory/ingest_file',json={'path':str(f),'consent_grant_id':'bad'}).status_code==403
 
-def test_file_ingest_with_consent(client,tmp_path):
+def test_file_ingest_with_consent(client,tmp_path,monkeypatch):
+    monkeypatch.setenv("SHADOW_INGEST_ROOTS",str(tmp_path))
     f=tmp_path/'a.md'; f.write_text('hello project beta')
     c=client.post('/consent',json={'data_source':'file','scope':'selected','purpose':'test'}).json()
     r=client.post('/memory/ingest_file',json={'path':str(f),'consent_grant_id':c['id']}).json()

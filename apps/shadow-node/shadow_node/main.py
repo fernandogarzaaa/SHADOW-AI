@@ -19,6 +19,7 @@ from .providers import build_frontier, CATALOG
 from .hybrid import HybridRouter
 from . import provider_auth
 from .events import EventBus
+from pathlib import Path
 import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request
 APP_VERSION="1.0.0-rc"
 app=FastAPI(title="Shadow Node", version=APP_VERSION)
@@ -230,7 +231,15 @@ def ingest(req:IngestRequest):
 @app.post("/memory/ingest_file")
 def ingest_file(req:FileIngestRequest):
     if not any(c.id==req.consent_grant_id and c.is_active() for c in consents): raise HTTPException(403,"active consent grant required")
-    text,kind=read_local_document(req.path); src=MemorySource(kind=f"file/{kind}",title=req.source_title or req.path,uri=req.path,consent_grant_id=req.consent_grant_id); items=memory.ingest(text,src); audit.append(AuditEvent(actor="connector:file",event_type="file_ingest",data_used=[req.path],status="stored",metadata={"source_id":src.id,"count":len(items)})); return {"source":src,"items":items}
+    # Ingestion is confined to allowed roots: the node workspace plus any
+    # operator-configured extra roots (audit P0-6). Symlinks and ".." are
+    # resolved before the check, so escapes are rejected, not followed.
+    roots=[workspace_root()]+[Path(p) for p in os.environ.get("SHADOW_INGEST_ROOTS","").split(os.pathsep) if p.strip()]
+    try: text,kind=read_local_document(req.path, allowed_roots=roots)
+    except PermissionError as e: raise HTTPException(403,str(e))
+    except FileNotFoundError as e: raise HTTPException(404,str(e))
+    except ValueError as e: raise HTTPException(400,str(e))
+    src=MemorySource(kind=f"file/{kind}",title=req.source_title or req.path,uri=req.path,consent_grant_id=req.consent_grant_id); items=memory.ingest(text,src); audit.append(AuditEvent(actor="connector:file",event_type="file_ingest",data_used=[req.path],status="stored",metadata={"source_id":src.id,"count":len(items)})); return {"source":src,"items":items}
 @app.get("/memory")
 def list_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
 @app.get("/memory/search")
