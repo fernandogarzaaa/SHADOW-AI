@@ -51,3 +51,46 @@ revoke itself; revoking another device requires an owner device (the
 first-ever bootstrap-paired device is the owner; nodes enrolled before
 the owner flag existed grandfather existing trusted devices until an
 owner exists). Unknown device ids return 404.
+
+## Artifacts, voice, and media
+
+Artifacts are versioned documents the assistant builds for the user
+(markdown, html, code, csv, json, text). Fully offline, encrypted at rest,
+500 artifacts and 50 versions each retained.
+
+- `POST /artifacts` `{title, kind, content, tags?}` -> 201 artifact
+- `GET /artifacts?limit&offset&kind` -> meta-only list (no content)
+- `GET /artifacts/{id}` -> full artifact with content
+- `PATCH /artifacts/{id}` `{title?, kind?, content?}` -> new version
+- `GET /artifacts/{id}/versions` and `GET /artifacts/{id}/versions/{v}`
+- `DELETE /artifacts/{id}` -> 204
+
+The agent has `artifact_create`, `artifact_update`, and `artifact_read`
+tools; tool results carry an `artifact:<id>` reference the mobile app
+renders as a tappable card.
+
+Voice is dual-path: the mobile app speaks and records on-device with no
+server needed; the node also proxies to BYOK audio endpoints when
+configured (`SHADOW_TTS_ENDPOINT` / `SHADOW_STT_ENDPOINT` plus
+`SHADOW_TTS_API_KEY_ENV` / `SHADOW_STT_API_KEY_ENV`, OpenAI-compatible).
+
+- `GET /voice/capabilities` -> `{tts: {available, provider, note}, stt: {...}}`
+- `POST /voice/speak` `{text, voice?, format?}` -> audio bytes; 503 when unconfigured
+- `POST /voice/transcribe` -> `{text, language?}`; 503 when unconfigured.
+  Two shapes: multipart with an `audio` file field, or JSON
+  `{audio_base64, filename?, mime_type?}` (recommended: binary-safe, signs
+  as ordinary JSON text). Multipart bodies may contain non-UTF-8 bytes, so
+  the HMAC canonical body for `multipart/form-data` is
+  `"sha256:<hex of raw body bytes>"` rather than the body text.
+
+Media generation is BYOK (`SHADOW_IMAGE_ENDPOINT`,
+`SHADOW_IMAGE_API_KEY_ENV`, OpenAI-compatible `/images/generations`).
+Generated PNGs are stored encrypted, 200 images retained.
+
+- `GET /media/capabilities`
+- `POST /media/generate` `{prompt, size?}` -> 201 `{id, prompt, size, mime, bytes}`
+- `GET /media` -> meta list; `GET /media/{id}/content` -> image bytes
+- `DELETE /media/{id}` -> 204
+
+Unconfigured provider endpoints return 503 with the exact environment
+variables to set; provider failures return 502. Nothing pretends to work.

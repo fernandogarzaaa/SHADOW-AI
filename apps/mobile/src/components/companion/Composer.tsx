@@ -1,7 +1,9 @@
 import * as Haptics from "expo-haptics";
+import * as FileSystem from "expo-file-system/legacy";
 import { useState } from "react";
 import {
 	ActivityIndicator,
+	Alert,
 	Pressable,
 	StyleSheet,
 	Text,
@@ -9,8 +11,10 @@ import {
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { PlusIcon, SendIcon } from "@/components/icons";
+import { MicIcon, PlusIcon, SendIcon, StopIcon } from "@/components/icons";
 import { GlassView } from "@/components/ui";
+import { ShadowApiError, transcribeAudio } from "@/api/shadow";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { Spacing, typography, useTheme } from "@/theme";
 
 interface ComposerProps {
@@ -24,10 +28,11 @@ interface ComposerProps {
 
 /**
  * Rounded pill composer: "+" action menu on the left, "Message"
- * placeholder, cobalt up-arrow send button.
+ * placeholder, mic for voice input, cobalt up-arrow send button.
  *
- * Note: voice input (mic) is intentionally not shown yet. It needs a
- * real transcription path before it can ship; see the PR handoff notes.
+ * The mic records with expo-av and transcribes through the node
+ * (POST /voice/transcribe); the text lands in the composer for review
+ * before sending. A 503 means the node has no speech-to-text provider.
  */
 export function Composer({
 	onSend,
@@ -41,6 +46,7 @@ export function Composer({
 	const insets = useSafeAreaInsets();
 	const [text, setText] = useState("");
 	const [menuOpen, setMenuOpen] = useState(false);
+	const recorder = useVoiceRecorder();
 
 	const canSend = text.trim().length > 0 && !streaming && !disabled;
 
@@ -57,6 +63,47 @@ export function Composer({
 		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 		setMenuOpen(false);
 		action();
+	}
+
+	async function handleMicPress() {
+		if (streaming || disabled || recorder.transcribing) return;
+		if (recorder.recording) {
+			Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+			const uri = await recorder.stop();
+			if (!uri) return;
+			recorder.setTranscribing(true);
+			try {
+				const result = await transcribeAudio(uri);
+				const heard = result.text.trim();
+				if (heard) {
+					setText((prev) =>
+						prev.trim() ? `${prev.trim()} ${heard}` : heard,
+					);
+					void Haptics.notificationAsync(
+						Haptics.NotificationFeedbackType.Success,
+					);
+				}
+			} catch (e) {
+				if (e instanceof ShadowApiError && e.status === 503) {
+					Alert.alert(
+						"Voice input unavailable",
+						"Your node does not have speech-to-text set up yet. Type your message instead.",
+					);
+				} else {
+					Alert.alert(
+						"Could not transcribe",
+						e instanceof ShadowApiError ? e.message : "Try again.",
+					);
+				}
+			} finally {
+				recorder.setTranscribing(false);
+				// The recording served its purpose; do not keep audio on disk.
+				void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+			}
+			return;
+		}
+		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		await recorder.start();
 	}
 
 	return (
@@ -116,7 +163,11 @@ export function Composer({
 
 				<TextInput
 					style={[styles.input, typography.body, { color: colors.foreground }]}
-					placeholder="Message"
+					placeholder={
+						recorder.recording
+							? `Recording ${recorder.elapsedSeconds}s, tap stop when done`
+							: "Message"
+					}
 					placeholderTextColor={colors.mutedForeground}
 					accessibilityLabel="Message input"
 					accessibilityHint="Type a message to send to your agent"
@@ -129,6 +180,43 @@ export function Composer({
 					blurOnSubmit={false}
 					returnKeyType="send"
 				/>
+
+				{recorder.transcribing ? (
+					<View
+						style={[styles.micButton, { backgroundColor: colors.muted }]}
+						accessibilityLabel="Transcribing voice"
+					>
+						<ActivityIndicator size="small" color={colors.mutedForeground} />
+					</View>
+				) : (
+					<Pressable
+						onPress={() => void handleMicPress()}
+						disabled={streaming || disabled}
+						style={({ pressed }) => [
+							styles.micButton,
+							{
+								backgroundColor: recorder.recording
+									? colors.destructive
+									: colors.muted,
+								opacity: pressed || streaming || disabled ? 0.6 : 1,
+							},
+						]}
+						hitSlop={6}
+						accessibilityRole="button"
+						accessibilityLabel={
+							recorder.recording ? "Stop recording" : "Record voice message"
+						}
+					>
+						{recorder.recording ? (
+							<StopIcon size={18} color="#FFFFFF" />
+						) : (
+							<MicIcon
+								size={18}
+								color={colors.mutedForeground}
+							/>
+						)}
+					</Pressable>
+				)}
 
 				{streaming ? (
 					<Pressable
@@ -206,6 +294,13 @@ const styles = StyleSheet.create({
 		maxHeight: 140,
 		fontSize: 16,
 		paddingVertical: 8,
+	},
+	micButton: {
+		width: 36,
+		height: 36,
+		borderRadius: 18,
+		alignItems: "center",
+		justifyContent: "center",
 	},
 	sendButton: {
 		width: 36,

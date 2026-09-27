@@ -1164,3 +1164,29 @@ export function BellIcon({
 		</Svg>
 	);
 }
+
+export function MicIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: mic-fill
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z" />
+		</Svg>
+	);
+}
+
+export function SpeakerIcon({
+	size = defaultSize,
+	color = defaultColor,
+	...props
+}: IconProps) {
+	// Remixicon: volume-up-fill
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+			<Path d="M4 9v6h4l5 5V4L8 9H4zM16.5 12A2.5 2.5 0 0 0 15 9.71v4.58A2.5 2.5 0 0 0 16.5 12zM15 3.21v2.06c2.89.86 5 3.54 5 6.73s-2.11 5.87-5 6.73v2.06c4.01-.91 7-4.49 7-8.79s-2.99-7.88-7-8.79z" />
+		</Svg>
+	);
+}

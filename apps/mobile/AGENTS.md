@@ -45,7 +45,7 @@ src/
 ## Node auth contract (do not break)
 HMAC-SHA256, required on every endpoint except `/pair/*` and `/health`.
 Signature = lowercase hex of HMAC-SHA256(shared_secret, `"METHOD\npath\nbody\nnonce\ntimestamp"`).
-METHOD uppercase; **path is the URL path only, no query string** (the node signs `request.url.path`, so `shadowFetch` strips `?...` before signing); body is the raw request body string (`""` for GET); nonce is random hex per request; timestamp is unix seconds (server allows +-300s skew). Headers: `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, `x-shadow-timestamp`. Test vector: secret `s3cr3t`, `GET /devices` with nonce `abc123` ts `1700000000` signs the exact string `"GET\n/devices\n\nabc123\n1700000000"`.
+METHOD uppercase; **path is the URL path only, no query string** (the node signs `request.url.path`, so `shadowFetch` strips `?...` before signing); body is the raw request body string (`""` for GET); nonce is random hex per request; timestamp is unix seconds (server allows +-300s skew). Exception: `multipart/form-data` bodies may carry arbitrary binary (audio) that is not valid UTF-8, so for multipart the signed body is `"sha256:<hex of raw bytes>"` instead (mobile's `/voice/transcribe` uses JSON `{audio_base64,...}` precisely to avoid this). Headers: `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, `x-shadow-timestamp`. Test vector: secret `s3cr3t`, `GET /devices` with nonce `abc123` ts `1700000000` signs the exact string `"GET\n/devices\n\nabc123\n1700000000"`.
 
 ## List endpoint contract (do not break)
 

@@ -4,13 +4,15 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, Tabs, type Href } from "expo-router";
 import type { ReactNode } from "react";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
 	BookOpenIcon,
 	BulbIcon,
 	ChatIcon,
 	CheckIcon,
+	DocumentIcon,
+	ImageIcon,
 	ListCheckIcon,
 	SettingsIcon,
 } from "@/components/icons";
@@ -19,6 +21,10 @@ import { SemanticSpacing, Spacing, useTheme } from "@/theme";
 import { withOpacity } from "@/utils/colors";
 
 const TAB_ICON_SIZE = 24;
+/** Preferred tab width; shrinks when many tabs are visible (see below). */
+const TAB_WIDTH_PREFERRED = 64;
+const TAB_WIDTH_MIN = 40;
+const TAB_GAP = 4;
 
 const TAB_ICONS: Record<
 	string,
@@ -29,6 +35,8 @@ const TAB_ICONS: Record<
 	feed: (p) => <BookOpenIcon {...p} />,
 	goals: (p) => <ListCheckIcon {...p} />,
 	approvals: (p) => <CheckIcon {...p} />,
+	artifacts: (p) => <DocumentIcon {...p} />,
+	media: (p) => <ImageIcon {...p} />,
 	settings: (p) => <SettingsIcon {...p} />,
 };
 
@@ -39,6 +47,7 @@ const TAB_ICONS: Record<
 function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 	const { colors, isDark } = useTheme();
 	const insets = useSafeAreaInsets();
+	const { width: screenWidth } = useWindowDimensions();
 
 	// Routes with href: null are hidden from the bar (the Approvals tab
 	// while no node is linked). expo-router extends the tab options with
@@ -47,6 +56,17 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 		(route) =>
 			(descriptors[route.key].options as { href?: string | null }).href !==
 			null,
+	);
+
+	// Eight destinations share the bar when paired. Keep the pill inside the
+	// screen by shrinking the per-tab width: preferred 64pt, down to a 40pt
+	// minimum before the pill itself would overflow a narrow phone.
+	const pillHorizontalPadding = Spacing.sm * 2;
+	const gaps = Math.max(visible.length - 1, 0) * TAB_GAP;
+	const available = screenWidth - 24 - pillHorizontalPadding - gaps;
+	const tabWidth = Math.max(
+		TAB_WIDTH_MIN,
+		Math.min(TAB_WIDTH_PREFERRED, Math.floor(available / Math.max(visible.length, 1))),
 	);
 
 	return (
@@ -129,6 +149,7 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 							accessibilityLabel={label}
 							style={({ pressed }) => [
 								styles.tab,
+								{ width: tabWidth },
 								isFocused && [
 									styles.tabActive,
 									{ backgroundColor: colors.muted },
@@ -151,8 +172,9 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 }
 
 /**
- * Chat-first tabs: Chat (chats list), Briefing, Feed, Goals and Approvals
- * (only while a node is linked), Settings.
+ * Chat-first tabs: Chat (chats list), Briefing, Feed, Goals, Approvals,
+ * Artifacts, and Media (the last five only while a node is linked),
+ * Settings.
  */
 export default function TabsLayout() {
 	const isPaired = useConnectionStore((s) => s.isPaired);
@@ -196,6 +218,22 @@ export default function TabsLayout() {
 				}}
 			/>
 			<Tabs.Screen
+				name="artifacts"
+				options={{
+					title: "Artifacts",
+					// Artifacts live on the node; hidden entirely when no node is linked.
+					href: (isPaired ? "/(tabs)/artifacts" : null) as Href | null,
+				}}
+			/>
+			<Tabs.Screen
+				name="media"
+				options={{
+					title: "Media",
+					// Generated images live on the node; hidden entirely when no node is linked.
+					href: (isPaired ? "/(tabs)/media" : null) as Href | null,
+				}}
+			/>
+			<Tabs.Screen
 				name="settings"
 				options={{ title: "Settings", href: "/settings" as Href }}
 			/>
@@ -229,7 +267,6 @@ const styles = StyleSheet.create({
 		}),
 	},
 	tab: {
-		width: 64,
 		height: SemanticSpacing.buttonHeightMd + 12,
 		borderRadius: 999,
 		alignItems: "center",
