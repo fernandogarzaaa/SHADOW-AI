@@ -295,8 +295,13 @@ def test_approval_card_carries_verdict_and_sse_fires(api_client):
         card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
         assert card["execution_id"] == r["execution_id"]
         assert card["verification_status"] == "verified"
-        evt = q.get_nowait()
-        assert evt["type"] == "approval.updated"
+        # The execute path now emits approval.consumed (one-shot claim) before
+        # attach_execution emits approval.updated with the verdict; skip
+        # ahead to the card update.
+        while True:
+            evt = q.get_nowait()
+            if evt["type"] == "approval.updated":
+                break
         assert evt["properties"]["verification_status"] == "verified"
         assert evt["properties"]["execution_id"] == r["execution_id"]
     finally:

@@ -174,3 +174,42 @@ class DeviceSessionStore:
             return fail(reason)
         self.nonces[nonce]=now_ts
         return True, "ok"
+
+
+# ---------------------------------------------------------------------------
+# Action authorization envelope
+#
+# An approval binds the FULL security-relevant state of an action, not just
+# tool_name/params/description. The envelope is canonicalized to JSON and
+# hashed; the hash is stored on the ApprovalRequest at creation and must be
+# reproduced by the presented action at claim time. Any divergence in
+# destination, data scope, risk, destructiveness, or policy version fails
+# the claim, even if tool/params/description match.
+# ---------------------------------------------------------------------------
+
+AUTHORIZATION_ENVELOPE_VERSION = "v1"
+
+
+def authorization_envelope(action: "AgentAction") -> dict:
+    """Canonical security-relevant view of an action for approval binding."""
+    import json as _json  # local import: keeps module import light
+    params = action.params if isinstance(action.params, dict) else {}
+    return {
+        "envelope_version": AUTHORIZATION_ENVELOPE_VERSION,
+        "tool": action.tool_name,
+        "params": _json.loads(_json.dumps(params, sort_keys=True, default=str)),
+        "description": action.description,
+        "destination": action.destination,
+        "data_scope": sorted(action.data_used or []),
+        "model_used": action.model_used,
+        "risk": action.risk.value if hasattr(action.risk, "value") else str(action.risk),
+        "destructive": bool(action.destructive),
+        "requires_approval": bool(action.requires_approval),
+    }
+
+
+def envelope_hash(action: "AgentAction") -> str:
+    """sha256 over the canonical JSON encoding of the authorization envelope."""
+    import json as _json
+    canonical = _json.dumps(authorization_envelope(action), sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

@@ -143,26 +143,34 @@ def _resolve_server_approval(approval_id: str | None, action: AgentAction) -> bo
     """Derive the approved flag from a server-side approval record.
 
     The client-supplied `approved` boolean is never trusted: a paired
-    device must reference a granted approval. Returns True only when the
-    approval exists, is APPROVED, is unexpired, and was granted for the
-    same action (tool_name + params + description). Raises 404/403
+    device must reference a granted approval. This only VERIFIES the
+    reference (exists, granted, unexpired, envelope binding matches);
+    the actual one-shot CONSUME happens atomically inside
+    AgentCore.execute() after the policy gate allows the action, so a
+    policy-blocked attempt never burns the approval. Raises 404/403
     BEFORE any execution takes place.
+
+    The presented action must reproduce the stored authorization envelope
+    hash (tool, params, destination, data/model scope, risk, destructive,
+    requires_approval, envelope version): any security-relevant divergence
+    fails the claim even when tool/params/description match.
 
     Also wired into GhostRunSession as its approval resolver, so ghost
     runs enforce the identical contract: no valid approval, no execution.
     """
     if approval_id is None:
         return False
-    req = core.approvals.requests.get(approval_id)
-    if req is None:
+    # Normalize server-derived fields before verifying, mirroring what
+    # POST /approvals does at creation: destructiveness is derived
+    # server-side (audit P0-4), so the presented action is compared
+    # apples-to-apples against the stored envelope.
+    action.destructive = core.policy.is_destructive(action)
+    try:
+        core.approvals.verify(approval_id, action)
+    except KeyError:
         raise HTTPException(404, "unknown approval")
-    if req.status != ApprovalStatus.APPROVED:
-        raise HTTPException(403, f"approval is {req.status.value}, not granted")
-    if now() > req.expires_at:
-        raise HTTPException(403, "approval is expired")
-    granted = req.action
-    if (granted.tool_name, granted.params, granted.description) != (action.tool_name, action.params, action.description):
-        raise HTTPException(403, "approval does not match the requested action")
+    except ValueError as e:
+        raise HTTPException(403, str(e))
     return True
 
 # Ambient GHOST capabilities: journaled, checkpointed multi-step runs, world-state

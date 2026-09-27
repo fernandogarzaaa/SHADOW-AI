@@ -1,6 +1,8 @@
 from .models import *
 from .policy import PolicyEngine, PolicyOutcome
 from .safety import is_suspicious_user_request
+from .security import envelope_hash
+import threading
 from .verification import (
     EvidenceItem,
     ExecutionRecord,
@@ -18,6 +20,9 @@ class ApprovalWorkflow:
     def __init__(self, store=None, event_sink=None, audit_chain=None):
         self.requests: dict[str, ApprovalRequest]={}
         self._store=store
+        # Serializes claim() so check-and-consume is atomic: two concurrent
+        # executes racing on the same approval cannot both win.
+        self._claim_lock=threading.Lock()
         # Optional callable(event_type: str, request: ApprovalRequest) invoked on
         # create/decide/expire so the node can fan events out to live clients.
         self._event_sink=event_sink
@@ -43,6 +48,7 @@ class ApprovalWorkflow:
 
     def create(self, action: AgentAction, reason: str):
         req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=action.destructive)
+        req.binding_hash=envelope_hash(action)
         self._persist(req)
         self.requests[req.id]=req
         self._emit("approval.created", req)
@@ -70,6 +76,57 @@ class ApprovalWorkflow:
         self._emit("approval.updated", req)
         self._record("approval.decided", {"approval_id": approval_id, "decision": req.status.value, "deny_reason": deny_reason})
         return req
+
+    def _check(self, approval_id: str, action: AgentAction) -> ApprovalRequest:
+        """Shared verification for verify()/claim(): exists, granted,
+        unexpired, and the presented action reproduces the stored
+        authorization envelope hash. Raises KeyError/ValueError."""
+        current = self.requests.get(approval_id)
+        if current is None:
+            raise KeyError(f"unknown approval: {approval_id}")
+        if current.status == ApprovalStatus.CONSUMED:
+            raise ValueError("approval has already been consumed")
+        if current.status != ApprovalStatus.APPROVED:
+            raise ValueError(f"approval is {current.status.value}, not granted")
+        if now() > current.expires_at:
+            raise ValueError("approval is expired")
+        expected = current.binding_hash or envelope_hash(current.action)
+        if envelope_hash(action) != expected:
+            raise ValueError("approval does not match the requested action")
+        return current
+
+    def verify(self, approval_id: str, action: AgentAction) -> ApprovalRequest:
+        """Verify an approval reference without consuming it. Raises
+        KeyError for unknown ids and ValueError for any failed check,
+        so callers fail closed."""
+        with self._claim_lock:
+            return self._check(approval_id, action)
+
+    def claim(self, approval_id: str, action: AgentAction) -> ApprovalRequest:
+        """Atomically verify and consume a ONE_TIME approval for one execution.
+
+        Check-and-consume happens under a lock: the approval must exist, be
+        APPROVED, be unexpired, and the presented action must reproduce the
+        stored authorization envelope hash. On success a ONE_TIME approval
+        transitions to CONSUMED (consumed_at set) and can never authorize
+        another execution. TRUSTED_WORKFLOW approvals stay APPROVED and may
+        authorize multiple executions until expiry.
+
+        Raises KeyError for unknown ids and ValueError for any failed check,
+        so callers fail closed. Returns the consumed request.
+        """
+        with self._claim_lock:
+            current = self._check(approval_id, action)
+            if current.kind == ApprovalKind.ONE_TIME:
+                req = current.model_copy(deep=True)
+                req.status = ApprovalStatus.CONSUMED
+                req.consumed_at = now()
+                self._persist(req)
+                self.requests[approval_id] = req
+                self._emit("approval.consumed", req)
+                self._record("approval.consumed", {"approval_id": approval_id})
+                return req
+            return current
 
     def attach_execution(self, approval_id: str, execution_id: str, verification_status: str):
         """Link a finished execution to its approval card and broadcast the verdict.
@@ -172,6 +229,10 @@ class AgentCore:
             self.execution_store.put("executions", rec.id, rec)
 
     def execute(self, action:AgentAction, approved:bool=False, double_confirmed:bool=False, approval_id:str|None=None):
+        # Server-derived destructiveness (audit P0-4): normalize before the
+        # approval claim so the envelope comparison matches what POST
+        # /approvals stored. Idempotent; policy derives this independently.
+        action.destructive=self.policy.is_destructive(action)
         rec=ExecutionRecord(intent=action.description, action=action, approval_id=approval_id,
                             approved=approved, double_confirmed=double_confirmed)
         decision=self.policy.decide(action,self.profile,approved,double_confirmed)
@@ -189,6 +250,22 @@ class AgentCore:
             self._record("execution.verdict", {"execution_id": rec.id, "verification": rec.verification.value, "reason": rec.verification_reason})
             return {"ok":False,"reason":reason,"verification":rec.verification.value,
                     "verification_reason":rec.verification_reason,"execution_id":rec.id}
+        # Policy allows: atomically consume the referenced ONE_TIME approval
+        # immediately before tool invocation. A policy-blocked attempt above
+        # never burns the approval; a concurrent claim racing us fails closed
+        # here instead of double-executing.
+        if approval_id is not None:
+            try:
+                self.approvals.claim(approval_id, action)
+            except (KeyError, ValueError) as e:
+                rec.verification=VerificationStatus.FAILED
+                rec.verification_reason=f"approval claim failed: {e}"
+                rec.finished_at=now()
+                self._persist_execution(rec)
+                self._record("execution.verdict", {"execution_id": rec.id, "verification": rec.verification.value, "reason": rec.verification_reason})
+                self.audit.append(AuditEvent(actor="agent_core", event_type="execute", proposed_action=action.description, permission_checked=str(e), status="blocked"))
+                return {"ok":False,"reason":str(e),"verification":rec.verification.value,
+                        "verification_reason":rec.verification_reason,"execution_id":rec.id}
         # Just-in-time credential injection at the execution boundary: resolve
         # surrogates into a copy of the params. The stored record keeps the
         # surrogates; only the live tool call sees real values.
