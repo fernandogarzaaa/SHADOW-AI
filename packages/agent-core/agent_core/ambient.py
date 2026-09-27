@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import datetime
 from enum import Enum
 from typing import Any, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .core import AgentCore
 from .models import AgentAction, new_id, now
@@ -121,6 +122,44 @@ class AmbientConfig(BaseModel):
     stealth_mode: bool = False
     tasks: list[str] = Field(default_factory=lambda: ["morning_brief"])
     last_tick_at: Any | None = None
+    # Quiet hours, "HH:MM" in the node's local time. While quiet, proactive
+    # notifications (reminder pushes) are held; due reminders fire on the
+    # first tick after quiet hours end. Empty/None disables quiet hours.
+    quiet_start: str | None = None
+    quiet_end: str | None = None
+
+    @field_validator("quiet_start", "quiet_end")
+    @classmethod
+    def _hhmm(cls, v):
+        if v is None or v == "":
+            return None
+        parse_hhmm(v)  # raises ValueError on bad format
+        return v
+
+    def is_quiet(self, at: datetime | None = None) -> bool:
+        """True when `at` (default now, node-local) falls in quiet hours."""
+        if not self.quiet_start or not self.quiet_end:
+            return False
+        at = at or datetime.now()
+        mins = at.hour * 60 + at.minute
+        start = parse_hhmm(self.quiet_start)
+        end = parse_hhmm(self.quiet_end)
+        if start == end:
+            return False
+        if start < end:
+            return start <= mins < end
+        return mins >= start or mins < end
+
+
+def parse_hhmm(v: str) -> int:
+    """Parse "HH:MM" (24h) to minutes since midnight. Raises ValueError."""
+    parts = str(v).split(":")
+    if len(parts) != 2:
+        raise ValueError(f"quiet hours must be HH:MM, got {v!r}")
+    h, m = int(parts[0]), int(parts[1])
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError(f"quiet hours must be HH:MM, got {v!r}")
+    return h * 60 + m
 
 
 def _audit_record(audit: Any, actor: str, event_type: str, payload: dict) -> None:
@@ -561,6 +600,8 @@ class AmbientScheduler:
         interval_seconds: int | None = None,
         stealth_mode: bool | None = None,
         tasks: list[str] | None = None,
+        quiet_start: str | None = None,
+        quiet_end: str | None = None,
     ) -> AmbientConfig:
         cfg = self.get_config()
         if enabled is not None:
@@ -573,13 +614,21 @@ class AmbientScheduler:
             cfg.stealth_mode = bool(stealth_mode)
         if tasks is not None:
             cfg.tasks = [str(t) for t in tasks]
+        if quiet_start is not None:
+            cfg.quiet_start = quiet_start or None
+        if quiet_end is not None:
+            cfg.quiet_end = quiet_end or None
+        # Re-validate (raises ValueError on a bad HH:MM).
+        cfg = AmbientConfig(**cfg.model_dump())
         self._save_config(cfg)
         _audit_record(self._audit, "user", "ambient.config.changed",
                       {"enabled": cfg.enabled, "interval_seconds": cfg.interval_seconds,
-                       "stealth_mode": cfg.stealth_mode, "tasks": cfg.tasks})
+                       "stealth_mode": cfg.stealth_mode, "tasks": cfg.tasks,
+                       "quiet_start": cfg.quiet_start, "quiet_end": cfg.quiet_end})
         _emit(self._event_sink, "ambient.config.changed",
               {"enabled": cfg.enabled, "stealth_mode": cfg.stealth_mode,
-               "interval_seconds": cfg.interval_seconds})
+               "interval_seconds": cfg.interval_seconds,
+               "quiet_start": cfg.quiet_start, "quiet_end": cfg.quiet_end})
         return cfg
 
     # -- ticking ----------------------------------------------------------

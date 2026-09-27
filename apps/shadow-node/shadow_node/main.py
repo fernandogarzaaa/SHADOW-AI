@@ -24,6 +24,8 @@ from .goals import (GoalStore, GoalCreate, GoalUpdate, ProgressCreate, GoalStatu
 from .feed import (FeedStore, FeedGenerateRequest, FEED_KINDS, generate_units,
                    render_goals_briefing, render_memory_digest, render_morning_brief)
 from .ideas import (IdeaStore, IdeaCreate, IdeaUpdate, PlannedAction)
+from .reminders import (ReminderStore, ReminderCreate, ReminderUpdate, fire_due)
+from .reminders import RECURRENCES as REMINDER_RECURRENCES, STATUSES as REMINDER_STATUSES
 from .ambient_tasks import morning_brief as _amb_morning_brief, memory_digest as _amb_memory_digest
 from . import provider_auth
 from .events import EventBus
@@ -79,6 +81,7 @@ persona=load_persona(_runtime_store) if _runtime_db else default_persona()
 goal_store=GoalStore(_runtime_store if _runtime_db else None)
 feed_store=FeedStore(_runtime_store if _runtime_db else None)
 idea_store=IdeaStore(_runtime_store if _runtime_db else None)
+reminder_store=ReminderStore(_runtime_store if _runtime_db else None)
 set_system_prompt_override(system_prompt_for(persona))
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
@@ -110,6 +113,15 @@ def _notify_approval_created(req):
 def _approval_event_sink(event_type:str, req):
     bus.publish(event_type, req.model_dump(mode="json"))
     if event_type=="approval.created": _notify_approval_created(req)
+def _notify_proactive(title:str, body:str, data:dict):
+    """Proactive push (reminders, digests). Best-effort, never raised."""
+    if not EXPO_PUSH_ENABLED: return
+    def _run():
+        for device_id, token in list(sessions.push_tokens.items()):
+            dev=sessions.devices.get(device_id)
+            if dev is None or dev.revoked: continue
+            _send_expo_push(token, title, body, data)
+    threading.Thread(target=_run, daemon=True).start()
 core=AgentCore(profile, approval_store=_approval_store, event_sink=_approval_event_sink, execution_store=_approval_store,
              audit_chain=sentinel_audit, vault=sentinel_vault, policy_file=_POLICY_FILE)
 store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
@@ -172,7 +184,11 @@ ambient_scheduler=AmbientScheduler(store=_ambient_kv, journal=ambient_journal,
                                    audit=sentinel_audit,
                                    context={"core": core, "memory": memory,
                                             "claims": ambient_claims, "sessions": sessions,
-                                            "goals": goal_store, "feed_store": feed_store},
+                                            "goals": goal_store, "feed_store": feed_store,
+                                            "reminders": reminder_store,
+                                            "is_quiet": lambda: ambient_scheduler.get_config().is_quiet(),
+                                            "notify": _notify_proactive,
+                                            "publish": bus.publish},
                                    checkpoints=ambient_checkpoints)
 ambient_scheduler.start_background()
 # Hybrid local+frontier router and provider credential store.
@@ -535,6 +551,63 @@ def run_idea(idea_id: str):
                                       "approvals_needed":sum(1 for a in actions if a.requires_approval)}))
     return {"idea": idea.model_dump(),
             "plan": {"actions":[{"description":a.description,"requires_approval":a.requires_approval} for a in actions]}}
+@app.post("/reminders", status_code=201)
+def create_reminder(data: ReminderCreate):
+    """Create a reminder. `due_at` is a unix timestamp; `recurrence` is one
+    of none/daily/weekly."""
+    if data.recurrence not in REMINDER_RECURRENCES:
+        raise HTTPException(422, f"recurrence must be one of {REMINDER_RECURRENCES}")
+    r=reminder_store.create(data)
+    audit.append(AuditEvent(actor="user",event_type="reminder_created",status="stored",metadata={"reminder_id":r.id}))
+    return r.model_dump()
+@app.get("/reminders")
+def list_reminders(status: str | None = None):
+    """List reminders, soonest-due first."""
+    if status is not None and status not in REMINDER_STATUSES:
+        raise HTTPException(422, f"status must be one of {REMINDER_STATUSES}")
+    return [r.model_dump() for r in reminder_store.list(status)]
+@app.get("/reminders/due")
+def due_reminders():
+    """Pending reminders whose due time has passed (includes ones held by quiet hours)."""
+    return [r.model_dump() for r in reminder_store.due()]
+@app.get("/reminders/{reminder_id}")
+def get_reminder(reminder_id: str):
+    r=reminder_store.get(reminder_id)
+    if r is None: raise HTTPException(404, "reminder not found")
+    return r.model_dump()
+@app.patch("/reminders/{reminder_id}")
+def update_reminder(reminder_id: str, patch: ReminderUpdate):
+    if patch.recurrence is not None and patch.recurrence not in REMINDER_RECURRENCES:
+        raise HTTPException(422, f"recurrence must be one of {REMINDER_RECURRENCES}")
+    if patch.status is not None and patch.status not in REMINDER_STATUSES:
+        raise HTTPException(422, f"status must be one of {REMINDER_STATUSES}")
+    try:
+        r=reminder_store.update(reminder_id, patch)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if r is None: raise HTTPException(404, "reminder not found")
+    audit.append(AuditEvent(actor="user",event_type="reminder_updated",status="ok",metadata={"reminder_id":reminder_id}))
+    return r.model_dump()
+@app.delete("/reminders/{reminder_id}")
+def delete_reminder(reminder_id: str):
+    if not reminder_store.delete(reminder_id): raise HTTPException(404, "reminder not found")
+    audit.append(AuditEvent(actor="user",event_type="reminder_deleted",status="revoked",metadata={"reminder_id":reminder_id}))
+    return {"deleted_reminder": reminder_id}
+@app.post("/reminders/check")
+def check_reminders():
+    """Fire due reminders now: push + SSE event + feed unit per reminder.
+    During quiet hours nothing fires; the response reports what was held."""
+    import time as _time
+    now=_time.time()
+    quiet=ambient_scheduler.get_config().is_quiet()
+    if quiet:
+        held=reminder_store.due(now)
+        return {"fired": [], "held": [r.id for r in held], "quiet": True}
+    fired=fire_due(reminder_store, now, lambda: False, _notify_proactive, bus.publish, feed_store)
+    for r in fired:
+        audit.append(AuditEvent(actor="agent",event_type="reminder_fired",status="ok",
+                                metadata={"reminder_id":r.id,"recurrence":r.recurrence}))
+    return {"fired": [r.model_dump() for r in fired], "held": [], "quiet": False}
 @app.post("/agent/ask")
 def ask(req:AskRequest): return _run_ask_pipeline(req)
 def _run_ask_pipeline(req:AskRequest):
@@ -661,6 +734,7 @@ def get_execution(execution_id:str):
     return rec
 class AmbientConfigRequest(BaseModel):
     enabled:bool|None=None; interval_seconds:int|None=None; stealth_mode:bool|None=None; tasks:list[str]|None=None
+    quiet_start:str|None=None; quiet_end:str|None=None
 class GhostRunRequest(BaseModel):
     objective:str; steps:list[dict]; approval_id:str|None=None; double_confirmed:bool=False
 class ClaimRequest(BaseModel):
@@ -675,10 +749,11 @@ def ambient_status():
             "background_running":ambient_scheduler.background_running}
 @app.post("/ambient/config")
 def ambient_config(req:AmbientConfigRequest):
-    """Enable/disable ambient work, set interval and stealth mode, choose tasks."""
+    """Enable/disable ambient work, set interval and stealth mode, choose tasks, set quiet hours (HH:MM)."""
     try:
         cfg=ambient_scheduler.configure(enabled=req.enabled, interval_seconds=req.interval_seconds,
-                                        stealth_mode=req.stealth_mode, tasks=req.tasks)
+                                        stealth_mode=req.stealth_mode, tasks=req.tasks,
+                                        quiet_start=req.quiet_start, quiet_end=req.quiet_end)
     except ValueError as e:
         raise HTTPException(400,str(e))
     return cfg

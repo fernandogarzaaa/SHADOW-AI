@@ -6,9 +6,11 @@ Tasks never change world state beyond their own journal entries; they write
 no files, send no network requests, and touch no credentials. Anything that
 should act on the world goes through the normal approval-gated agent path.
 
-The one exception is feed_digest: it appends rendered editorial units to the
-node's own feed journal (local append-only feed store, no other world-state
-change). A feed unit is the user-visible form of a journal entry.
+The exceptions are feed_digest (appends rendered units to the node's own
+feed journal) and reminder_check (fires due reminders: marks them, advances
+recurrence, sends pushes). Both touch only the node's own stores and its
+notification path; neither reads credentials nor reaches the network beyond
+the configured push service.
 
 Available tasks:
 - morning_brief: deterministic digest of pending approvals, recent execution
@@ -18,12 +20,15 @@ Available tasks:
   hash, so this reports rather than merges; true consolidation is future work.
 - feed_digest: renders editorial feed units (morning brief, goals briefing,
   memory digest) into the feed store, at most one unit per kind per ~20h.
+- reminder_check: fires due reminders through the node's notify/publish/feed
+  path. During quiet hours nothing fires; due reminders wait for the next
+  check after quiet hours end.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-BUILTIN_TASKS = ("morning_brief", "memory_digest", "feed_digest")
+BUILTIN_TASKS = ("morning_brief", "memory_digest", "feed_digest", "reminder_check")
 
 
 def _as_dict(item):
@@ -122,7 +127,7 @@ def memory_digest(ctx: dict) -> dict:
 
 def build_task_map() -> dict:
     return {"morning_brief": morning_brief, "memory_digest": memory_digest,
-            "feed_digest": feed_digest}
+            "feed_digest": feed_digest, "reminder_check": reminder_check}
 
 
 def feed_digest(ctx: dict) -> dict:
@@ -133,7 +138,7 @@ def feed_digest(ctx: dict) -> dict:
     read-only task contract: the only world-state change is an append to the
     node's own feed journal.
     """
-    from .feed import FEED_KINDS, generate_units, render_goals_briefing, render_memory_digest, render_morning_brief
+    from .feed import FEED_KINDS, DIGEST_KINDS, generate_units, render_goals_briefing, render_memory_digest, render_morning_brief
 
     feed_store = ctx.get("feed_store")
     if feed_store is None:
@@ -148,9 +153,40 @@ def feed_digest(ctx: dict) -> dict:
         ),
         "memory_digest": lambda: render_memory_digest(memory_digest(ctx)["data"]),
     }
-    units = generate_units(feed_store, list(FEED_KINDS), renderers)
+    units = generate_units(feed_store, list(DIGEST_KINDS), renderers)
     kinds = [u.kind for u in units]
     return {
         "summary": f"feed_digest: generated {len(units)} units ({', '.join(kinds) or 'none due'})",
         "data": {"units": [{"id": u.id, "kind": u.kind, "title": u.title} for u in units]},
+    }
+
+
+
+def reminder_check(ctx: dict) -> dict:
+    """Fire due reminders through the node's notify/publish/feed path.
+
+    The reminder store, quiet-hours gate, notifier, event publisher, and feed
+    store arrive via the scheduler context. This is the documented exception
+    to the read-only task contract: firing is the proactive behavior.
+    """
+    import time as _time
+
+    from .reminders import fire_due
+
+    store = ctx.get("reminders")
+    feed_store = ctx.get("feed_store")
+    if store is None or feed_store is None:
+        return {"summary": "reminder_check: missing reminders or feed store in context", "data": {}}
+    is_quiet = ctx.get("is_quiet", lambda: False)
+    notify = ctx.get("notify", lambda title, body, data: None)
+    publish = ctx.get("publish", lambda event_type, payload: None)
+    now = _time.time()
+    if is_quiet():
+        due = store.due(now)
+        return {"summary": f"reminder_check: quiet hours, {len(due)} due reminders held",
+                "data": {"held": len(due)}}
+    fired = fire_due(store, now, is_quiet, notify, publish, feed_store)
+    return {
+        "summary": f"reminder_check: fired {len(fired)} reminders",
+        "data": {"fired": [{"id": r.id, "title": r.title} for r in fired]},
     }

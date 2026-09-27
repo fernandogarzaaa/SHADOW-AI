@@ -814,3 +814,101 @@ export async function runIdea(
 		await shadowFetch(`/ideas/${encodeURIComponent(id)}/run`, { method: "POST" }),
 	);
 }
+
+/* Reminders + quiet hours (Phase 5). All requests go through the      */
+/* HMAC-signed shadowFetch like every other node endpoint.             */
+/* ------------------------------------------------------------------- */
+
+export type ReminderRecurrence = "none" | "daily" | "weekly";
+export type ReminderStatus = "pending" | "fired" | "dismissed";
+
+export interface Reminder {
+	id: string;
+	title: string;
+	note: string;
+	due_at: number;
+	recurrence: ReminderRecurrence;
+	status: ReminderStatus;
+	last_fired_at: number | null;
+	created_at: number;
+	updated_at: number;
+}
+
+/** Create a reminder. dueAt is a unix timestamp (seconds). */
+export async function createReminder(
+	title: string,
+	dueAt: number,
+	note?: string,
+	recurrence: ReminderRecurrence = "none",
+): Promise<Reminder> {
+	return readJson<Reminder>(
+		await shadowFetch("/reminders", {
+			method: "POST",
+			body: { title, due_at: dueAt, note: note ?? "", recurrence },
+		}),
+	);
+}
+
+/** List reminders, soonest-due first. */
+export async function listReminders(status?: ReminderStatus): Promise<Reminder[]> {
+	const q = status ? `?status=${encodeURIComponent(status)}` : "";
+	return readJson<Reminder[]>(await shadowFetch(`/reminders${q}`));
+}
+
+/** Pending reminders whose due time has passed. */
+export async function dueReminders(): Promise<Reminder[]> {
+	return readJson<Reminder[]>(await shadowFetch("/reminders/due"));
+}
+
+/** Update a reminder. */
+export async function updateReminder(
+	id: string,
+	patch: {
+		title?: string;
+		note?: string;
+		due_at?: number;
+		recurrence?: ReminderRecurrence;
+		status?: ReminderStatus;
+	},
+): Promise<Reminder> {
+	return readJson<Reminder>(
+		await shadowFetch(`/reminders/${encodeURIComponent(id)}`, {
+			method: "PATCH",
+			body: patch,
+		}),
+	);
+}
+
+/** Delete a reminder. */
+export async function deleteReminder(id: string): Promise<void> {
+	await shadowFetch(`/reminders/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Fire due reminders now. During quiet hours nothing fires; held ids are reported. */
+export async function checkReminders(): Promise<{
+	fired: Reminder[];
+	held: string[];
+	quiet: boolean;
+}> {
+	return readJson<{ fired: Reminder[]; held: string[]; quiet: boolean }>(
+		await shadowFetch("/reminders/check", { method: "POST" }),
+	);
+}
+
+export interface AmbientConfigPatch {
+	enabled?: boolean;
+	interval_seconds?: number;
+	stealth_mode?: boolean;
+	tasks?: string[];
+	quiet_start?: string;
+	quiet_end?: string;
+}
+
+/** Update the ambient scheduler config (incl. quiet hours as HH:MM; "" clears). */
+export async function configureAmbient(
+	patch: AmbientConfigPatch,
+): Promise<AmbientStatus["config"]> {
+	return readJson<AmbientStatus["config"]>(
+		await shadowFetch("/ambient/config", { method: "POST", body: patch }),
+	);
+}
