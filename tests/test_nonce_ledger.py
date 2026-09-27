@@ -74,3 +74,59 @@ def test_persistent_ledger_prunes_expired():
         assert led.seen("devA", "n-fresh") is True
         rows = store.all("nonces", _NonceRow)
         assert {r.nonce for r in rows} == {"n-fresh", "n-trigger"}
+
+
+def test_claim_is_atomic_across_threads():
+    """Two threads racing the same nonce: exactly one claim wins."""
+    import threading
+    led = InMemoryNonceLedger()
+    results = []
+    def worker():
+        results.append(led.claim("devA", "race", time.time()))
+    ts = [threading.Thread(target=worker) for _ in range(16)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    assert sum(results) == 1
+
+
+def test_persistent_claim_race_serializes():
+    """Two connections racing claim() on the same DB: exactly one wins."""
+    import threading
+    path = tempfile.NamedTemporaryFile().name
+    key = EncryptedRuntimeStore(path, key=None).key
+    results = []
+    def worker():
+        store = EncryptedRuntimeStore(path, key=key)
+        led = PersistentNonceLedger(store)
+        results.append(led.claim("devA", "race", time.time()))
+    ts = [threading.Thread(target=worker) for _ in range(8)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    assert sum(results) == 1
+
+
+def test_persistent_claim_stale_row_is_not_replay():
+    """A row older than MAX_SKEW_SECONDS is treated as absent, not replay."""
+    path = tempfile.NamedTemporaryFile().name
+    key = EncryptedRuntimeStore(path, key=None).key
+    store = EncryptedRuntimeStore(path, key=key)
+    led = PersistentNonceLedger(store)
+    assert led.claim("devA", "old", time.time() - MAX_SKEW_SECONDS - 10) is True
+    # Fresh claim on the same nonce now succeeds: the stale row was replaced.
+    assert led.claim("devA", "old", time.time()) is True
+    # And a second fresh claim is a replay.
+    assert led.claim("devA", "old", time.time()) is False
+
+
+def test_owner_flag_survives_restart():
+    """The bootstrap owner flag must persist: register() writes the row
+    with is_owner set, so a restart keeps strict owner enforcement."""
+    from shadow_node.runtime_store import PersistentDeviceSessionStore
+    path = tempfile.NamedTemporaryFile().name
+    key = EncryptedRuntimeStore(path, key=None).key
+    store = EncryptedRuntimeStore(path, key=key)
+    reg = PersistentDeviceSessionStore(store)
+    dev = reg.register("iPhone", "pubkey", "secret", is_owner=True)
+    assert dev.is_owner is True
+    reg2 = PersistentDeviceSessionStore(EncryptedRuntimeStore(path, key=key))
+    assert reg2.devices[dev.id].is_owner is True
