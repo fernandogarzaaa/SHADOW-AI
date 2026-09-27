@@ -164,9 +164,9 @@ def test_stream_requires_auth(monkeypatch):
 
 
 def _paired_device(client):
-    pid = client.post("/pair/start").json()["pairing_id"]
+    pid = client.post("/pair/start", json={"device_name": "t", "public_key": "pk"}).json()["pairing_id"]
     dev = client.post("/pair/confirm",
-                      json={"pairing_id": pid, "device_name": "t", "public_key": "pk"}).json()
+                      json={"pairing_id": pid}).json()
     return dev["device"]["id"]
 
 

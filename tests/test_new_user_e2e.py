@@ -129,25 +129,23 @@ def authed_request(
 
 
 def pair_device(base_url: str) -> dict[str, str]:
-    start = request("POST", f"{base_url}/pair/start", headers={"Content-Type": "application/json"}, body="{}")
-    assert start.status_code == 200
     public_key = f"pytest-{uuid.uuid4().hex}"
+    start = request(
+        "POST",
+        f"{base_url}/pair/start",
+        headers={"Content-Type": "application/json"},
+        body=json.dumps({"device_name": "pytest new user", "public_key": public_key}, separators=(",", ":")),
+    )
+    assert start.status_code == 200
     confirm = request(
         "POST",
         f"{base_url}/pair/confirm",
         headers={"Content-Type": "application/json"},
-        body=json.dumps(
-            {
-                "pairing_id": start.json()["pairing_id"],
-                "device_name": "pytest new user",
-                "public_key": public_key,
-            },
-            separators=(",", ":"),
-        ),
+        body=json.dumps({"pairing_id": start.json()["pairing_id"]}, separators=(",", ":")),
     )
     assert confirm.status_code == 200
     paired = confirm.json()
-    return {"device_id": paired["device"]["id"], "secret": paired["shared_secret"]}
+    return {"device_id": paired["device"]["id"], "secret": paired["secret"]}
 
 
 def test_new_user_journey_against_uvicorn_subprocess(tmp_path):

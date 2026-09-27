@@ -55,7 +55,8 @@ def test_auth_middleware_allows_signed(client):
     assert r.status_code==200
 
 def test_pairing_returns_secret(client):
-    p=client.post('/pair/start').json(); r=client.post('/pair/confirm',json={'pairing_id':p['pairing_id'],'device_name':'phone','public_key':'pk'}).json(); assert r['device']['fingerprint'] and r['shared_secret']
+    sessions.devices.clear(); sessions.secrets.clear()
+    p=client.post('/pair/start',json={'device_name':'phone','public_key':'pk'}).json(); r=client.post('/pair/confirm',json={'pairing_id':p['pairing_id']}).json(); assert r['device']['fingerprint'] and r['secret']
 
 def test_consent_required_for_file(client,tmp_path):
     f=tmp_path/'a.md'; f.write_text('hello project')

@@ -164,12 +164,17 @@ rate_limiter=RateLimiter(RATE_LIMIT_RPM) if RATE_LIMIT_RPM>0 else None
 class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
 class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
-class PairConfirm(BaseModel): pairing_id:str; device_name:str; public_key:str
+class PairStart(BaseModel): device_name:str; public_key:str
+class PairApprove(BaseModel): pairing_id:str
+class PairConfirm(BaseModel): pairing_id:str
 class DeviceRegisterRequest(BaseModel):
-    """Companion-device enrollment. Only the name and public key are client-
-    supplied; the server mints the device id, fingerprint, trust state,
-    session window, and HMAC secret. Client device records are never
-    written directly (see audit P0-7)."""
+    """Owner-initiated companion-device enrollment. The caller's HMAC
+    authentication IS the owner approval: no device is minted here. The
+    server returns a pairing_id/code; the new device collects its
+    credentials via POST /pair/confirm. Only the name and public key are
+    client-supplied; the server mints the device id, fingerprint, trust
+    state, session window, and HMAC secret at confirm time. Client device
+    records are never written directly (see audit P0-7)."""
     name:str; public_key:str
 class DenyRequest(BaseModel): reason:str
 class ExecuteRequest(BaseModel):
@@ -231,24 +236,90 @@ def ready():
     status="ready" if ok else "degraded"
     return JSONResponse(status_code=200 if ok else 503, content={"status":status,"version":APP_VERSION,"auth_required":AUTH_REQUIRED,"rate_limit_rpm":RATE_LIMIT_RPM,"grounding_verify":GROUNDING_VERIFY,"providers_ready":model_config.cloud_model_ready()})
 PAIRING_TTL_SECONDS=300
-@app.post("/pair/start")
-def pair_start():
-    now=time.time()
+MAX_PENDING_PAIRINGS=20
+def _pairing_sweep(now=None):
+    now=time.time() if now is None else now
     for _pid,_entry in list(pairing.items()):
         if now-_entry["created_at"]>PAIRING_TTL_SECONDS: del pairing[_pid]
-    pid=new_id("pair"); pairing[pid]={"status":"pending","created_at":now}; return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":PAIRING_TTL_SECONDS}
-@app.post("/pair/confirm")
-def pair_confirm(req:PairConfirm):
-    entry=pairing.pop(req.pairing_id,None)
+def _require_owner(request:Request):
+    """The HMAC-authenticated caller must be a trusted, non-revoked device.
+    Returns the approver device id. In dev mode (auth disabled) there is no
+    caller to check, so enrollment proceeds as owner-initiated."""
+    if not AUTH_REQUIRED: return "devmode-owner"
+    device_id=request.headers.get("x-shadow-device-id")
+    dev=sessions.devices.get(device_id or "")
+    if dev is None or not dev.trusted or dev.revoked:
+        raise HTTPException(403,"approver is not a trusted owner device")
+    return device_id
+def _new_pairing(device_name,public_key,approved_by=None):
+    _pairing_sweep()
+    if len(pairing)>=MAX_PENDING_PAIRINGS:
+        audit.append(AuditEvent(actor="pairing",event_type="pairing_rejected",status="blocked",metadata={"reason":"too_many_pending"}))
+        raise HTTPException(429,"too many pending pairings")
+    pid=new_id("pair")
+    pairing[pid]={"status":"approved" if approved_by else "pending",
+                  "device_name":device_name,"public_key":public_key,
+                  "created_at":time.time(),
+                  "approved_by":approved_by,"approved_at":time.time() if approved_by else None}
+    return pid
+@app.post("/pair/start")
+def pair_start(req:PairStart):
+    """New device proposes enrollment. Returns a pairing_id/code; a trusted
+    owner device must approve via /pair/approve before /pair/confirm mints
+    credentials. The proposed identity is bound at start and cannot be
+    swapped at confirm."""
+    pid=_new_pairing(req.device_name,req.public_key)
+    audit.append(AuditEvent(actor="pairing",event_type="pairing_started",status="pending",metadata={"pairing_id":pid}))
+    return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":PAIRING_TTL_SECONDS}
+@app.post("/pair/approve")
+def pair_approve(req:PairApprove, request:Request):
+    """Owner-approved challenge: only a trusted, non-revoked device (HMAC
+    authenticated by the middleware) can approve a pending pairing."""
+    approver=_require_owner(request)
+    entry=pairing.get(req.pairing_id)
     if entry is None: raise HTTPException(404,"pairing not found")
     if time.time()-entry["created_at"]>PAIRING_TTL_SECONDS:
-        audit.append(AuditEvent(actor="pairing",event_type="pairing_expired",status="blocked",metadata={"pairing_id":req.pairing_id})); raise HTTPException(410,"pairing expired")
-    secret=secrets.token_hex(32); dev=sessions.register(req.device_name, req.public_key, secret); audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint})); return {"device":dev,"shared_secret":secret}
+        del pairing[req.pairing_id]
+        audit.append(AuditEvent(actor="pairing",event_type="pairing_expired",status="blocked",metadata={"pairing_id":req.pairing_id}))
+        raise HTTPException(410,"pairing expired")
+    if entry["status"]=="approved":
+        return {"pairing_id":req.pairing_id,"status":"approved"}
+    entry["status"]="approved"; entry["approved_by"]=approver; entry["approved_at"]=time.time()
+    audit.append(AuditEvent(actor="pairing",event_type="pairing_approved",status="approved",metadata={"pairing_id":req.pairing_id,"approved_by":approver}))
+    return {"pairing_id":req.pairing_id,"status":"approved"}
+@app.post("/pair/confirm")
+def pair_confirm(req:PairConfirm):
+    """The new device collects its credentials. Succeeds only after owner
+    approval, except for the bootstrap case where no owner device exists
+    yet (first-ever enrollment)."""
+    entry=pairing.get(req.pairing_id)
+    if entry is None: raise HTTPException(404,"pairing not found")
+    if time.time()-entry["created_at"]>PAIRING_TTL_SECONDS:
+        del pairing[req.pairing_id]
+        audit.append(AuditEvent(actor="pairing",event_type="pairing_expired",status="blocked",metadata={"pairing_id":req.pairing_id}))
+        raise HTTPException(410,"pairing expired")
+    if entry["status"]!="approved":
+        if not sessions.devices:
+            # Bootstrap only: no device has ever been enrolled on this node.
+            # (Revoked devices still count as enrolled: revoking the last
+            # owner must not reopen self-service enrollment.)
+            entry["status"]="approved"; entry["approved_by"]="bootstrap"; entry["approved_at"]=time.time()
+            audit.append(AuditEvent(actor="pairing",event_type="pairing_approved",status="approved",metadata={"pairing_id":req.pairing_id,"approved_by":"bootstrap"}))
+        else:
+            return JSONResponse(status_code=202,content={"pairing_id":req.pairing_id,"status":"pending"})
+    entry=pairing.pop(req.pairing_id)
+    secret=secrets.token_hex(32); dev=sessions.register(entry["device_name"], entry["public_key"], secret); audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint,"approved_by":entry.get("approved_by")})); return {"device":dev,"secret":secret}
 @app.post("/devices/register")
-def register(req:DeviceRegisterRequest):
-    dev=sessions.register(req.name, req.public_key)
-    audit.append(AuditEvent(actor="user",event_type="device_registered",status="registered",metadata={"device_id":dev.id,"name":dev.name}))
-    return {"device":dev,"secret":sessions.secrets[dev.id]}
+def register(req:DeviceRegisterRequest, request:Request):
+    """Owner-initiated enrollment. The caller's HMAC authentication IS the
+    owner approval, but no device is minted here: the server returns a
+    pairing_id/code and the new device collects its credentials via
+    POST /pair/confirm. An authenticated device can no longer mint another
+    device in a single call."""
+    approver=_require_owner(request)
+    pid=_new_pairing(req.name,req.public_key,approved_by=approver)
+    audit.append(AuditEvent(actor="user",event_type="device_enrollment_initiated",status="pending",metadata={"pairing_id":pid,"approved_by":approver,"name":req.name}))
+    return {"pairing_id":pid,"code":pid[-6:].upper(),"expires_in_seconds":PAIRING_TTL_SECONDS}
 @app.post("/devices/{device_id}/revoke")
 def revoke_device(device_id:str): sessions.revoke(device_id); return {"revoked":device_id}
 @app.get("/devices")
