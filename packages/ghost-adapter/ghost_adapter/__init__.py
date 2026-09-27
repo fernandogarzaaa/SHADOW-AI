@@ -14,8 +14,15 @@ from .web_search import web_search as _web_search
 # Every redirect hop is validated independently: scheme, embedded
 # credentials, port, and ALL DNS resolutions (rebinding-safe: resolved
 # immediately before the request, and every returned address must be
-# globally routable). No proxies are honored, so a proxy cannot be used
-# to smuggle requests to internal hosts.
+# globally routable). The validated addresses are then PINNED for the
+# connect: httpx resolves the hostname a second time when it opens the
+# socket, so without pinning a malicious DNS server could answer the
+# validation query with a public IP and the connect-time query with a
+# private one (same-hop DNS-rebinding TOCTOU). _pinned_dns() narrows
+# socket.getaddrinfo to the validated addresses for the pinned host for
+# the duration of each request; every other host resolves normally.
+# No proxies are honored, so a proxy cannot be used to smuggle requests
+# to internal hosts.
 
 SSRF_ALLOWED_PORTS = {80, 443}
 SSRF_MAX_REDIRECTS = 5
@@ -45,6 +52,13 @@ def _resolve_public_ips(host: str) -> list[str]:
 def _validate_http_hop(url: str) -> str:
     """Validate one redirect hop and return the normalized URL. Raises
     ValueError on anything that must not be fetched."""
+    target, _host, _ips = _validate_http_hop_with_ips(url)
+    return target
+
+
+def _validate_http_hop_with_ips(url: str) -> tuple[str, str, list[str]]:
+    """Validate one redirect hop; return (normalized URL, host, validated
+    public IPs) so the caller can pin DNS for the actual connection."""
     u = urlparse(url)
     if u.scheme not in ("http", "https"):
         raise ValueError("only http/https URLs are allowed")
@@ -61,8 +75,51 @@ def _validate_http_hop(url: str) -> str:
         port = 443 if u.scheme == "https" else 80
     if port not in SSRF_ALLOWED_PORTS:
         raise ValueError(f"blocked port {port}: only 80/443 are allowed")
-    _resolve_public_ips(host)
-    return u.geturl()
+    ips = _resolve_public_ips(host)
+    return u.geturl(), host, ips
+
+
+import contextlib
+
+@contextlib.contextmanager
+def _pinned_dns(host: str, ips: list[str]):
+    """Pin connect-time DNS for `host` to the validated `ips`.
+
+    httpx/httpcore resolve the hostname again when opening the socket,
+    after we already validated it. This context narrows
+    socket.getaddrinfo so the pinned host can only resolve to addresses
+    we validated as public; if the connect-time answer contains none of
+    them (full rebinding flip), resolution fails closed with gaierror.
+    Every other host resolves untouched.
+
+    Threading note: the patch is process-global while a request is in
+    flight. The only behavioral change for other threads is that the
+    pinned hostile hostname resolves to its validated (public) addresses
+    instead of whatever DNS currently says, which fails safe.
+    """
+    real_getaddrinfo = socket.getaddrinfo
+    pinned = set(ips)
+    try:
+        idna = host.encode("idna").decode("ascii").lower()
+    except (UnicodeError, ValueError):
+        idna = host.lower()
+    wanted = {host.lower(), idna}
+
+    def _patched(host_arg, port, *args, **kwargs):
+        if isinstance(host_arg, str) and host_arg.lower() in wanted:
+            infos = real_getaddrinfo(host_arg, port, *args, **kwargs)
+            kept = [info for info in infos if info[4][0] in pinned]
+            if not kept:
+                raise socket.gaierror(
+                    f"DNS pinning: {host!r} no longer resolves to a validated address")
+            return kept
+        return real_getaddrinfo(host_arg, port, *args, **kwargs)
+
+    socket.getaddrinfo = _patched
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = real_getaddrinfo
 
 
 def _ssrf_fetch(url: str, timeout: float = 15, client=None):
@@ -71,8 +128,11 @@ def _ssrf_fetch(url: str, timeout: float = 15, client=None):
     No automatic redirects: each hop is re-validated (scheme, host, port,
     all DNS resolutions public) right before connecting, so a redirect
     cannot hop to an internal address and a rebinding hostname cannot
-    slip a private address past an earlier check. Proxies are disabled
-    (trust_env=False). Bodies are capped at SSRF_MAX_BODY_BYTES.
+    slip a private address past an earlier check. The validated addresses
+    are then pinned for the actual socket connect (_pinned_dns), closing
+    the resolve-then-connect TOCTOU between validation and httpx's own
+    resolution. Proxies are disabled (trust_env=False). Bodies are capped
+    at SSRF_MAX_BODY_BYTES.
 
     Returns (body_text, status_code, content_type, final_url).
     ``client`` is an injection point for tests (must support .stream()).
@@ -82,8 +142,12 @@ def _ssrf_fetch(url: str, timeout: float = 15, client=None):
     try:
         current = url
         for _ in range(SSRF_MAX_REDIRECTS + 1):
-            target = _validate_http_hop(current)
-            with c.stream("GET", target, follow_redirects=False) as r:
+            target, host, ips = _validate_http_hop_with_ips(current)
+            # Pin DNS for the connect: httpx re-resolves the hostname when
+            # opening the socket, so without this a rebinding DNS server
+            # could answer validation with a public IP and the connect
+            # with a private one.
+            with _pinned_dns(host, ips), c.stream("GET", target, follow_redirects=False) as r:
                 if r.is_redirect:
                     location = r.headers.get("location")
                     if not location:
