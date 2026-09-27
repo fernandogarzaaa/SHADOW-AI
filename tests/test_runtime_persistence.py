@@ -30,8 +30,8 @@ def test_consents_and_audit_persist_across_restart(monkeypatch, tmp_path):
 
 def test_paired_device_persists_across_restart(monkeypatch, tmp_path):
     c1, _ = _fresh_client(monkeypatch, tmp_path)
-    pid = c1.post("/pair/start").json()["pairing_id"]
-    paired = c1.post("/pair/confirm", json={"pairing_id": pid, "device_name": "iPhone", "public_key": "pk-abc"}).json()
+    pid = c1.post("/pair/start", json={"device_name": "iPhone", "public_key": "pk-abc"}).json()["pairing_id"]
+    paired = c1.post("/pair/confirm", json={"pairing_id": pid}).json()
     device_id = paired["device"]["id"]
 
     c2, m2 = _fresh_client(monkeypatch, tmp_path)
