@@ -120,6 +120,12 @@ class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
 class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
 class PairConfirm(BaseModel): pairing_id:str; device_name:str; public_key:str
+class DeviceRegisterRequest(BaseModel):
+    """Companion-device enrollment. Only the name and public key are client-
+    supplied; the server mints the device id, fingerprint, trust state,
+    session window, and HMAC secret. Client device records are never
+    written directly (see audit P0-7)."""
+    name:str; public_key:str
 class DenyRequest(BaseModel): reason:str
 class ExecuteRequest(BaseModel):
     action: AgentAction
@@ -194,7 +200,10 @@ def pair_confirm(req:PairConfirm):
         audit.append(AuditEvent(actor="pairing",event_type="pairing_expired",status="blocked",metadata={"pairing_id":req.pairing_id})); raise HTTPException(410,"pairing expired")
     secret=secrets.token_hex(32); dev=sessions.register(req.device_name, req.public_key, secret); audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint})); return {"device":dev,"shared_secret":secret}
 @app.post("/devices/register")
-def register(d:Device): sessions.devices[d.id]=d; return d
+def register(req:DeviceRegisterRequest):
+    dev=sessions.register(req.name, req.public_key)
+    audit.append(AuditEvent(actor="user",event_type="device_registered",status="registered",metadata={"device_id":dev.id,"name":dev.name}))
+    return {"device":dev,"secret":sessions.secrets[dev.id]}
 @app.post("/devices/{device_id}/revoke")
 def revoke_device(device_id:str): sessions.revoke(device_id); return {"revoked":device_id}
 @app.get("/devices")
