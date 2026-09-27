@@ -107,6 +107,25 @@ def test_granted_matching_approval_executes(api):
     assert card["execution_id"] == r["execution_id"]
 
 
+def test_derived_destructiveness_blocks_without_double_confirm(api):
+    # P0-4: the client claims destructive=false for a destructive tool and
+    # holds a valid approval, but policy still demands double confirmation.
+    client, m, workspace = api
+    action = {"id": "act_del3", "tool_name": "delete_file", "description": "delete",
+              "params": {}, "risk": "high", "requires_approval": True,
+              "destructive": False, "data_used": []}
+    rid = _grant(client, action)
+    # The approval card reflects the derived destructiveness.
+    card = next(a for a in client.get("/approvals").json() if a["id"] == rid)
+    assert card["requires_double_confirmation"] is True
+    r = client.post("/agent/execute", json={"action": action, "approval_id": rid}).json()
+    assert r["ok"] is False
+    assert "double confirmation" in r["reason"]
+    r2 = client.post("/agent/execute",
+                     json={"action": action, "approval_id": rid, "double_confirmed": True}).json()
+    assert r2["ok"] is True
+
+
 def test_ghost_handoff_without_approval_blocked_by_policy(api):
     # ghost_handoff flows through central policy like every other tool:
     # no valid approval means no execution, even in mock mode.

@@ -153,12 +153,19 @@ class PolicyEngine:
                 )
 
     # -- risk classification -------------------------------------------------
+    def is_destructive(self, action: AgentAction) -> bool:
+        """Server-side destructiveness. The client-supplied flag can only
+        widen the classification, never narrow it: a tool listed in the
+        policy's destructive_tools is destructive regardless of what the
+        client claims (audit P0-4)."""
+        return bool(action.destructive) or action.tool_name.lower() in self.destructive_tools
+
     def classify_action(self, action: AgentAction) -> RiskClass:
         n = action.tool_name.lower()
         d = action.description.lower()
         if n in self.blocked_tools or any(x in d for x in self.blocked_patterns):
             return RiskClass.BLOCKED
-        if n in self.destructive_tools or action.destructive:
+        if self.is_destructive(action):
             return RiskClass.HIGH
         if n in {"send_email", "send_message"}:
             return RiskClass.HIGH
@@ -206,7 +213,7 @@ class PolicyEngine:
                 rule_id="blocked_tool",
                 risk=risk,
             )
-        if action.destructive and not double_confirmed:
+        if self.is_destructive(action) and not double_confirmed:
             return PolicyDecision(
                 outcome=PolicyOutcome.DENY,
                 reason="Destructive action requires double confirmation.",
@@ -233,7 +240,7 @@ class PolicyEngine:
             if (
                 risk == RiskClass.LOW
                 and action.tool_name.lower() not in self.sensitive_tools
-                and not action.destructive
+                and not self.is_destructive(action)
             ):
                 return PolicyDecision(
                     outcome=PolicyOutcome.ALLOW,
@@ -245,7 +252,7 @@ class PolicyEngine:
             tier == "auto_approve"
             and risk in (RiskClass.LOW, RiskClass.MEDIUM)
             and action.tool_name.lower() not in self.sensitive_tools
-            and not action.destructive
+            and not self.is_destructive(action)
         ):
             return PolicyDecision(
                 outcome=PolicyOutcome.ALLOW,

@@ -57,6 +57,21 @@ def test_destructive_without_double_confirm_is_denied():
     assert d.rule_id == "destructive_needs_double_confirm"
 
 
+def test_destructiveness_derived_from_tool_name_not_client_flag():
+    # P0-4: the client cannot downgrade a destructive tool by sending
+    # destructive=false; the policy derives it from destructive_tools.
+    engine = PolicyEngine()
+    assert engine.is_destructive(_action("delete_file", destructive=False)) is True
+    assert engine.is_destructive(_action("answer_question", destructive=False)) is False
+    d = engine.decide(_action("delete_file", destructive=False), _profile(),
+                      approved=True, double_confirmed=False)
+    assert d.outcome == PolicyOutcome.DENY
+    assert d.rule_id == "destructive_needs_double_confirm"
+    d2 = engine.decide(_action("delete_file", destructive=False), _profile(),
+                       approved=True, double_confirmed=True)
+    assert d2.outcome == PolicyOutcome.ALLOW
+
+
 def test_sensitive_tool_requires_approval():
     engine = PolicyEngine()
     d = engine.decide(_action("send_email", description="send the report"), _profile())
