@@ -250,6 +250,11 @@ def verify_execution(
     if isinstance(tool_result, dict) and tool_result.get("ok") is False:
         reason = tool_result.get("reason") or "the tool reported failure"
         return VerificationStatus.FAILED, f"tool reported failure: {str(reason)[:300]}"
+    if isinstance(tool_result, dict) and tool_result.get("status") == "unknown_tool":
+        return (
+            VerificationStatus.FAILED,
+            f"no tool handler registered for '{action.tool_name}'; execution refused rather than mocked",
+        )
     if isinstance(tool_result, dict) and tool_result.get("status") == "mock_executed":
         return (
             VerificationStatus.UNCERTAIN,

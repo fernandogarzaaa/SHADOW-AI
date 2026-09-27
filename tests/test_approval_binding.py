@@ -123,7 +123,11 @@ def test_derived_destructiveness_blocks_without_double_confirm(api):
     assert "double confirmation" in r["reason"]
     r2 = client.post("/agent/execute",
                      json={"action": action, "approval_id": rid, "double_confirmed": True}).json()
-    assert r2["ok"] is True
+    # Policy passed, but delete_file has no registered handler: execution
+    # fails closed instead of pretending the file was deleted.
+    assert r2["ok"] is False
+    assert r2["result"]["status"] == "unknown_tool"
+    assert r2["verification"] == "failed"
 
 
 def test_ghost_handoff_without_approval_blocked_by_policy(api):

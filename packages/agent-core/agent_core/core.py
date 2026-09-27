@@ -161,11 +161,21 @@ class ApprovalWorkflow:
                 expired.append(rid)
         return expired
 class ToolRegistry:
-    def __init__(self): self._tools={}
+    def __init__(self, mock_mode: bool = False):
+        # mock_mode is explicit only: unknown tools fail closed by default.
+        # A mock run must never be mistaken for a real execution, so the
+        # "mock_executed" status is only reachable when the caller opts in.
+        self._tools={}
+        self.mock_mode=mock_mode
     def register(self,name,handler): self._tools[name]=handler
     def names(self): return sorted(self._tools)
     def execute(self, action:AgentAction):
-        if action.tool_name not in self._tools: return {"status":"mock_executed","message":"Safe local mock executor", "action":action.model_dump()}
+        if action.tool_name not in self._tools:
+            if self.mock_mode:
+                return {"status":"mock_executed","message":"Safe local mock executor", "action":action.model_dump()}
+            return {"status":"unknown_tool","ok":False,
+                    "reason":f"no tool handler registered for '{action.tool_name}'; refusing to pretend it ran",
+                    "action":action.model_dump()}
         return self._tools[action.tool_name](action.params)
 class AgentPlanner:
     def plan(self, prompt:str)->AgentPlan:
@@ -176,14 +186,14 @@ class AgentPlanner:
         return AgentPlan(user_intent=prompt, actions=[AgentAction(tool_name=tool, description=desc, destructive=destructive, destination=dest)], rationale="Deterministic beta planner with policy gate.")
 class AgentCore:
     def __init__(self, profile:UserProfile|None=None, approval_store=None, event_sink=None, execution_store=None,
-                 audit_chain=None, vault=None, policy=None, policy_file=None):
+                 audit_chain=None, vault=None, policy=None, policy_file=None, mock_tools:bool=False):
         self.profile=profile or UserProfile()
         # The single policy authority: every action decision flows through it.
         self.policy=PolicyEngine(policy=policy, policy_file=policy_file)
         self.audit_chain=audit_chain
         self.vault=vault
         self.approvals=ApprovalWorkflow(store=approval_store, event_sink=event_sink, audit_chain=audit_chain)
-        self.tools=ToolRegistry()
+        self.tools=ToolRegistry(mock_mode=mock_tools)
         self.audit=[]
         self._audit_cursor=0
         # Execution records: every execute() call lands here and, when a store
@@ -300,5 +310,9 @@ class AgentCore:
         rec.finished_at=now()
         self._persist_execution(rec)
         self._record("execution.verdict", {"execution_id": rec.id, "tool_name": action.tool_name, "verification": status.value, "reason": vreason, "approval_id": approval_id, "credentials_resolved": resolved})
-        return {"ok":True,"result":rec.tool_result,"verification":status.value,
+        # Fail closed: a FAILED verification (unknown tool, tool error,
+        # blocked by policy) is a failed execution, not a success with a
+        # warning attached.
+        exec_ok = status != VerificationStatus.FAILED
+        return {"ok":exec_ok,"result":rec.tool_result,"verification":status.value,
                 "verification_reason":vreason,"execution_id":rec.id}

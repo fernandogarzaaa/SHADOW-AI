@@ -128,7 +128,7 @@ def test_policy_blocked_execute_does_not_consume():
     """A policy-blocked attempt (missing double confirmation) must not burn
     the approval; retrying with double_confirmed succeeds on the same id,
     and a further replay is then blocked."""
-    core = AgentCore()
+    core = AgentCore(mock_tools=True)
     action = _action(tool_name="delete_file", description="delete",
                      destructive=True, risk="high")
     req = core.approvals.create(action, reason="test")
@@ -145,3 +145,32 @@ def test_policy_blocked_execute_does_not_consume():
                           approval_id=req.id)
     assert replay["ok"] is False
     assert "consumed" in replay["reason"]
+
+
+def test_unknown_tool_fails_closed_by_default():
+    """Unknown tools must not report success. Default (non-mock) cores
+    refuse with status unknown_tool and a FAILED verification."""
+    core = AgentCore()
+    action = _action(tool_name="no.such.tool", description="imaginary",
+                     destructive=False, risk="low")
+    req = core.approvals.create(action, reason="test")
+    core.approvals.decide(req.id, True)
+    r = core.execute(action, approved=True, double_confirmed=True,
+                     approval_id=req.id)
+    assert r["ok"] is False
+    assert r["result"]["status"] == "unknown_tool"
+    assert r["verification"] == "failed"
+
+
+def test_unknown_tool_mock_mode_is_explicit():
+    """mock_executed is only reachable with explicit mock_tools=True."""
+    core = AgentCore(mock_tools=True)
+    action = _action(tool_name="no.such.tool", description="imaginary",
+                     destructive=False, risk="low")
+    req = core.approvals.create(action, reason="test")
+    core.approvals.decide(req.id, True)
+    r = core.execute(action, approved=True, double_confirmed=True,
+                     approval_id=req.id)
+    assert r["ok"] is True
+    assert r["result"]["status"] == "mock_executed"
+    assert r["verification"] == "uncertain"

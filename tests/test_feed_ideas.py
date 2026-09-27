@@ -131,3 +131,25 @@ def test_feed_ideas_require_auth(client):
         assert client.post("/ideas/idea_x/run").status_code == 401
     finally:
         main.AUTH_REQUIRED = False
+
+
+def test_feed_retention_trims_persisted_rows(monkeypatch):
+    """Retention must delete evicted rows from the encrypted store, not
+    just the in-memory list (re-audit: trim was memory-only)."""
+    import shadow_node.feed as feed_mod
+    from shadow_node.feed import FeedUnit
+
+    monkeypatch.setattr(feed_mod, "FEED_CAP", 5)
+    path = tempfile.NamedTemporaryFile().name
+    key = EncryptedRuntimeStore(path, key=None).key
+    store = EncryptedRuntimeStore(path, key=key)
+    s = FeedStore(store)
+    for i in range(8):
+        s.add(FeedUnit(kind="morning_brief", title=f"T{i}", body="b"))
+    assert len(s.units) == 5
+    rows = store.all("feed", FeedUnit)
+    assert len(rows) == 5
+    # Restart: the store must not resurrect evicted units.
+    s2 = FeedStore(EncryptedRuntimeStore(path, key=key))
+    assert len(s2.units) == 5
+    assert {u.title for u in s2.units} == {f"T{i}" for i in range(3, 8)}

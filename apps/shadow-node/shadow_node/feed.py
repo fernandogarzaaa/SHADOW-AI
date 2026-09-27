@@ -132,7 +132,12 @@ class FeedStore:
                 runtime_store.all("feed", FeedUnit),
                 key=lambda u: u.created_at,
                 reverse=True,
-            )[:FEED_CAP]
+            )
+            # One-time cleanup for rows persisted before retention deleted
+            # them: drop anything beyond the cap from the store as well.
+            for old in self.units[FEED_CAP:]:
+                runtime_store.delete("feed", old.id)
+            self.units = self.units[:FEED_CAP]
             for marker in runtime_store.all("feed_markers", _GenMarker):
                 self._last_generated[marker.kind] = marker.at
 
@@ -148,7 +153,14 @@ class FeedStore:
         self.units.insert(0, unit)
         self._persist(unit)
         if len(self.units) > FEED_CAP:
+            # Retention trims persisted rows too, not just the in-memory
+            # list: otherwise the encrypted store grows without bound and
+            # restarts resurrect units the cap was supposed to drop.
+            evicted = self.units[FEED_CAP:]
             self.units = self.units[:FEED_CAP]
+            if self._store is not None:
+                for old in evicted:
+                    self._store.delete("feed", old.id)
         return unit
 
     def list(self, limit: int = 20, offset: int = 0) -> tuple[list[FeedUnit], int]:
