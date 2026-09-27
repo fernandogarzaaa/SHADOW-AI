@@ -83,7 +83,17 @@ class HybridRouter:
         self.estimator = TokenBudgetEstimator()
 
     def run(self, prompt: str, raw_context: str, frontier=None, threshold: float = 0.5,
-            verify: bool = False, grounding_threshold: float = 0.3) -> dict:
+            verify: bool = False, grounding_threshold: float = 0.3,
+            cloud_context: str | None = None) -> dict:
+        # Cloud egress boundary (audit P0: cloud privacy). The frontier
+        # provider only ever receives the cloud-authorized context.
+        # Memory-sourced callers MUST pass cloud_context built from items
+        # that passed per-item egress authorization, so do_not_send_to_cloud
+        # items never leave the node -- including on the reground retry
+        # below, which previously re-sent the full raw context. Callers
+        # whose context is already caller-supplied (MCP tools) may omit it;
+        # it then defaults to raw_context with unchanged behavior.
+        egress_context = cloud_context if cloud_context is not None else raw_context
         raw_tokens = self.estimator.estimate(raw_context) if raw_context else 0
         packaged = self.axiom.package_context(raw_context or "")
         compressed_context = packaged["context"]
@@ -94,6 +104,7 @@ class HybridRouter:
         # compression affects cost/savings, not complexity.
         decision = self.router.decide(prompt, raw_tokens, frontier is not None, threshold)
         regrounded = False
+        context_package = packaged
 
         if decision.route == "local" or frontier is None:
             answer = self.local.complete(prompt, compressed_context)
@@ -103,17 +114,22 @@ class HybridRouter:
             # frontier model was saved.
             tokens_saved = raw_tokens
         else:
-            answer = frontier.complete(prompt, compressed_context)
+            egress_packaged = self.axiom.package_context(egress_context or "")
+            egress_compressed = egress_packaged["context"]
+            egress_tokens = self.estimator.estimate(egress_compressed)
+            context_package = egress_packaged
+            answer = frontier.complete(prompt, egress_compressed)
             provider = getattr(frontier, "name", "frontier")
-            frontier_tokens = compressed_tokens
+            frontier_tokens = egress_tokens
             # Frontier handled it, but on compressed context: saving is the
             # difference vs sending the raw context.
-            tokens_saved = max(0, raw_tokens - compressed_tokens)
+            tokens_saved = max(0, raw_tokens - egress_tokens)
             # Draft-then-verify: if the compressed-context answer is poorly grounded,
             # retry once against the full uncompressed context (AXIOM-style expansion).
-            if verify and raw_context and self.verifier.score(answer, raw_context) < grounding_threshold:
-                answer = frontier.complete(prompt, raw_context)
-                frontier_tokens = raw_tokens
+            # The retry uses the AUTHORIZED egress context, never the raw context.
+            if verify and egress_context and self.verifier.score(answer, raw_context) < grounding_threshold:
+                answer = frontier.complete(prompt, egress_context)
+                frontier_tokens = self.estimator.estimate(egress_context)
                 tokens_saved = 0
                 regrounded = True
 
@@ -127,7 +143,7 @@ class HybridRouter:
             "grounding": grounding,
             "regrounded": regrounded,
             "untrusted_context": True,
-            "context_package": packaged,
+            "context_package": context_package,
             "savings": {
                 "raw_context_tokens": raw_tokens,
                 "compressed_context_tokens": compressed_tokens,

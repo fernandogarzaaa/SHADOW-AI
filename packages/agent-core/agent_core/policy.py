@@ -287,6 +287,88 @@ class PolicyEngine:
             g.model_access_level != "local_only" and g.revoked_at is None for g in grants
         )
 
+    # -- data-bound cloud egress authorization -------------------------------
+    def authorize_cloud_context(
+        self,
+        results: list,
+        *,
+        provider: str,
+        purpose: str,
+        grants: list[ConsentGrant],
+    ) -> dict:
+        """Per-item cloud egress authorization (audit P0: cloud privacy).
+
+        The coarse cloud_allowed() gate answers "may this request escalate
+        to cloud at all". This answers the harder question for every
+        candidate memory item: "is THIS item authorized for THIS provider,
+        purpose, and destination?" An item is allowed into a cloud-bound
+        payload only when all of these hold:
+
+          - it is not revoked, and
+          - it is NOT flagged do_not_send_to_cloud. This flag is a hard
+            privacy veto, independent of `sensitive`: no consent grant,
+            approval, or trusted mode can override it, and
+          - when its source names a consent grant, that grant exists, is
+            active (not revoked), and is cloud-capable
+            (model_access_level != "local_only").
+
+        `results` are memory SearchResults (each carries `.item`). Returns
+        an explicit manifest: provider, purpose, one decision per item
+        (memory_id, source_id, allowed, reason), allowed/excluded counts,
+        and the overall policy decision. Callers MUST build the cloud-bound
+        context only from allowed items; the manifest is recorded in the
+        audit trail so every egress is attributable.
+        """
+        grant_by_id = {g.id: g for g in grants}
+        items = []
+        allowed_ids = []
+        for r in results:
+            item = r.item
+            memory_id = item.id
+            source_id = item.source.id
+            if item.revoked_at is not None:
+                decision = (False, "memory item is revoked")
+            elif item.do_not_send_to_cloud:
+                decision = (False, "do_not_send_to_cloud flag set: never leaves the node")
+            else:
+                gid = item.source.consent_grant_id
+                if gid is None:
+                    decision = (True, "no consent grant required for this source")
+                else:
+                    g = grant_by_id.get(gid)
+                    if g is None:
+                        decision = (False, f"consent grant {gid} not found")
+                    elif g.revoked_at is not None:
+                        decision = (False, f"consent grant {gid} is revoked")
+                    elif g.model_access_level == "local_only":
+                        decision = (False, f"consent grant {gid} is local-only")
+                    else:
+                        decision = (
+                            True,
+                            f"active cloud-capable consent grant {gid} "
+                            f"(purpose={g.purpose}, scope={g.scope})",
+                        )
+            allowed, reason = decision
+            if allowed:
+                allowed_ids.append(memory_id)
+            items.append(
+                {
+                    "memory_id": memory_id,
+                    "source_id": source_id,
+                    "allowed": allowed,
+                    "reason": reason,
+                }
+            )
+        return {
+            "provider": provider,
+            "purpose": purpose,
+            "policy_decision": "allow" if allowed_ids else "deny_all",
+            "items": items,
+            "allowed_ids": allowed_ids,
+            "allowed_count": len(allowed_ids),
+            "excluded_count": len(items) - len(allowed_ids),
+        }
+
     def describe(self) -> dict:
         """Operator-readable summary of the loaded policy (no secrets)."""
         return {

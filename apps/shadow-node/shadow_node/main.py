@@ -299,6 +299,13 @@ def _run_ask_pipeline(req:AskRequest):
         audit.append(AuditEvent(actor="agent",event_type="agent_ask",model_used="self_model",status="answered",metadata={"intent":"self_"+self_intent,"route":"local"}))
         return {"answer":answer,"sources":[],"why":[],"model_used":"self_model","cloud_allowed":False,"untrusted_context":False,"context_package":{},"plan":None,"route":"local","routing_reason":"self-model intent","grounding":{},"regrounded":False,"savings":{"tokens_saved_estimate":0}}
     results=memory.search(req.prompt,5,include_sensitive=False); raw_context="\n".join(mark_untrusted(r.item.text) for r in results); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
+    # Data-bound cloud egress (audit P0: cloud privacy). The coarse gate
+    # below decides whether this request may escalate to cloud at all; the
+    # per-item manifest decides which memory items may actually leave the
+    # node. Items flagged do_not_send_to_cloud are NEVER in the cloud
+    # payload, independent of the `sensitive` flag, grants, or approvals.
+    cloud_manifest=core.policy.authorize_cloud_context(results, provider=model_config.provider, purpose="answer_user_question", grants=consents)
+    cloud_results=[r for r in results if r.item.id in cloud_manifest["allowed_ids"]]; cloud_context="\n".join(mark_untrusted(r.item.text) for r in cloud_results)
     if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); sentinel_audit.record("sentinel_policy","policy.decision",{"outcome":"deny","rule_id":"cloud_escalation","reason":"cloud escalation requires active grant and explicit approval"}); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
     # Hybrid routing: build a frontier provider only when cloud is approved AND a credential resolves; else fully local.
     frontier=None
@@ -308,13 +315,18 @@ def _run_ask_pipeline(req:AskRequest):
             cred={**cred,"endpoint":model_config.endpoint}
             frontier=build_frontier(model_config.provider, cred, model_config.model_name)
     try:
-        out=hybrid.run(req.prompt, raw_context, frontier=frontier, verify=GROUNDING_VERIFY)
+        out=hybrid.run(req.prompt, raw_context, cloud_context=cloud_context, frontier=frontier, verify=GROUNDING_VERIFY)
     except Exception as e:
         audit.append(AuditEvent(actor="agent",event_type="cloud_model_error",model_used=model_config.provider,status="fallback_local",result=str(e)[:200]))
         out=hybrid.run(req.prompt, raw_context, frontier=None)
     cloud_used=out["route"]=="frontier"
-    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=out["provider"],status="answered",metadata={"route":out["route"],"tokens_saved":out["savings"]["tokens_saved_estimate"],"grounding":out["grounding"]}))
-    return {"answer":out["answer"],"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":out["provider"],"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":out["context_package"],"plan":plan,"route":out["route"],"routing_reason":out["reason"],"grounding":out["grounding"],"regrounded":out["regrounded"],"savings":out["savings"]}
+    if cloud_used:
+        # Every cloud egress carries its authorization manifest in the audit
+        # trail: which memory items left the node, for which provider and
+        # purpose, and which were held back.
+        sentinel_audit.record("sentinel_policy","cloud.egress_authorized",{"provider":cloud_manifest["provider"],"purpose":cloud_manifest["purpose"],"allowed":cloud_manifest["allowed_count"],"excluded":cloud_manifest["excluded_count"],"decision":cloud_manifest["policy_decision"],"items":cloud_manifest["items"]})
+    audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=out["provider"],status="answered",metadata={"route":out["route"],"tokens_saved":out["savings"]["tokens_saved_estimate"],"grounding":out["grounding"],"cloud_excluded":cloud_manifest["excluded_count"],"cloud_allowed_items":cloud_manifest["allowed_count"]}))
+    return {"answer":out["answer"],"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":out["provider"],"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":out["context_package"],"plan":plan,"route":out["route"],"routing_reason":out["reason"],"grounding":out["grounding"],"regrounded":out["regrounded"],"savings":out["savings"],"cloud_manifest":cloud_manifest if req.allow_cloud else None}
 def _sse_data(event_type:str, properties:dict)->str:
     return "data: "+json.dumps({"type":event_type,"properties":properties})+"\n\n"
 @app.get("/agent/stream")
