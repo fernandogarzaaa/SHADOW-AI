@@ -281,6 +281,7 @@ class GhostRunSession:
         claims: ClaimRegistry | None = None,
         event_sink: Any | None = None,
         audit: Any | None = None,
+        approval_resolver: Any | None = None,
     ):
         self.core = core
         self.journal = journal if journal is not None else RunJournal()
@@ -288,6 +289,13 @@ class GhostRunSession:
         self.claims = claims if claims is not None else ClaimRegistry()
         self._event_sink = event_sink
         self._audit = audit
+        # Callable (approval_id, action) -> bool that resolves an approval
+        # reference against the server-side approval store, raising on
+        # unknown/denied/expired/mismatched approvals. The node wires its
+        # approval binding here. The session NEVER manufactures approval
+        # itself: without a resolver (or without an approval reference) a
+        # step executes unapproved, exactly like /agent/execute.
+        self._approval_resolver = approval_resolver
 
     # -- run lifecycle ----------------------------------------------------
     def start(
@@ -328,6 +336,25 @@ class GhostRunSession:
             raise KeyError(f"unknown run: {run_id}")
         return cp
 
+    def _resolve_step_approval(self, approval_id: str | None, action: AgentAction) -> bool:
+        """Resolve a ghost step's approval through the server-side binding.
+
+        Returns False when the step references no approval (the step then
+        executes under the normal policy gate, like /agent/execute without
+        an approval). Delegates to the injected resolver otherwise; the
+        resolver raises on unknown/denied/expired/mismatched approvals, so
+        execution never proceeds on a bad reference. Raises RuntimeError
+        when a step references an approval but no resolver is configured:
+        failing closed is the only safe option.
+        """
+        if approval_id is None:
+            return False
+        if self._approval_resolver is None:
+            raise RuntimeError(
+                "ghost run step references an approval but no approval "
+                "resolver is configured; refusing to execute")
+        return bool(self._approval_resolver(approval_id, action))
+
     def run_next(self, run_id: str) -> dict[str, Any] | None:
         """Execute the next pending step. Returns None when the run finished."""
         cp = self._load_running(run_id)
@@ -345,6 +372,17 @@ class GhostRunSession:
         claim_statement = step.get("claim")
         claim_id: str | None = None
 
+        action = AgentAction(tool_name=tool, description=desc, params=params)
+        # Approval is never manufactured here. Each step resolves its own
+        # approval reference (per-step "approval_id", falling back to the
+        # run-level approval_id) through the injected server-side binding,
+        # the same contract /agent/execute enforces. An unknown, denied,
+        # expired, or mismatched approval raises BEFORE any execution takes
+        # place, leaving the checkpoint untouched so the run can be fixed
+        # and resumed.
+        step_approval_id = step.get("approval_id", cp.approval_id)
+        server_approved = self._resolve_step_approval(step_approval_id, action)
+
         self.journal.append(run_id, JournalEntryType.ATTEMPT,
                             f"step {cp.step_index + 1}/{len(cp.steps)}: {tool}",
                             {"tool": tool, "description": desc})
@@ -355,10 +393,9 @@ class GhostRunSession:
                                 f"claim registered: {claim_statement}", {"claim_id": claim_id})
 
         try:
-            action = AgentAction(tool_name=tool, description=desc, params=params)
-            out = self.core.execute(action, approved=True,
+            out = self.core.execute(action, approved=server_approved,
                                     double_confirmed=cp.double_confirmed,
-                                    approval_id=cp.approval_id)
+                                    approval_id=step_approval_id)
         except Exception as e:  # unexpected: checkpoint as interrupted, re-raise
             cp.status = "interrupted"
             cp.error = f"{type(e).__name__}: {e}"

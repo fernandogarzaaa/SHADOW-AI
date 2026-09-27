@@ -8,6 +8,7 @@ from cryptography.fernet import Fernet
 from agent_core import (
     AgentCore,
     AmbientScheduler,
+    AutonomyMode,
     CheckpointStore,
     ClaimRegistry,
     ClaimStatus,
@@ -16,6 +17,7 @@ from agent_core import (
     JournalEntryType,
     RunCheckpoint,
     RunJournal,
+    UserProfile,
 )
 
 
@@ -28,6 +30,16 @@ def store():
 def core(tmp_path, monkeypatch):
     monkeypatch.setenv("SHADOW_WORKSPACE_DIR", str(tmp_path / "ws"))
     return AgentCore()
+
+
+@pytest.fixture()
+def trusted_core(tmp_path, monkeypatch):
+    """AgentCore whose profile allows low-risk tools without per-action
+    approval (TRUSTED_WORKFLOW). Used by the run-mechanics tests so their
+    steps execute under the real policy gate; the approval contract itself
+    is covered by test_ghost_approval_binding.py."""
+    monkeypatch.setenv("SHADOW_WORKSPACE_DIR", str(tmp_path / "ws"))
+    return AgentCore(profile=UserProfile(autonomy_mode=AutonomyMode.TRUSTED_WORKFLOW))
 
 
 def _register_probe(core, calls):
@@ -86,10 +98,10 @@ def test_checkpoint_save_load_roundtrip(store):
 
 # -- ghost run sessions ------------------------------------------------------
 
-def test_run_completes_with_journal_and_executions(core, store):
+def test_run_completes_with_journal_and_executions(trusted_core, store):
     calls = []
-    _register_probe(core, calls)
-    sess = _session(core, store)
+    _register_probe(trusted_core, calls)
+    sess = _session(trusted_core, store)
     steps = [
         {"tool": "probe", "description": "first", "params": {"n": 1}},
         {"tool": "probe", "description": "second", "params": {"n": 2}},
@@ -102,7 +114,7 @@ def test_run_completes_with_journal_and_executions(core, store):
     assert all(r["execution_id"] for r in out["results"])
     # every step produced a real execution record
     for r in out["results"]:
-        assert r["execution_id"] in core.executions
+        assert r["execution_id"] in trusted_core.executions
     # journal captured the whole story
     kinds = [e.entry_type for e in sess.journal.for_run(run_id)]
     assert JournalEntryType.RUN_STARTED in kinds
@@ -114,12 +126,12 @@ def test_run_completes_with_journal_and_executions(core, store):
     assert cp.status == "completed" and cp.step_index == 2
 
 
-def test_interrupt_mid_run_and_resume_skips_finished_steps(core, store):
+def test_interrupt_mid_run_and_resume_skips_finished_steps(trusted_core, store):
     """The core checkpoint promise: kill the session mid-run, resume with a
     fresh session over the same store, finished steps never re-execute."""
     calls = []
-    _register_probe(core, calls)
-    sess = _session(core, store)
+    _register_probe(trusted_core, calls)
+    sess = _session(trusted_core, store)
     steps = [{"tool": "probe", "description": f"s{i}", "params": {"n": i}} for i in range(3)]
     run_id = sess.start("three steps", steps)
     out = sess.run_all(run_id, max_steps=1)  # models a process dying after step 1
@@ -127,17 +139,17 @@ def test_interrupt_mid_run_and_resume_skips_finished_steps(core, store):
     assert sess.checkpoints.load(run_id).step_index == 1
 
     # brand-new session objects, same durable store: this is the "restart"
-    sess2 = _session(core, store)
+    sess2 = _session(trusted_core, store)
     resumed = sess2.resume(run_id)
     assert resumed["status"] == "completed"
     assert calls == [0, 1, 2], "step 0 must not re-execute after resume"
     assert len(resumed["results"]) == 3
 
 
-def test_explicit_interrupt_then_resume(core, store):
+def test_explicit_interrupt_then_resume(trusted_core, store):
     calls = []
-    _register_probe(core, calls)
-    sess = _session(core, store)
+    _register_probe(trusted_core, calls)
+    sess = _session(trusted_core, store)
     run_id = sess.start("two steps", [
         {"tool": "probe", "description": "a", "params": {"n": "a"}},
         {"tool": "probe", "description": "b", "params": {"n": "b"}},
@@ -151,10 +163,10 @@ def test_explicit_interrupt_then_resume(core, store):
     assert calls == ["a", "b"]
 
 
-def test_resume_completed_is_noop_and_unknown_raises(core, store):
-    sess = _session(core, store)
+def test_resume_completed_is_noop_and_unknown_raises(trusted_core, store):
+    sess = _session(trusted_core, store)
     calls = []
-    _register_probe(core, calls)
+    _register_probe(trusted_core, calls)
     run_id = sess.start("one", [{"tool": "probe", "description": "x", "params": {}}])
     sess.run_all(run_id)
     out = sess.resume(run_id)
@@ -165,16 +177,16 @@ def test_resume_completed_is_noop_and_unknown_raises(core, store):
 
 
 def test_start_rejects_empty_steps(core, store):
-    sess = _session(core, store)
+    sess = _session(trusted_core, store)
     with pytest.raises(ValueError):
         sess.start("nothing", [])
 
 
-def test_run_emits_sse_events(core, store):
+def test_run_emits_sse_events(trusted_core, store):
     events = []
-    sess = _session(core, store, event_sink=lambda t, p: events.append(t))
+    sess = _session(trusted_core, store, event_sink=lambda t, p: events.append(t))
     calls = []
-    _register_probe(core, calls)
+    _register_probe(trusted_core, calls)
     run_id = sess.start("ev", [{"tool": "probe", "description": "x", "params": {}}])
     sess.run_all(run_id)
     assert "ghost.run.started" in events
@@ -201,10 +213,10 @@ def test_claim_lifecycle(store):
     assert {c.id for c in reg.for_run("run_1")} == {claim.id}
 
 
-def test_step_claim_auto_confirmed_by_verified_step(core, store, tmp_path, monkeypatch):
+def test_step_claim_auto_confirmed_by_verified_step(trusted_core, store, tmp_path, monkeypatch):
     monkeypatch.setenv("SHADOW_WORKSPACE_DIR", str(tmp_path / "ws2"))
-    core.tools.register("note.list", lambda params: {"ok": True, "notes": []})
-    sess = _session(core, store)
+    trusted_core.tools.register("note.list", lambda params: {"ok": True, "notes": []})
+    sess = _session(trusted_core, store)
     run_id = sess.start("check notes", [
         {"tool": "note.list", "description": "list notes", "params": {},
          "claim": "the notes index is readable"},
@@ -216,9 +228,9 @@ def test_step_claim_auto_confirmed_by_verified_step(core, store, tmp_path, monke
     assert claims[0].execution_ids == [out["results"][0]["execution_id"]]
 
 
-def test_step_claim_auto_refuted_by_failed_step(core, store):
-    core.tools.register("broken", lambda params: {"ok": False, "reason": "boom"})
-    sess = _session(core, store)
+def test_step_claim_auto_refuted_by_failed_step(trusted_core, store):
+    trusted_core.tools.register("broken", lambda params: {"ok": False, "reason": "boom"})
+    sess = _session(trusted_core, store)
     run_id = sess.start("broken run", [
         {"tool": "broken", "description": "fails", "params": {},
          "claim": "the broken tool works"},
