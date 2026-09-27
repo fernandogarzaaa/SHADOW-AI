@@ -73,8 +73,9 @@ export async function hasProviderKey(provider: ProviderId): Promise<boolean> {
 
 /** Remove every stored BYOK key. Used by the settings reset flow. */
 export async function clearAllProviderKeys(): Promise<void> {
+	const { KEY_PROVIDERS } = await import("./index");
 	await Promise.all(
-		(["anthropic", "openai"] as const).map((p) =>
+		KEY_PROVIDERS.map((p) =>
 			SecureStore.deleteItemAsync(storeKey(p)).catch(() => undefined),
 		),
 	);

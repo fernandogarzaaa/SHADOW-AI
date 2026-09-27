@@ -5,6 +5,50 @@ from typing import Callable
 from .models import Device, AuditEvent, now
 
 MAX_SKEW_SECONDS = 300
+
+
+# ---------------------------------------------------------------------------
+# Nonce replay ledgers
+# ---------------------------------------------------------------------------
+class NonceLedger:
+    """Uniqueness boundary for HMAC nonces, keyed (device_id, nonce).
+
+    The in-memory ledger resets on process restart, reopening the replay
+    window; the node injects a persistent ledger (encrypted runtime DB)
+    when one is configured so restarts do not weaken replay protection.
+    """
+
+    def seen(self, device_id: str, nonce: str) -> bool:
+        raise NotImplementedError
+
+    def record(self, device_id: str, nonce: str, seen_at: float) -> None:
+        raise NotImplementedError
+
+
+class InMemoryNonceLedger(NonceLedger):
+    """Process-local ledger. Entries expire MAX_SKEW_SECONDS after being
+    seen; expired entries are pruned lazily on access."""
+
+    def __init__(self, backing: dict[str, float] | None = None):
+        self.nonces: dict[str, float] = backing if backing is not None else {}
+
+    @staticmethod
+    def _key(device_id: str, nonce: str) -> str:
+        return f"{device_id}:{nonce}"
+
+    def _prune(self, now_ts: float) -> None:
+        for key, seen_at in list(self.nonces.items()):
+            if now_ts - seen_at > MAX_SKEW_SECONDS:
+                del self.nonces[key]
+
+    def seen(self, device_id: str, nonce: str) -> bool:
+        now_ts = time.time()
+        self._prune(now_ts)
+        return self._key(device_id, nonce) in self.nonces
+
+    def record(self, device_id: str, nonce: str, seen_at: float) -> None:
+        self._prune(seen_at)
+        self.nonces[self._key(device_id, nonce)] = seen_at
 SESSION_SECONDS = 30 * 24 * 3600
 # Set SHADOW_ED25519_KEYS=true to enable Ed25519 device-key mode.
 ED25519_ENABLED = os.getenv("SHADOW_ED25519_KEYS", "false").lower() == "true"
@@ -77,7 +121,13 @@ def verify_ed25519(public_key_bytes: bytes, signature_hex: str, method: str, pat
 class DeviceSessionStore:
     devices: dict[str, Device] = field(default_factory=dict)
     secrets: dict[str, str] = field(default_factory=dict)
-    nonces: dict[str, float] = field(default_factory=dict)  # nonce -> seen unix timestamp
+    # Backing dict for the default in-memory nonce ledger, keyed
+    # "device_id:nonce" -> seen unix timestamp. Tests and the no-DB dev
+    # path clear or inspect this directly.
+    nonces: dict[str, float] = field(default_factory=dict)
+    # Injected by the node when an encrypted runtime DB is configured so
+    # replay state survives restarts. None -> process-local ledger.
+    nonce_ledger: NonceLedger | None = None
     audit: list[AuditEvent] = field(default_factory=list)
     # Expo push tokens per device id (registered via POST /devices/{id}/push-token)
     push_tokens: dict[str, str] = field(default_factory=dict)
@@ -149,9 +199,8 @@ class DeviceSessionStore:
         if not nonce:
             return fail("missing_nonce")
         now_ts=int(time.time())
-        for _n,_ts in list(self.nonces.items()):
-            if now_ts-_ts>MAX_SKEW_SECONDS: del self.nonces[_n]
-        if nonce in self.nonces:
+        ledger = self.nonce_ledger if self.nonce_ledger is not None else InMemoryNonceLedger(self.nonces)
+        if ledger.seen(device_id, nonce):
             return fail("replayed_nonce")
         try:
             ts = int(timestamp or "0")
@@ -172,7 +221,7 @@ class DeviceSessionStore:
 
         if not ok:
             return fail(reason)
-        self.nonces[nonce]=now_ts
+        ledger.record(device_id, nonce, now_ts)
         return True, "ok"
 
 
