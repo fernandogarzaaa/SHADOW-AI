@@ -106,7 +106,103 @@ class CredentialStore:
 
 # --- OAuth (PKCE) helpers ---
 
-def start_oauth(provider: str, redirect_uri: str) -> dict:
+OAUTH_TXN_TTL_SECONDS = 600  # authorization codes are short-lived; so are we
+
+
+class OAuthTransactionStore:
+    """Server-side OAuth transaction ledger (audit P1: OAuth binding).
+
+    start_oauth() used to hand the PKCE verifier back to the client and
+    keep no server-side record, so the exchange endpoint trusted whatever
+    verifier/redirect_uri the client echoed: no CSRF protection, no
+    device binding, no expiry, reusable transactions.
+
+    Now every flow is a persisted transaction keyed by ``state`` and bound
+    to (device, provider, redirect_uri, verifier). The verifier never
+    leaves the node. Transactions are single-use (consumed on exchange)
+    and expire after OAUTH_TXN_TTL_SECONDS. Persisted encrypted at rest
+    so a restart cannot resurrect a consumed or expired transaction.
+    """
+
+    def __init__(self, path: str | None = None, key: bytes | None = None,
+                 ttl: int = OAUTH_TXN_TTL_SECONDS):
+        self.path = Path(path or os.getenv("SHADOW_OAUTH_TXNS_FILE", "data/keys/oauth_txns.enc"))
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.key = key or load_fernet_key("SHADOW_OAUTH_TXNS_KEY", "SHADOW_OAUTH_TXNS_KEY_FILE", "data/keys/oauth_txns.key")
+        self.cipher = Fernet(self.key)
+        self.ttl = ttl
+        self._data: dict = self._load()
+
+    def _load(self) -> dict:
+        if self.path.exists():
+            try:
+                data = json.loads(self.cipher.decrypt(self.path.read_bytes()).decode())
+            except Exception:
+                return {}
+            now = _utcnow()
+            return {s: t for s, t in data.items()
+                    if now - t.get("created_at", 0) < self.ttl}
+        return {}
+
+    def _save(self) -> None:
+        self.path.write_bytes(self.cipher.encrypt(json.dumps(self._data).encode()))
+        try:
+            self.path.chmod(0o600)
+        except OSError:
+            pass
+
+    def record(self, state: str, provider: str, redirect_uri: str,
+               device_id: str | None, authorization_url: str,
+               code_verifier: str) -> None:
+        """Record a new transaction bound to (state, device, provider,
+        redirect_uri, verifier)."""
+        self.sweep()
+        self._data[state] = {
+            "provider": provider,
+            "redirect_uri": redirect_uri,
+            "device_id": device_id,
+            "authorization_url": authorization_url,
+            "code_verifier": code_verifier,
+            "created_at": _utcnow(),
+        }
+        self._save()
+
+    def consume(self, state: str, provider: str, device_id: str | None) -> dict:
+        """Validate and single-use consume a transaction. Raises ValueError
+        on unknown, expired, already-consumed, or mismatched transactions."""
+        txn = self._data.get(state)
+        if txn is None:
+            raise ValueError("unknown or already-used OAuth transaction")
+        if _utcnow() - txn.get("created_at", 0) >= self.ttl:
+            self._data.pop(state, None)
+            self._save()
+            raise ValueError("OAuth transaction expired")
+        if txn["provider"] != provider:
+            raise ValueError("OAuth transaction is bound to a different provider")
+        if txn["device_id"] != device_id:
+            raise ValueError("OAuth transaction is bound to a different device")
+        self._data.pop(state, None)  # single-use: consume before the token call
+        self._save()
+        return txn
+
+    def sweep(self) -> int:
+        now = _utcnow()
+        expired = [s for s, t in self._data.items()
+                   if now - t.get("created_at", 0) >= self.ttl]
+        for s in expired:
+            self._data.pop(s, None)
+        if expired:
+            self._save()
+        return len(expired)
+
+
+def _utcnow() -> float:
+    import time as _time
+    return _time.time()
+
+
+def start_oauth(provider: str, redirect_uri: str, device_id: str | None,
+                store: OAuthTransactionStore) -> dict:
     cfg = OAUTH.get(provider)
     if not cfg:
         raise ValueError(f"{provider} does not support programmatic OAuth")
@@ -126,21 +222,25 @@ def start_oauth(provider: str, redirect_uri: str) -> dict:
         "state": state,
         **cfg.get("extra", {}),
     }
-    return {
-        "authorization_url": f"{cfg['auth_endpoint']}?{urlencode(params)}",
-        "state": state,
-        "code_verifier": verifier,
-    }
+    authorization_url = f"{cfg['auth_endpoint']}?{urlencode(params)}"
+    store.record(state, provider, redirect_uri, device_id, authorization_url, verifier)
+    # NOTE: the verifier stays server-side. The client only gets the URL
+    # and the state; the exchange endpoint takes (state, code).
+    return {"authorization_url": authorization_url, "state": state}
 
 
-def exchange_code(provider: str, code: str, code_verifier: str, redirect_uri: str, timeout: float = 30.0) -> dict:
-    cfg = OAUTH.get(provider)
+def exchange_code(provider: str, state: str, code: str, device_id: str | None,
+                  store: OAuthTransactionStore, timeout: float = 30.0) -> dict:
+    # Binding is checked first: an unknown/expired/mismatched transaction
+    # fails before we even consider whether the named provider does OAuth.
+    txn = store.consume(state, provider, device_id)
+    cfg = OAUTH.get(txn["provider"])
     if not cfg:
-        raise ValueError(f"{provider} does not support OAuth")
+        raise ValueError(f"{txn['provider']} does not support OAuth")
     data = {
         "code": code,
-        "code_verifier": code_verifier,
-        "redirect_uri": redirect_uri,
+        "code_verifier": txn["code_verifier"],
+        "redirect_uri": txn["redirect_uri"],
         "grant_type": "authorization_code",
         "client_id": os.getenv(cfg["client_id_env"], ""),
         "client_secret": os.getenv(cfg["client_secret_env"], ""),

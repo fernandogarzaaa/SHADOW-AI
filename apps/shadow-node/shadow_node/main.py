@@ -154,6 +154,7 @@ ambient_scheduler.start_background()
 # Hybrid local+frontier router and provider credential store.
 hybrid=HybridRouter(model, axiom)
 credentials=provider_auth.CredentialStore()
+oauth_txns=provider_auth.OAuthTransactionStore()
 AUTH_REQUIRED=os.getenv("SHADOW_AUTH_REQUIRED", "true").lower()=="true"
 GROUNDING_VERIFY=os.getenv("SHADOW_GROUNDING_VERIFY", "true").lower()=="true"
 RATE_LIMIT_RPM=int(os.getenv("SHADOW_RATE_LIMIT_RPM", "0"))  # 0 disables
@@ -183,7 +184,7 @@ class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User req
 class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
 class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:str="local_only"
 class ProviderConnectRequest(BaseModel): api_key:str
-class OAuthExchangeRequest(BaseModel): code:str; code_verifier:str; redirect_uri:str
+class OAuthExchangeRequest(BaseModel): state:str; code:str
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request:Request, exc:HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error":{"code":str(exc.detail),"message":str(exc.detail),"path":request.url.path}})
@@ -552,12 +553,14 @@ def provider_connect(name:str, req:ProviderConnectRequest):
 def provider_disconnect(name:str):
     credentials.delete(name); audit.append(AuditEvent(actor="user",event_type="provider_disconnected",data_used=[name],status="disconnected")); return {"connected":False,"provider":name}
 @app.get("/providers/{name}/oauth/start")
-def provider_oauth_start(name:str, redirect_uri:str):
-    try: return provider_auth.start_oauth(name, redirect_uri)
+def provider_oauth_start(name:str, redirect_uri:str, request:Request):
+    device_id=request.headers.get("x-shadow-device-id")
+    try: return provider_auth.start_oauth(name, redirect_uri, device_id, oauth_txns)
     except ValueError as e: raise HTTPException(400,str(e))
 @app.post("/providers/{name}/oauth/exchange")
-def provider_oauth_exchange(name:str, req:OAuthExchangeRequest):
-    try: cred=provider_auth.exchange_code(name, req.code, req.code_verifier, req.redirect_uri)
+def provider_oauth_exchange(name:str, req:OAuthExchangeRequest, request:Request):
+    device_id=request.headers.get("x-shadow-device-id")
+    try: cred=provider_auth.exchange_code(name, req.state, req.code, device_id, oauth_txns)
     except ValueError as e: raise HTTPException(400,str(e))
     except Exception as e: raise HTTPException(502,f"token exchange failed: {e}")
     credentials.set(name,cred); audit.append(AuditEvent(actor="user",event_type="provider_oauth_connected",data_used=[name],status="connected")); return {"connected":True,"provider":name,"type":"oauth"}

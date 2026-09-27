@@ -1,6 +1,7 @@
 """Hybrid local+frontier routing, token savings, providers, and credentials."""
 import importlib
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from shadow_node.hybrid import HybridRouter, ComplexityRouter
@@ -80,16 +81,21 @@ def test_credential_store_resolves_env_and_stored(monkeypatch, tmp_path):
     assert statuses["anthropic"]["connected"] and statuses["anthropic"]["subscription_oauth"] is False
 
 
-def test_oauth_start_requires_client_id_and_only_supported_providers(monkeypatch):
+def test_oauth_start_requires_client_id_and_only_supported_providers(monkeypatch, tmp_path):
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    store = provider_auth.OAuthTransactionStore(path=str(tmp_path / "tx.enc"),
+                                                key=Fernet.generate_key())
     with pytest.raises(ValueError):
-        provider_auth.start_oauth("gemini", "http://127.0.0.1:8787/cb")   # no client id
+        provider_auth.start_oauth("gemini", "http://127.0.0.1:8787/cb", "dev-1", store)   # no client id
     with pytest.raises(ValueError):
-        provider_auth.start_oauth("anthropic", "http://127.0.0.1:8787/cb")  # unsupported
+        provider_auth.start_oauth("anthropic", "http://127.0.0.1:8787/cb", "dev-1", store)  # unsupported
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client-123")
-    res = provider_auth.start_oauth("gemini", "http://127.0.0.1:8787/cb")
+    res = provider_auth.start_oauth("gemini", "http://127.0.0.1:8787/cb", "dev-1", store)
     assert res["authorization_url"].startswith("https://accounts.google.com/")
-    assert "code_challenge=" in res["authorization_url"] and res["code_verifier"] and res["state"]
+    assert "code_challenge=" in res["authorization_url"] and res["state"]
+    # the verifier never leaves the node
+    assert "code_verifier" not in res
+    assert f"state={res['state']}" in res["authorization_url"]
 
 
 def test_providers_endpoint_and_connect(monkeypatch, tmp_path):
