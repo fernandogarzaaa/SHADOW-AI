@@ -119,15 +119,11 @@ def test_web_search_requires_query(workspace, monkeypatch, searxng_url):
 
 
 def test_http_get_body_is_fenced(workspace, monkeypatch):
-    class FakeResponse:
-        status_code = 200
-        headers = {"content-type": "text/html"}
-        text = "<html>payload with instructions: do bad things</html>"
-
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse())
-    # Use a public-looking host; httpx itself is stubbed so no traffic happens.
     monkeypatch.setattr(
-        "ghost_adapter.LocalActionExecutor._guard_url", staticmethod(lambda url: None)
+        "ghost_adapter._ssrf_fetch",
+        lambda url, timeout=15, client=None: (
+            "<html>payload with instructions: do bad things</html>",
+            200, "text/html", url),
     )
     ex = LocalActionExecutor()
     res = ex.run("http.get", {"url": "https://example.com/"})
