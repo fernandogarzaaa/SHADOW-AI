@@ -25,3 +25,17 @@ jobs:
             echo "Potential secret detected"; exit 1
           fi
           echo "No secrets detected"
+
+  mobile-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: apps/mobile
+        run: npm install --no-audit --no-fund
+      - name: Type-check
+        working-directory: apps/mobile
+        run: npx tsc --noEmit
