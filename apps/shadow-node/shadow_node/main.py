@@ -104,6 +104,32 @@ def _ghost_handoff_tool(params):
     act=AgentAction(tool_name="ghost_handoff", description=desc, params=params)
     return ghost.execute(ghost.to_ir(AgentPlan(user_intent=desc, actions=[act])), approved=True)
 core.tools.register("ghost_handoff", _ghost_handoff_tool)
+def _resolve_server_approval(approval_id: str | None, action: AgentAction) -> bool:
+    """Derive the approved flag from a server-side approval record.
+
+    The client-supplied `approved` boolean is never trusted: a paired
+    device must reference a granted approval. Returns True only when the
+    approval exists, is APPROVED, is unexpired, and was granted for the
+    same action (tool_name + params + description). Raises 404/403
+    BEFORE any execution takes place.
+
+    Also wired into GhostRunSession as its approval resolver, so ghost
+    runs enforce the identical contract: no valid approval, no execution.
+    """
+    if approval_id is None:
+        return False
+    req = core.approvals.requests.get(approval_id)
+    if req is None:
+        raise HTTPException(404, "unknown approval")
+    if req.status != ApprovalStatus.APPROVED:
+        raise HTTPException(403, f"approval is {req.status.value}, not granted")
+    if now() > req.expires_at:
+        raise HTTPException(403, "approval is expired")
+    granted = req.action
+    if (granted.tool_name, granted.params, granted.description) != (action.tool_name, action.params, action.description):
+        raise HTTPException(403, "approval does not match the requested action")
+    return True
+
 # Ambient GHOST capabilities: journaled, checkpointed multi-step runs, world-state
 # claims, and the opt-in background scheduler. Backed by the encrypted runtime
 # DB when configured, in-memory otherwise. Ambient is OFF by default; nothing
@@ -112,8 +138,12 @@ _ambient_kv=_runtime_store if _runtime_db else InMemoryKV()
 ambient_journal=RunJournal(_ambient_kv, event_sink=bus.publish)
 ambient_checkpoints=CheckpointStore(_ambient_kv)
 ambient_claims=ClaimRegistry(_ambient_kv)
+# Ghost runs resolve every step's approval through the same server-side
+# binding /agent/execute uses. The session cannot manufacture approval:
+# without a valid referenced approval, an approval-gated step is blocked.
 ghost_runs=GhostRunSession(core, journal=ambient_journal, checkpoints=ambient_checkpoints,
-                           claims=ambient_claims, event_sink=bus.publish, audit=sentinel_audit)
+                           claims=ambient_claims, event_sink=bus.publish, audit=sentinel_audit,
+                           approval_resolver=_resolve_server_approval)
 ambient_scheduler=AmbientScheduler(store=_ambient_kv, journal=ambient_journal,
                                    tasks=build_task_map(), event_sink=bus.publish,
                                    audit=sentinel_audit,
@@ -336,29 +366,6 @@ def set_push_token(device_id:str, req:PushTokenRequest):
 @app.post("/agent/plan")
 def plan(req:AskRequest): return core.propose(req.prompt)
 
-def _resolve_server_approval(approval_id: str | None, action: AgentAction) -> bool:
-    """Derive the approved flag from a server-side approval record.
-
-    The client-supplied `approved` boolean is never trusted: a paired
-    device must reference a granted approval. Returns True only when the
-    approval exists, is APPROVED, is unexpired, and was granted for the
-    same action (tool_name + params + description). Raises 404/403
-    BEFORE any execution takes place.
-    """
-    if approval_id is None:
-        return False
-    req = core.approvals.requests.get(approval_id)
-    if req is None:
-        raise HTTPException(404, "unknown approval")
-    if req.status != ApprovalStatus.APPROVED:
-        raise HTTPException(403, f"approval is {req.status.value}, not granted")
-    if now() > req.expires_at:
-        raise HTTPException(403, "approval is expired")
-    granted = req.action
-    if (granted.tool_name, granted.params, granted.description) != (action.tool_name, action.params, action.description):
-        raise HTTPException(403, "approval does not match the requested action")
-    return True
-
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
     server_approved = _resolve_server_approval(req.approval_id, req.action)
@@ -430,7 +437,15 @@ def ambient_run_detail(run_id:str):
 def ghost_run_start(req:GhostRunRequest):
     """Start a checkpointed multi-step run. Every step executes through the
     policy gate with evidence and a verification verdict; progress is
-    checkpointed after each step so an interrupted run can be resumed."""
+    checkpointed after each step so an interrupted run can be resumed.
+
+    Approval is never implicit: each step may carry its own "approval_id"
+    (falling back to the run-level approval_id), resolved against the
+    server-side approval store with the same binding /agent/execute uses.
+    An unknown, denied, expired, or mismatched approval fails the run
+    before that step executes. Steps without an approval run unapproved,
+    so approval-gated tools are blocked by the policy gate.
+    """
     if not req.objective.strip(): raise HTTPException(400,"objective required")
     if not req.steps: raise HTTPException(400,"at least one step required")
     for s in req.steps:
