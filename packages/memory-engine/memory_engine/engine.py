@@ -1,4 +1,4 @@
-import sqlite3, hashlib, math, re
+import sqlite3, hashlib, hmac, math, re
 from datetime import datetime, timezone
 from cryptography.fernet import Fernet
 from .models import *
@@ -20,24 +20,64 @@ def classify_category(text:str, source:MemorySource)->MemoryCategory:
     if "profile" in low or "preference" in low: return MemoryCategory.PROFILE
     return MemoryCategory.CONNECTOR if source.kind!="manual" else MemoryCategory.NOTE
 class EncryptedMemoryStore:
+    # FTS index format version. "blind-v2" stores HMAC blind-index tokens
+    # instead of raw text; anything else is rebuilt from the encrypted
+    # blobs on open (healing databases written by older formats).
+    FTS_INDEX_VERSION = "blind-v2"
+
     def __init__(self,path="shadow_memory.db",key:bytes|None=None):
-        self.path=path; self.key=key or Fernet.generate_key(); self.cipher=Fernet(self.key); self.conn=sqlite3.connect(path, check_same_thread=False); self._init()
+        self.path=path; self.key=key or Fernet.generate_key(); self.cipher=Fernet(self.key); self.conn=sqlite3.connect(path, check_same_thread=False)
+        # Separate index key, domain-separated from the encryption key.
+        # A leaked index reveals only token equality and counts, never terms.
+        self.index_key=hmac.new(self.key, b"shadow-memory-fts-v2", hashlib.sha256).digest()
+        self._init()
+
+    def _blind_token(self, term:str)->str:
+        return hmac.new(self.index_key, term.encode(), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _terms(text:str)->list[str]:
+        return [t.lower() for t in re.findall(r'[A-Za-z0-9_]+', text)]
+
+    def _blind_index_text(self, text:str)->str:
+        return " ".join(self._blind_token(t) for t in self._terms(text))
+
     def _init(self):
         self.conn.execute("CREATE TABLE IF NOT EXISTS memory(id TEXT PRIMARY KEY, source_id TEXT, content_hash TEXT UNIQUE, ciphertext BLOB NOT NULL, text_index TEXT NOT NULL, revoked_at TEXT)")
-        self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(id UNINDEXED, text)"); self.conn.commit()
+        self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(id UNINDEXED, text)")
+        self.conn.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
+        self.conn.commit()
+        self._ensure_blind_index()
+
+    def _ensure_blind_index(self):
+        row=self.conn.execute("SELECT value FROM meta WHERE key='fts_version'").fetchone()
+        if row and row[0]==self.FTS_INDEX_VERSION: return
+        # Rebuild the index from the encrypted blobs so databases written
+        # by the old plaintext-index format stop leaking memory contents.
+        self.conn.execute("DELETE FROM memory_fts")
+        for item_id, blob in self.conn.execute("SELECT id, ciphertext FROM memory WHERE revoked_at IS NULL").fetchall():
+            try: item=MemoryItem.model_validate_json(self.cipher.decrypt(blob).decode())
+            except Exception: continue  # wrong key or corrupt row: leave unindexed
+            blind=self._blind_index_text(item.text)
+            self.conn.execute("INSERT INTO memory_fts(id,text) VALUES(?,?)",(item_id, blind))
+            self.conn.execute("UPDATE memory SET text_index=? WHERE id=?",(blind, item_id))
+        self.conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('fts_version',?)",(self.FTS_INDEX_VERSION,))
+        self.conn.commit()
     def add(self,item:MemoryItem):
         item.content_hash=item.content_hash or content_hash(item.text,item.source.id)
         existing=self.conn.execute("SELECT id,ciphertext FROM memory WHERE content_hash=? AND revoked_at IS NULL",(item.content_hash,)).fetchone()
         if existing: return MemoryItem.model_validate_json(self.cipher.decrypt(existing[1]).decode())
         blob=self.cipher.encrypt(item.model_dump_json().encode())
-        self.conn.execute("INSERT OR REPLACE INTO memory VALUES(?,?,?,?,?,?)",(item.id,item.source.id,item.content_hash,blob,item.text,item.revoked_at.isoformat() if item.revoked_at else None))
-        self.conn.execute("INSERT INTO memory_fts(id,text) VALUES(?,?)",(item.id,item.text)); self.conn.commit(); return item
+        blind=self._blind_index_text(item.text)
+        self.conn.execute("INSERT OR REPLACE INTO memory VALUES(?,?,?,?,?,?)",(item.id,item.source.id,item.content_hash,blob,blind,item.revoked_at.isoformat() if item.revoked_at else None))
+        self.conn.execute("INSERT INTO memory_fts(id,text) VALUES(?,?)",(item.id,blind)); self.conn.commit(); return item
     def get(self,id:str):
         row=self.conn.execute("SELECT ciphertext FROM memory WHERE id=? AND revoked_at IS NULL",(id,)).fetchone()
         return MemoryItem.model_validate_json(self.cipher.decrypt(row[0]).decode()) if row else None
     def search(self,query:str,limit:int=5, include_sensitive:bool=True):
-        terms=[re.sub(r'[^A-Za-z0-9_]', '', t) for t in query.replace('\"',' ').split()]
-        safe_query=' OR '.join([t for t in terms if t]) or query
+        tokens=[self._blind_token(t) for t in self._terms(query)]
+        if not tokens: return []
+        safe_query=' OR '.join(tokens)
         rows=self.conn.execute("SELECT m.ciphertext, bm25(memory_fts) FROM memory_fts JOIN memory m ON m.id=memory_fts.id WHERE memory_fts MATCH ? AND m.revoked_at IS NULL ORDER BY 2 LIMIT ?",(safe_query,limit*3)).fetchall()
         out=[]
         for blob,bm in rows:
