@@ -20,6 +20,7 @@ from .hybrid import HybridRouter
 from .self_model import build_self_model, classify_self_intent, render_self_answer
 from .persona import (default_persona, load_persona, save_persona, apply_update,
                       PersonaUpdate, system_prompt_for, set_system_prompt_override)
+from .goals import (GoalStore, GoalCreate, GoalUpdate, ProgressCreate, GoalStatus)
 from . import provider_auth
 from .events import EventBus
 from pathlib import Path
@@ -71,6 +72,7 @@ if _runtime_db:
 # encrypted in the runtime DB when configured. The vibe becomes the
 # frontier-model system prompt via the process-wide override below.
 persona=load_persona(_runtime_store) if _runtime_db else default_persona()
+goal_store=GoalStore(_runtime_store if _runtime_db else None)
 set_system_prompt_override(system_prompt_for(persona))
 bus=EventBus()
 EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
@@ -404,6 +406,53 @@ def put_persona(update: PersonaUpdate):
     set_system_prompt_override(system_prompt_for(persona))
     audit.append(AuditEvent(actor="user",event_type="persona_updated",status="ok",result=f"name={persona.name!r}"))
     return persona.model_dump()
+@app.post("/goals", status_code=201)
+def create_goal(data: GoalCreate):
+    """Create a user goal: a durable outcome with progress tracking."""
+    goal=goal_store.create(data)
+    audit.append(AuditEvent(actor="user",event_type="goal_created",status="stored",metadata={"goal_id":goal.id}))
+    return goal.model_dump()
+@app.get("/goals")
+def list_goals(status: str | None = None):
+    """List goals newest-updated first, each with a progress roll-up."""
+    if status is not None and status not in GoalStatus.values():
+        raise HTTPException(422, f"status must be one of {GoalStatus.values()}")
+    return [goal_store.summarize(g).model_dump() for g in goal_store.list(status)]
+@app.get("/goals/briefing")
+def goals_briefing():
+    """Goal briefing: stale goals, goals due soon/overdue, completed this
+    week, and recent progress entries."""
+    return goal_store.briefing().model_dump()
+@app.get("/goals/{goal_id}")
+def get_goal(goal_id: str):
+    detail=goal_store.detail(goal_id)
+    if detail is None: raise HTTPException(404, "goal not found")
+    return detail.model_dump()
+@app.patch("/goals/{goal_id}")
+def update_goal(goal_id: str, patch: GoalUpdate):
+    """Update title/description/status/target_date. target_date "" clears it."""
+    try:
+        goal=goal_store.update(goal_id, patch)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if goal is None: raise HTTPException(404, "goal not found")
+    audit.append(AuditEvent(actor="user",event_type="goal_updated",status="ok",metadata={"goal_id":goal_id}))
+    return goal.model_dump()
+@app.delete("/goals/{goal_id}")
+def delete_goal(goal_id: str):
+    if not goal_store.delete(goal_id): raise HTTPException(404, "goal not found")
+    audit.append(AuditEvent(actor="user",event_type="goal_deleted",status="revoked",metadata={"goal_id":goal_id}))
+    return {"deleted_goal": goal_id}
+@app.post("/goals/{goal_id}/progress", status_code=201)
+def log_progress(goal_id: str, data: ProgressCreate):
+    """Log a progress entry (note + optional 0-100 percent) on a goal."""
+    try:
+        entry=goal_store.add_progress(goal_id, data)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if entry is None: raise HTTPException(404, "goal not found")
+    audit.append(AuditEvent(actor="user",event_type="goal_progress",status="stored",metadata={"goal_id":goal_id,"entry_id":entry.id}))
+    return entry.model_dump()
 @app.post("/agent/ask")
 def ask(req:AskRequest): return _run_ask_pipeline(req)
 def _run_ask_pipeline(req:AskRequest):

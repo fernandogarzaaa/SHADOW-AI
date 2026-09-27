@@ -44,6 +44,13 @@ class EncryptedRuntimeStore:
                 continue
         return out
 
+    def delete(self, collection: str, id: str) -> None:
+        """Remove one persisted object (used by goal deletion)."""
+        self.conn.execute(
+            "DELETE FROM runtime WHERE collection=? AND id=?", (collection, id)
+        )
+        self.conn.commit()
+
 
 class PersistentList(list):
     """A list that mirrors appends/extends into the encrypted runtime store."""

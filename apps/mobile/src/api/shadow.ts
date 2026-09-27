@@ -613,3 +613,115 @@ export async function ingestMemory(text: string): Promise<MemoryItem[]> {
 export async function deleteMemoryItem(id: string): Promise<void> {
 	await shadowFetch(`/memory/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+export type GoalStatus = "active" | "completed" | "abandoned";
+
+export interface Goal {
+	id: string;
+	title: string;
+	description: string;
+	status: GoalStatus;
+	target_date: string | null;
+	created_at: number;
+	updated_at: number;
+}
+
+export interface GoalSummary extends Goal {
+	entry_count: number;
+	latest_percent: number | null;
+	last_progress_at: number | null;
+}
+
+export interface ProgressEntry {
+	id: string;
+	goal_id: string;
+	note: string;
+	percent: number | null;
+	created_at: number;
+}
+
+export interface GoalDetail extends Goal {
+	entries: ProgressEntry[];
+}
+
+export interface BriefingEntry extends ProgressEntry {
+	goal_title: string;
+}
+
+export interface GoalsBriefing {
+	generated_at: number;
+	active_count: number;
+	completed_count: number;
+	stale: GoalSummary[];
+	due_soon: GoalSummary[];
+	overdue: GoalSummary[];
+	completed_this_week: GoalSummary[];
+	recent_entries: BriefingEntry[];
+}
+
+export interface GoalCreate {
+	title: string;
+	description?: string;
+	target_date?: string | null;
+}
+
+export interface GoalUpdate {
+	title?: string;
+	description?: string;
+	status?: GoalStatus;
+	target_date?: string | null;
+}
+
+/** List goals newest-updated first, each with a progress roll-up. */
+export async function listGoals(status?: GoalStatus): Promise<GoalSummary[]> {
+	const q = status ? `?status=${encodeURIComponent(status)}` : "";
+	return readJson<GoalSummary[]>(await shadowFetch(`/goals${q}`));
+}
+
+/** Create a goal. */
+export async function createGoal(data: GoalCreate): Promise<Goal> {
+	return readJson<Goal>(
+		await shadowFetch("/goals", { method: "POST", body: data }),
+	);
+}
+
+/** Goal detail with progress entries, newest first. */
+export async function getGoal(id: string): Promise<GoalDetail> {
+	return readJson<GoalDetail>(
+		await shadowFetch(`/goals/${encodeURIComponent(id)}`),
+	);
+}
+
+/** Update title/description/status/target_date. */
+export async function updateGoal(id: string, patch: GoalUpdate): Promise<Goal> {
+	return readJson<Goal>(
+		await shadowFetch(`/goals/${encodeURIComponent(id)}`, {
+			method: "PATCH",
+			body: patch,
+		}),
+	);
+}
+
+/** Delete a goal and its progress entries. */
+export async function deleteGoal(id: string): Promise<void> {
+	await shadowFetch(`/goals/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Log a progress entry on a goal. */
+export async function logGoalProgress(
+	id: string,
+	note: string,
+	percent?: number | null,
+): Promise<ProgressEntry> {
+	return readJson<ProgressEntry>(
+		await shadowFetch(`/goals/${encodeURIComponent(id)}/progress`, {
+			method: "POST",
+			body: { note, percent: percent ?? null },
+		}),
+	);
+}
+
+/** Goal briefing: stale, due soon, overdue, completed this week, recent progress. */
+export async function getGoalsBriefing(): Promise<GoalsBriefing> {
+	return readJson<GoalsBriefing>(await shadowFetch("/goals/briefing"));
+}
