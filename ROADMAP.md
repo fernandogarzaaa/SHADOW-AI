@@ -13,6 +13,12 @@ Each phase ships as its own PR, one at a time, green CI before merge.
   avatar emoji, vibe, status) + mobile Assistant profile screen. The vibe is
   real behavior: it becomes the frontier-model system prompt. (shipped)
 - Phase 2: Memory cards. Dated memory entries UI with semantic search.
+  Newest-first paginated `GET /memory/recent` (limit clamped 1-200, sensitive
+  excluded by default) and `DELETE /memory/{item_id}` (revoke + audit), plus a
+  mobile Memory screen: semantic search, "remember something" composer,
+  dated cards with category, source, and per-card forget, and a MEMORY card on
+  the Assistant profile linking to it. Sorted in Python so no new plaintext
+  timestamp column leaks. (shipped)
 - Phase 3: Goals. Goal tracking with progress and briefings.
 - Phase 4: Feed + Ideas. Scheduled editorial feed and idea cards.
 - Phase 5: Scheduling + proactive. Crons, reminders, notification digests.

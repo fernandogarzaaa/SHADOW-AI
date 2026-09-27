@@ -93,6 +93,16 @@ class EncryptedMemoryStore:
     def export(self,include_sensitive:bool=False):
         items=[MemoryItem.model_validate_json(self.cipher.decrypt(r[0]).decode()) for r in self.conn.execute("SELECT ciphertext FROM memory WHERE revoked_at IS NULL")]
         return [i for i in items if include_sensitive or not i.sensitive]
+    def recent(self,limit:int=50,offset:int=0,include_sensitive:bool=False):
+        """Newest-first paginated items for memory cards. Sorted in Python:
+        created_at lives inside the encrypted blob, and we do not add a
+        plaintext timestamp column (no new metadata leaks). Returns
+        (page_items, total_matching)."""
+        limit=max(1,min(limit,200)); offset=max(0,offset)
+        items=[MemoryItem.model_validate_json(self.cipher.decrypt(r[0]).decode()) for r in self.conn.execute("SELECT ciphertext FROM memory WHERE revoked_at IS NULL")]
+        items=[i for i in items if include_sensitive or not i.sensitive]
+        items.sort(key=lambda i:i.created_at,reverse=True)
+        return items[offset:offset+limit],len(items)
 class MemoryEngine:
     def __init__(self, store:EncryptedMemoryStore): self.store=store; self.chunker=Chunker(); self.embedder=LocalEmbedder()
     def ingest(self,text:str,source:MemorySource,type:MemoryType=MemoryType.DOCUMENT_CHUNK,sensitive:bool|None=None,do_not_send_to_cloud:bool|None=None):
@@ -104,3 +114,4 @@ class MemoryEngine:
     def search(self,query:str,limit:int=5,include_sensitive:bool=True): return self.store.search(query,limit,include_sensitive)
     def delete_by_source(self,source_id:str): return self.store.delete_by_source(source_id)
     def export(self,include_sensitive:bool=False): return self.store.export(include_sensitive)
+    def recent(self,limit:int=50,offset:int=0,include_sensitive:bool=False): return self.store.recent(limit,offset,include_sensitive)

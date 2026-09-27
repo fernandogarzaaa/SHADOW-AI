@@ -538,3 +538,78 @@ export async function updatePersona(patch: PersonaUpdate): Promise<PersonaProfil
 		await shadowFetch("/persona", { method: "PUT", body: patch }),
 	);
 }
+
+export interface MemorySourceRef {
+	id: string;
+	kind: string;
+	title: string;
+}
+
+export interface MemoryItem {
+	id: string;
+	type: string;
+	category: string;
+	text: string;
+	source: MemorySourceRef;
+	tags: string[];
+	confidence: number;
+	sensitive: boolean;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface MemoryRecentResponse {
+	items: MemoryItem[];
+	count: number;
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export interface MemorySearchResult {
+	item: MemoryItem;
+	score: number;
+	freshness: number;
+	attribution: string;
+	explanation: string;
+}
+
+/** Newest-first memory cards for the Memory screen. */
+export async function getMemoryRecent(
+	limit = 20,
+	offset = 0,
+): Promise<MemoryRecentResponse> {
+	return readJson<MemoryRecentResponse>(
+		await shadowFetch(
+			`/memory/recent?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
+		),
+	);
+}
+
+/** Semantic (blind-index FTS) search over memory. Sensitive items excluded. */
+export async function searchMemory(
+	q: string,
+	limit = 10,
+): Promise<MemorySearchResult[]> {
+	return readJson<MemorySearchResult[]>(
+		await shadowFetch(
+			`/memory/search?q=${encodeURIComponent(q)}&limit=${encodeURIComponent(limit)}`,
+		),
+	);
+}
+
+/** Store a new memory from free text. Returns the created item(s). */
+export async function ingestMemory(text: string): Promise<MemoryItem[]> {
+	const body = await readJson<{ items: MemoryItem[] }>(
+		await shadowFetch("/memory/ingest", {
+			method: "POST",
+			body: { text, source_kind: "manual", source_title: "Note" },
+		}),
+	);
+	return body.items;
+}
+
+/** Revoke one memory item. */
+export async function deleteMemoryItem(id: string): Promise<void> {
+	await shadowFetch(`/memory/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
