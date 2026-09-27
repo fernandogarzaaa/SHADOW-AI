@@ -1,6 +1,9 @@
 import os
 # The demo is a local-only smoke flow; auth is exercised by the test suite.
 os.environ['SHADOW_AUTH_REQUIRED'] = 'false'
+# The demo ingests the repo's example file, so the repo root is an allowed
+# ingest root for this run (ingestion stays allowlist-gated in production).
+os.environ['SHADOW_INGEST_ROOTS'] = os.getcwd()
 from fastapi.testclient import TestClient
 from shadow_node.main import app
 c=TestClient(app)
