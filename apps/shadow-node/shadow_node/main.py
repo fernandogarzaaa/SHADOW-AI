@@ -17,6 +17,7 @@ from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
 from .providers import build_frontier, CATALOG
 from .hybrid import HybridRouter
+from .self_model import build_self_model, classify_self_intent, render_self_answer
 from . import provider_auth
 from .events import EventBus
 from pathlib import Path
@@ -248,11 +249,25 @@ def search(q:str, limit:int=5, include_sensitive:bool=True): return memory.searc
 def delete_source(source_id:str): memory.delete_by_source(source_id); audit.append(AuditEvent(actor="user",event_type="memory_source_deleted",status="revoked",metadata={"source_id":source_id})); return {"deleted_source":source_id}
 @app.get("/memory/export")
 def export_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
+@app.get("/agent/self")
+def agent_self():
+    """Runtime-derived self-description: what SHADOW is, where it runs, and
+    what it can do. Every field is read from the live node process."""
+    return build_self_model(core, sessions, memory, model_config, APP_VERSION)
 @app.post("/agent/ask")
 def ask(req:AskRequest): return _run_ask_pipeline(req)
 def _run_ask_pipeline(req:AskRequest):
     if is_suspicious_user_request(req.prompt):
         audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
+    # Self questions ("what are you", "where are you", "what can you do") are
+    # answered deterministically from the live self-model instead of going to
+    # the LLM, so the answers stay honest about this node.
+    self_intent=classify_self_intent(req.prompt)
+    if self_intent:
+        model=build_self_model(core, sessions, memory, model_config, APP_VERSION)
+        answer=render_self_answer(self_intent, model)
+        audit.append(AuditEvent(actor="agent",event_type="agent_ask",model_used="self_model",status="answered",metadata={"intent":"self_"+self_intent,"route":"local"}))
+        return {"answer":answer,"sources":[],"why":[],"model_used":"self_model","cloud_allowed":False,"untrusted_context":False,"context_package":{},"plan":None,"route":"local","routing_reason":"self-model intent","grounding":{},"regrounded":False,"savings":{"tokens_saved_estimate":0}}
     results=memory.search(req.prompt,5,include_sensitive=False); raw_context="\n".join(mark_untrusted(r.item.text) for r in results); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
     if req.allow_cloud and not core.policy.cloud_allowed(consents, req.cloud_approval): audit.append(AuditEvent(actor="agent",event_type="cloud_escalation_denied",status="blocked")); sentinel_audit.record("sentinel_policy","policy.decision",{"outcome":"deny","rule_id":"cloud_escalation","reason":"cloud escalation requires active grant and explicit approval"}); raise HTTPException(403,"cloud escalation requires active grant and explicit approval")
     # Hybrid routing: build a frontier provider only when cloud is approved AND a credential resolves; else fully local.
