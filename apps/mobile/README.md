@@ -25,12 +25,23 @@ bun install
 
 ## Run (development)
 
+Expo Go cannot run this app. SHADOW ships custom native modules
+(`@avasapp/react-native-app-intents`, `react-native-receive-sharing-intent`)
+and native config-plugin changes (`plugins/withSystemIntegrations.js`) that
+are not inside the Expo Go sandbox, and Expo Go cannot receive real push
+tokens. Use a development build instead:
+
 ```bash
-bunx expo start
+# one-time: create the EAS project under your Expo account, then put its id
+# in app.config.js (extra.eas.projectId, currently TODO-inan-eas-project-id)
+eas build --profile development --platform android   # APK, installs directly
+eas build --profile development --platform ios       # needs Apple Developer membership
+bunx expo start --dev-client
 ```
 
-Scan the QR code with Expo Go, or open the onboarding flow in the app at
-`app/onboarding/scan` and pair against your Shadow Node.
+Then scan the QR code with the installed dev build (not Expo Go), or open
+the onboarding flow in the app at `app/onboarding/scan` and pair against
+your Shadow Node.
 
 ## Pairing contract
 
