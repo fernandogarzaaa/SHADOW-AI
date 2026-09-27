@@ -96,7 +96,9 @@ def test_ghost_mock_execute_from_ios_approval(client):
     rid=client.post('/approvals',json={'action':action,'reason':'iOS proposal'}).json()['id']
     client.post(f'/approvals/{rid}/approve')
     r=client.post('/agent/execute',json={'action':action,'approval_id':rid}).json()
-    assert r['status']=='mock_executed'
+    assert r['ok'] is True
+    assert r['result']['status']=='mock_executed'
+    assert r['execution_id'].startswith('exec_')
 
 def test_destructive_requires_double_confirm_api(client):
     action={'id':'act_delete','tool_name':'delete_file','description':'delete','params':{},'risk':'high','requires_approval':True,'destructive':True,'data_used':[]}

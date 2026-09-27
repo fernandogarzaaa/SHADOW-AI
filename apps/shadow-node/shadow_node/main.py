@@ -91,6 +91,17 @@ store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); g
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
 for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params, explicit_consent=t in action_executor.CONSENT_REQUIRED)))(_tool))
+def _ghost_handoff_tool(params):
+    """ghost_handoff as a first-class ToolRegistry entry so it flows through
+    central policy, execution evidence, verification, and Sentinel audit
+    like every other tool (audit P0-3). approved=True is sound here:
+    core.execute only invokes the tool after policy ALLOWED, and
+    ghost_handoff is a sensitive tool that can never be tier-waived, so a
+    valid server-side approval was established first."""
+    desc=params.get("description") or "ghost handoff"
+    act=AgentAction(tool_name="ghost_handoff", description=desc, params=params)
+    return ghost.execute(ghost.to_ir(AgentPlan(user_intent=desc, actions=[act])), approved=True)
+core.tools.register("ghost_handoff", _ghost_handoff_tool)
 # Ambient GHOST capabilities: journaled, checkpointed multi-step runs, world-state
 # claims, and the opt-in background scheduler. Backed by the encrypted runtime
 # DB when configured, in-memory otherwise. Ambient is OFF by default; nothing
@@ -327,7 +338,6 @@ def _resolve_server_approval(approval_id: str | None, action: AgentAction) -> bo
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
     server_approved = _resolve_server_approval(req.approval_id, req.action)
-    if req.action.tool_name=="ghost_handoff": return ghost.execute(ghost.to_ir(AgentPlan(user_intent=req.action.description, actions=[req.action])), approved=server_approved)
     res=core.execute(req.action,server_approved,req.double_confirmed,approval_id=req.approval_id); audit.extend(core.drain_audit())
     if req.approval_id:
         try:
