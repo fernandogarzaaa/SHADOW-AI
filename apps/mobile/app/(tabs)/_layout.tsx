@@ -10,6 +10,7 @@ import {
 	BulbIcon,
 	ChatIcon,
 	CheckIcon,
+	ListCheckIcon,
 	SettingsIcon,
 } from "@/components/icons";
 import { useConnectionStore } from "@/stores/useConnectionStore";
@@ -24,6 +25,7 @@ const TAB_ICONS: Record<
 > = {
 	chat: (p) => <ChatIcon {...p} />,
 	briefing: (p) => <BulbIcon {...p} />,
+	goals: (p) => <ListCheckIcon {...p} />,
 	approvals: (p) => <CheckIcon {...p} />,
 	settings: (p) => <SettingsIcon {...p} />,
 };
@@ -147,8 +149,8 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 }
 
 /**
- * Chat-first tabs: Chat (chats list), Briefing, Approvals (only while a
- * node is linked), Settings.
+ * Chat-first tabs: Chat (chats list), Briefing, Goals and Approvals (only
+ * while a node is linked), Settings.
  */
 export default function TabsLayout() {
 	const isPaired = useConnectionStore((s) => s.isPaired);
@@ -166,6 +168,14 @@ export default function TabsLayout() {
 			<Tabs.Screen
 				name="briefing"
 				options={{ title: "Briefing", href: "/(tabs)/briefing" as Href }}
+			/>
+			<Tabs.Screen
+				name="goals"
+				options={{
+					title: "Goals",
+					// Goals live on the node; hidden entirely when no node is linked.
+					href: (isPaired ? "/(tabs)/goals" : null) as Href | null,
+				}}
 			/>
 			<Tabs.Screen
 				name="approvals"

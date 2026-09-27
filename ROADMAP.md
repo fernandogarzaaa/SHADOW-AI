@@ -19,7 +19,17 @@ Each phase ships as its own PR, one at a time, green CI before merge.
   dated cards with category, source, and per-card forget, and a MEMORY card on
   the Assistant profile linking to it. Sorted in Python so no new plaintext
   timestamp column leaks. (shipped)
-- Phase 3: Goals. Goal tracking with progress and briefings.
+- Phase 3: Goals. Goal tracking with progress and briefings. `POST /goals`,
+  `GET /goals?status=`, `GET /goals/briefing`, `GET /goals/{id}`,
+  `PATCH /goals/{id}`, `DELETE /goals/{id}`, `POST /goals/{id}/progress`;
+  progress entries (note + optional 0-100 percent, newest-first); the briefing
+  flags stale (7+ days), due-within-7-days, and overdue goals plus completed
+  this week and recent entries. Mobile Goals tab (hidden until a node is
+  linked) with a briefing card, progress bars, a new-goal composer, and a
+  goal detail screen with a progress timeline, log-progress composer, and
+  complete/reopen/abandon/delete actions. Audited
+  (`goal_created/updated/deleted/progress`) and persisted encrypted in the
+  runtime DB when configured. (shipped)
 - Phase 4: Feed + Ideas. Scheduled editorial feed and idea cards.
 - Phase 5: Scheduling + proactive. Crons, reminders, notification digests.
 - Phase 6: Artifacts, voice, media. Documents, TTS/voice notes, image generation.
