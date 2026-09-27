@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hmac, hashlib, time, os, secrets
+import hmac, hashlib, time, os, secrets, threading
 from dataclasses import dataclass, field
 from typing import Callable
 from .models import Device, AuditEvent, now
@@ -24,6 +24,19 @@ class NonceLedger:
     def record(self, device_id: str, nonce: str, seen_at: float) -> None:
         raise NotImplementedError
 
+    def claim(self, device_id: str, nonce: str, seen_at: float) -> bool:
+        """Atomic check-and-record.
+
+        Returns True when the nonce was fresh and is now recorded, False
+        when it was already seen (replay). The default seen()+record()
+        composite is NOT atomic; ledgers shared across threads or workers
+        must override this with a real compare-and-set.
+        """
+        if self.seen(device_id, nonce):
+            return False
+        self.record(device_id, nonce, seen_at)
+        return True
+
 
 class InMemoryNonceLedger(NonceLedger):
     """Process-local ledger. Entries expire MAX_SKEW_SECONDS after being
@@ -31,6 +44,7 @@ class InMemoryNonceLedger(NonceLedger):
 
     def __init__(self, backing: dict[str, float] | None = None):
         self.nonces: dict[str, float] = backing if backing is not None else {}
+        self._lock = threading.Lock()
 
     @staticmethod
     def _key(device_id: str, nonce: str) -> str:
@@ -49,6 +63,16 @@ class InMemoryNonceLedger(NonceLedger):
     def record(self, device_id: str, nonce: str, seen_at: float) -> None:
         self._prune(seen_at)
         self.nonces[self._key(device_id, nonce)] = seen_at
+
+    def claim(self, device_id: str, nonce: str, seen_at: float) -> bool:
+        """Lock-atomic compare-and-set for threads sharing one process."""
+        with self._lock:
+            self._prune(seen_at)
+            key = self._key(device_id, nonce)
+            if key in self.nonces:
+                return False
+            self.nonces[key] = seen_at
+            return True
 SESSION_SECONDS = 30 * 24 * 3600
 # Set SHADOW_ED25519_KEYS=true to enable Ed25519 device-key mode.
 ED25519_ENABLED = os.getenv("SHADOW_ED25519_KEYS", "false").lower() == "true"
@@ -128,6 +152,13 @@ class DeviceSessionStore:
     # Injected by the node when an encrypted runtime DB is configured so
     # replay state survives restarts. None -> process-local ledger.
     nonce_ledger: NonceLedger | None = None
+    # One in-memory ledger per store so claim() stays atomic across threads
+    # (a fresh ledger per request would give every call its own lock).
+    _memory_ledger: InMemoryNonceLedger | None = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if self._memory_ledger is None:
+            self._memory_ledger = InMemoryNonceLedger(self.nonces)
     audit: list[AuditEvent] = field(default_factory=list)
     # Expo push tokens per device id (registered via POST /devices/{id}/push-token)
     push_tokens: dict[str, str] = field(default_factory=dict)
@@ -145,18 +176,18 @@ class DeviceSessionStore:
             except Exception:
                 pass  # auditing must never break auth
 
-    def register(self, name: str, public_key: str, secret: str | None = None) -> Device:
+    def register(self, name: str, public_key: str, secret: str | None = None, is_owner: bool = False) -> Device:
         fp = fingerprint_for_key(public_key)
-        dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True)
+        dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True, is_owner=is_owner)
         self.devices[dev.id] = dev
         self.secrets[dev.id] = secret or secrets.token_hex(32)
         return dev
 
-    def register_ed25519(self, name: str, ed25519_public_key: bytes) -> Device:
+    def register_ed25519(self, name: str, ed25519_public_key: bytes, is_owner: bool = False) -> Device:
         """Register a device with an Ed25519 public key instead of a shared secret."""
         public_key = ed25519_public_key.hex()[:64]
         fp = fingerprint_for_key(public_key)
-        dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True)
+        dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True, is_owner=is_owner)
         self.devices[dev.id] = dev
         self.ed25519_keys[dev.id] = ed25519_public_key
         return dev
@@ -199,7 +230,7 @@ class DeviceSessionStore:
         if not nonce:
             return fail("missing_nonce")
         now_ts=int(time.time())
-        ledger = self.nonce_ledger if self.nonce_ledger is not None else InMemoryNonceLedger(self.nonces)
+        ledger = self.nonce_ledger if self.nonce_ledger is not None else self._memory_ledger
         if ledger.seen(device_id, nonce):
             return fail("replayed_nonce")
         try:
@@ -221,7 +252,10 @@ class DeviceSessionStore:
 
         if not ok:
             return fail(reason)
-        ledger.record(device_id, nonce, now_ts)
+        # Atomic compare-and-set: two workers racing the same nonce serialize
+        # here, and the loser is rejected as a replay.
+        if not ledger.claim(device_id, nonce, now_ts):
+            return fail("replayed_nonce")
         return True, "ok"
 
 

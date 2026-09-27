@@ -382,9 +382,11 @@ def pair_confirm(req:PairConfirm):
                 return JSONResponse(status_code=202,content={"pairing_id":req.pairing_id,"status":"pending"})
     entry=pairing.pop(req.pairing_id)
     with _pairing_lock:
-        secret=secrets.token_hex(32); dev=sessions.register(entry["device_name"], entry["public_key"], secret)
-        if entry.get("approved_by")=="bootstrap":
-            dev.is_owner=True
+        secret=secrets.token_hex(32)
+        # The owner flag is set at registration time so the persistent row
+        # carries it: assigning it after register() lost the flag on restart.
+        dev=sessions.register(entry["device_name"], entry["public_key"], secret,
+                              is_owner=(entry.get("approved_by")=="bootstrap"))
     audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint,"approved_by":entry.get("approved_by")})); return {"device":dev,"secret":secret}
 @app.post("/devices/register")
 def register(req:DeviceRegisterRequest, request:Request):

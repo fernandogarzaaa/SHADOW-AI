@@ -81,8 +81,8 @@ class PersistentDeviceSessionStore(DeviceSessionStore):
         for secret in store.all("device_secrets", _Secret):
             self.secrets[secret.id] = secret.value
 
-    def register(self, name: str, public_key: str, secret: str | None = None) -> Device:
-        dev = super().register(name, public_key, secret)
+    def register(self, name: str, public_key: str, secret: str | None = None, is_owner: bool = False) -> Device:
+        dev = super().register(name, public_key, secret, is_owner=is_owner)
         self._store.put("devices", dev.id, dev)
         self._store.put("device_secrets", dev.id, _Secret(id=dev.id, value=self.secrets[dev.id]))
         return dev
@@ -193,3 +193,45 @@ class PersistentNonceLedger:
                    if now - row.seen_at > MAX_SKEW_SECONDS]
         for row_id in expired:
             self._store.delete("nonces", row_id)
+
+    def claim(self, device_id: str, nonce: str, seen_at: float) -> bool:
+        """Atomic compare-and-set across workers sharing one DB file.
+
+        Runs inside a BEGIN IMMEDIATE transaction so two Uvicorn workers
+        racing the same (device_id, nonce) serialize: exactly one insert
+        wins and the loser gets False (replay). A stale row (older than
+        MAX_SKEW_SECONDS) is treated as absent, not as a replay.
+        """
+        from agent_core import MAX_SKEW_SECONDS
+        key = self._key(device_id, nonce)
+        conn = self._store.conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            rows = conn.execute(
+                "SELECT ciphertext FROM runtime WHERE collection='nonces' AND id=?",
+                (key,),
+            ).fetchall()
+            for (blob,) in rows:
+                try:
+                    row = _NonceRow.model_validate_json(
+                        self._store.cipher.decrypt(blob).decode())
+                except Exception:
+                    continue  # corrupt row: treat as absent, overwrite below
+                if seen_at - row.seen_at <= MAX_SKEW_SECONDS:
+                    conn.execute("ROLLBACK")
+                    return False
+            conn.execute("DELETE FROM runtime WHERE collection='nonces' AND id=?", (key,))
+            blob = self._store.cipher.encrypt(
+                _NonceRow(id=key, device_id=device_id, nonce=nonce,
+                          seen_at=seen_at).model_dump_json().encode())
+            conn.execute(
+                "INSERT INTO runtime(collection, id, ciphertext) VALUES(?,?,?)",
+                ("nonces", key, blob))
+            conn.execute("COMMIT")
+            return True
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
