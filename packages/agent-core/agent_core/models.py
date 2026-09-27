@@ -11,7 +11,7 @@ def new_id(prefix: str): return f"{prefix}_{uuid4().hex}"
 class AutonomyMode(str, Enum):
     OFF="off"; SUGGEST_ONLY="suggest_only"; DRAFT_ONLY="draft_only"; EXECUTE_WITH_APPROVAL="execute_with_approval"; TRUSTED_WORKFLOW="trusted_workflow"; FULL_AUTONOMOUS="full_autonomous_disabled"
 class RiskClass(str, Enum): LOW="low"; MEDIUM="medium"; HIGH="high"; BLOCKED="blocked"
-class ApprovalStatus(str, Enum): PENDING="pending"; APPROVED="approved"; DENIED="denied"; EXPIRED="expired"
+class ApprovalStatus(str, Enum): PENDING="pending"; APPROVED="approved"; DENIED="denied"; EXPIRED="expired"; CONSUMED="consumed"
 class ApprovalKind(str, Enum): ONE_TIME="one_time"; TRUSTED_WORKFLOW="trusted_workflow"
 class UserProfile(BaseModel):
     id: str = Field(default_factory=lambda:new_id("usr")); display_name: str="Local User"; privacy_mode: str="strict_local"; autonomy_mode: AutonomyMode=AutonomyMode.SUGGEST_ONLY; emergency_paused: bool=False
@@ -30,6 +30,13 @@ class ApprovalRequest(BaseModel):
     # carries the execution id and its VERIFIED / FAILED / UNCERTAIN / CONFLICTING
     # verdict so clients can show proof, not just a claim of completion.
     execution_id: str|None=None; verification_status: str|None=None
+    # One-shot semantics: a ONE_TIME approval is atomically transitioned to
+    # CONSUMED when its execution is claimed, so it cannot be replayed.
+    consumed_at: datetime|None=None
+    # Authorization binding: sha256 over the canonical authorization envelope
+    # (tool, params, destination, data/model scope, risk, destructive, policy
+    # version). The presented action must reproduce this hash at claim time.
+    binding_hash: str|None=None
 class AuditEvent(BaseModel):
     id: str = Field(default_factory=lambda:new_id("aud")); actor: str; event_type: str; data_used: list[str]=[]; model_used: str|None=None; permission_checked: str|None=None; proposed_action: str|None=None; status: str="recorded"; result: str|None=None; timestamp: datetime=Field(default_factory=now); metadata: dict[str, Any]={}
 class Device(BaseModel):
