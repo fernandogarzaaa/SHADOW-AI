@@ -632,6 +632,21 @@ class AmbientScheduler:
         return cfg
 
     # -- ticking ----------------------------------------------------------
+    def seconds_until_due(self, at: float | None = None) -> float:
+        """Seconds until the next tick is due. 0.0 means due now;
+        float("inf") when ambient is disabled (nothing will ever be due)."""
+        cfg = self.get_config()
+        if not cfg.enabled:
+            return float("inf")
+        now_ts = time.time() if at is None else at
+        if cfg.last_tick_at is None:
+            return 0.0
+        try:
+            last = cfg.last_tick_at.timestamp()
+        except AttributeError:
+            last = float(cfg.last_tick_at)
+        return max(0.0, cfg.interval_seconds - (now_ts - last))
+
     def _due(self, cfg: AmbientConfig, at: float) -> bool:
         if cfg.last_tick_at is None:
             return True

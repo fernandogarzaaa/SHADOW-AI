@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from agent_core import *
 from agent_core import (
     RunJournal, CheckpointStore, ClaimRegistry, GhostRunSession,
-    AmbientScheduler, InMemoryKV,
+    AmbientScheduler, InMemoryKV, AmbientLoop, CalendarWakeTrigger,
+    MessageWakeTrigger, PushWakeTrigger, SessionStore, SessionCompactor,
 )
 from memory_engine import *
 from axiom_adapter import AxiomAdapter
@@ -35,8 +36,18 @@ from . import provider_auth
 from .events import EventBus
 from pathlib import Path
 import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
+from contextlib import asynccontextmanager
 APP_VERSION="1.0.0-rc"
-app=FastAPI(title="Shadow Node", version=APP_VERSION)
+@asynccontextmanager
+async def _lifespan(app):
+    yield
+    # Clean shutdown: stop the always-on loop (join its thread, persist the
+    # loop record) instead of letting the process die mid-tick.
+    try:
+        ambient_loop.stop(timeout=5)
+    except Exception:
+        pass
+app=FastAPI(title="Shadow Node", version=APP_VERSION, lifespan=_lifespan)
 # CORS: localhost by default; add deployed PWA/app origins via SHADOW_CORS_ORIGINS
 # (comma-separated). Use "*" only for fully trusted/private deployments.
 _DEFAULT_CORS=["http://localhost","http://127.0.0.1","http://localhost:8787","http://127.0.0.1:8787","http://localhost:8081","http://localhost:19006"]
@@ -238,7 +249,28 @@ ambient_scheduler=AmbientScheduler(store=_ambient_kv, journal=ambient_journal,
                                             "notify": _notify_proactive,
                                             "publish": bus.publish},
                                    checkpoints=ambient_checkpoints)
-ambient_scheduler.start_background()
+# Always-on loop ("o"-pattern, local-first): one background thread owns the
+# scheduler tick and the SLEEPING/AWAKE lifecycle. Wake sources are local:
+# device push taps (POST /ambient/wake), the node's own reminder store as
+# the calendar source, and inbound messages from the ask pipeline.
+# Durable conversation sessions live in session_store, backed by the same
+# encrypted runtime DB as everything else ambient, with automatic context
+# compaction whose folded summaries are ingested into the user-owned
+# memory engine (memory stays the source of truth).
+session_store=SessionStore(_ambient_kv, compactor=SessionCompactor(), memory=memory,
+                           event_sink=bus.publish, audit=sentinel_audit)
+_rehydrated_sessions=session_store.rehydrate()
+calendar_trigger=CalendarWakeTrigger(
+    reminder_source=lambda: [{"id": r.id, "title": r.title, "due_at": r.due_at}
+                             for r in reminder_store.reminders.values()
+                             if r.status == "pending"])
+message_trigger=MessageWakeTrigger()
+push_trigger=PushWakeTrigger()
+ambient_loop=AmbientLoop(scheduler=ambient_scheduler, store=_ambient_kv,
+                         journal=ambient_journal,
+                         triggers=(calendar_trigger, message_trigger, push_trigger),
+                         event_sink=bus.publish, audit=sentinel_audit)
+ambient_loop.start()
 # Hybrid local+frontier router and provider credential store.
 hybrid=HybridRouter(model, axiom)
 credentials=provider_auth.CredentialStore()
@@ -251,7 +283,7 @@ log=configure_logging()
 rate_limiter=RateLimiter(RATE_LIMIT_RPM) if RATE_LIMIT_RPM>0 else None
 class IngestRequest(BaseModel): text:str; source_kind:str="manual"; source_title:str="Manual Import"; consent_grant_id:str|None=None; sensitive:bool|None=None; do_not_send_to_cloud:bool|None=None
 class FileIngestRequest(BaseModel): path:str; consent_grant_id:str; source_title:str|None=None
-class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False
+class AskRequest(BaseModel): prompt:str; allow_cloud:bool=False; cloud_approval:bool=False; session_id:str|None=None
 class PairStart(BaseModel): device_name:str; public_key:str
 class PairApprove(BaseModel): pairing_id:str
 class PairConfirm(BaseModel): pairing_id:str
@@ -852,7 +884,36 @@ def delete_media(item_id:str):
                             metadata={"media_id":item_id}))
     return {"deleted_media":item_id}
 @app.post("/agent/ask")
-def ask(req:AskRequest): return _run_ask_pipeline(req)
+def ask(req:AskRequest):
+    result=_run_ask_pipeline(req)
+    result["session_id"]=_record_ask_session(req, result)
+    _note_message_wake(req, result)
+    return result
+def _record_ask_session(req:AskRequest, result:dict):
+    """Append this ask turn to a durable session when the caller named one.
+
+    Returns the session id (or None). Sessions persist across restarts;
+    appends auto-compact past the context budget, with folded summaries
+    ingested into user-owned memory.
+    """
+    sid=req.session_id
+    if sid is None: return None
+    try:
+        session_store.append(sid, "user", req.prompt)
+        session_store.append(sid, "assistant", result.get("answer") or "")
+    except KeyError:
+        raise HTTPException(404, "unknown session")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return sid
+def _note_message_wake(req:AskRequest, result:dict):
+    """Message-arrival wake for the always-on loop. Best-effort: the ask
+    answer is primary, the wake is secondary, so a stopped loop only logs."""
+    try:
+        message_trigger.deliver(session_id=req.session_id, preview=req.prompt[:160],
+                                metadata={"route": result.get("route")})
+    except RuntimeError as e:
+        log.warning("message_wake_skipped", extra={"error": str(e)[:120]})
 def _run_ask_pipeline(req:AskRequest):
     if is_suspicious_user_request(req.prompt):
         audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
@@ -923,6 +984,7 @@ def ask_stream(req:AskRequest):
     chunks followed by agent.message.done. Chunking is delivery-level
     (progressive rendering), not token-level generation."""
     result=_run_ask_pipeline(req)
+    _note_message_wake(req, result)
     session_id=new_id("ses"); message_id=new_id("msg")
     answer=result["answer"] or ""
     chunks=[answer[i:i+160] for i in range(0, len(answer), 160)] or [""]
@@ -989,7 +1051,62 @@ def ambient_status():
     """Ambient scheduler state. Disabled by default; enabling is explicit opt-in."""
     cfg=ambient_scheduler.get_config()
     return {"config":cfg.model_dump(mode="json"), "tasks_available":sorted(build_task_map()),
-            "background_running":ambient_scheduler.background_running}
+            "background_running":ambient_loop.is_running,
+            "loop":{"state":ambient_loop.state.value, "wake_count":ambient_loop.wake_count,
+                    "last_wake_at":str(ambient_loop.last_wake_at) if ambient_loop.last_wake_at else None,
+                    "sessions_open":len(session_store.list()),
+                    "sessions_rehydrated":_rehydrated_sessions}}
+class WakeRequest(BaseModel): source:str; reason:str=""; payload:dict={}
+@app.post("/ambient/wake")
+def ambient_wake(req:WakeRequest):
+    """Wake the always-on loop from a local source.
+
+    Sources: "push" (device push tap, via the companion app), "message"
+    (inbound message), "calendar" (local calendar item), "operator"
+    (manual). The loop journals the wake and, when ambient is enabled,
+    transitions SLEEPING -> AWAKE and runs its cycle.
+    """
+    src=req.source.lower()
+    try:
+        if src=="push":
+            evt=push_trigger.deliver(device_id=str(req.payload.get("device_id","")),
+                                     action=str(req.payload.get("action","tap")),
+                                     payload=req.payload)
+        elif src=="message":
+            evt=message_trigger.deliver(session_id=req.payload.get("session_id"),
+                                        preview=str(req.payload.get("preview","")),
+                                        metadata=req.payload)
+        elif src in ("calendar","timer","operator"):
+            evt=ambient_loop.wake(src, req.reason, req.payload)
+        else:
+            raise HTTPException(400, f"unknown wake source: {req.source!r}")
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    return {"wake_id":evt.id, "source":evt.source, "loop_state":ambient_loop.state.value}
+class SessionCreateRequest(BaseModel): title:str=""; metadata:dict={}
+@app.post("/agent/sessions")
+def create_session(req:SessionCreateRequest):
+    """Create a durable conversation session. Sessions persist across
+    restarts and auto-compact past their context budget."""
+    return session_store.create(title=req.title, metadata=req.metadata).model_dump(mode="json")
+@app.get("/agent/sessions")
+def list_sessions(open_only:bool=True):
+    """List sessions, most recently active first."""
+    return [s.model_dump(mode="json") for s in session_store.list(open_only=open_only)]
+@app.get("/agent/sessions/{session_id}")
+def get_session(session_id:str):
+    """Session detail with full message history."""
+    try:
+        return session_store.get(session_id).model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(404, "unknown session")
+@app.post("/agent/sessions/{session_id}/close")
+def close_session(session_id:str):
+    """Close a session. Closed sessions are kept for history but reject appends."""
+    try:
+        return session_store.close(session_id).model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(404, "unknown session")
 @app.post("/ambient/config")
 def ambient_config(req:AmbientConfigRequest):
     """Enable/disable ambient work, set interval and stealth mode, choose tasks, set quiet hours (HH:MM)."""
