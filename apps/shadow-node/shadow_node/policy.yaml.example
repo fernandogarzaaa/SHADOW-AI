@@ -1,0 +1,22 @@
+# Example policy grants for SHADOW-AI Shadow Acts (v0.3).
+#
+# This file is documentation only. The node loads policy from
+# `policy.yaml` next to main.py when it exists
+# (SHADOW_POLICY_FILE env overrides the path); otherwise it runs on the
+# built-in defaults, under which Shadow Acts are HELD for approval and
+# never auto-run.
+#
+# To grant a Shadow Act standing autonomy, copy this file to
+# `policy.yaml` and uncomment the grants you want. Each grant is an
+# explicit operator decision; removing a line revokes that act's
+# autonomy. Grants waive only the approval requirement: emergency pause,
+# blocked tools, and destructive double-confirmation still apply.
+#
+# tool_tiers:
+#   # Digest of Google Calendar events starting in the next 24h,
+#   # delivered through the node's own notification path.
+#   "shadow_act:upcoming_events_brief": "auto_approve"
+#   # Digest of reminders due in the next 24h, same notify path.
+#   "shadow_act:due_reminders_digest": "auto_approve"
+#   # Read-only ambient health report. Never notifies, never writes.
+#   "shadow_act:ambient_health": "auto_approve"

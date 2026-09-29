@@ -586,6 +586,20 @@ class AmbientScheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
+    def update_context(self, mapping: dict) -> None:
+        """Merge entries into the task context after construction.
+
+        The scheduler copies the context dict at init, so objects that
+        only exist later (the ambient loop, the act runner) are added
+        this way. Tasks read the context on every tick, so updates take
+        effect on the next run.
+        """
+        self._task_context.update(mapping)
+
+    def task_context(self) -> dict:
+        """A copy of the current task context (for manual triggers)."""
+        return dict(self._task_context)
+
     # -- config ----------------------------------------------------------
     def get_config(self) -> AmbientConfig:
         configs = self._store.all(_CONFIG_COLLECTION, AmbientConfig)

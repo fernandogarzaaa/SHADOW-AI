@@ -20,17 +20,29 @@ from .ambient import (
 from .always_on import (
     AgentSession,
     AmbientLoop,
-    CalendarWakeTrigger,
     CompactionReport,
+    GoogleCalendarWakeTrigger,
     LoopRecord,
     LoopState,
     MessageWakeTrigger,
     PushWakeTrigger,
+    ReminderWakeTrigger,
     SessionCompactor,
     SessionMessage,
     SessionStore,
     WakeEvent,
     WakeTrigger,
+)
+from .compression import (
+    AxiomBackend,
+    CompressionBackend,
+    DeterministicBackend,
+    select_backend,
+)
+from .shadow_acts import (
+    SHADOW_ACTS,
+    ShadowAct,
+    ShadowActRunner,
 )
 from .verification import (
     ExecutionRecord,

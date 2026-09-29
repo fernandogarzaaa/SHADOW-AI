@@ -14,9 +14,12 @@ Pieces:
 - LoopState: explicit SLEEPING / AWAKE lifecycle (plus STARTING, STOPPING,
   STOPPED transients so every transition is observable).
 - WakeEvent / WakeTrigger: local-first wake sources. PushWakeTrigger and
-  MessageWakeTrigger are push-driven (the node calls deliver()); 
-  CalendarWakeTrigger polls the node's own reminder store. All three are
-  real implementations wired into the loop, not stubs.
+  MessageWakeTrigger are push-driven (the node calls deliver());
+  ReminderWakeTrigger polls the node's own reminder store and
+  GoogleCalendarWakeTrigger polls the user's real Google Calendar (via the
+  already-connected hatch_gws_cli, cached so the idle loop does not spawn
+  a subprocess every iteration). All are real implementations wired into
+  the loop, not stubs.
 - AmbientLoop: owns one background thread and drives
   AmbientScheduler.tick(). While SLEEPING the thread blocks on an event
   with a timeout that stretches to the next due tick, so an idle node
@@ -39,13 +42,18 @@ are journaled as held; the loop stays SLEEPING.
 """
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Protocol
+
+from .compression import CompressionBackend, DeterministicBackend
 
 from pydantic import BaseModel, Field
 
@@ -58,8 +66,10 @@ _LOOP_COLLECTION = "ambient_loop"
 _LOOP_ID = "loop"
 
 # Wake sources. "timer" is the scheduler's own due tick; "operator" is a
-# manual POST /ambient/wake.
-WAKE_SOURCES = ("push", "calendar", "message", "timer", "operator")
+# manual POST /ambient/wake. "calendar" is real Google Calendar events;
+# "reminder" is the node's own reminder store (previously mislabeled as
+# the calendar source).
+WAKE_SOURCES = ("push", "calendar", "message", "timer", "operator", "reminder")
 
 
 class LoopState(str, Enum):
@@ -112,6 +122,10 @@ class _BoundTrigger:
     def poll(self, now_ts: float) -> list[WakeEvent]:
         return []  # push-driven triggers never poll
 
+    def status(self) -> dict[str, Any]:
+        return {"name": self.name, "last_error": None,
+                "bound": self._wake_fn is not None}
+
 
 class PushWakeTrigger(_BoundTrigger):
     """Wake on device push interaction.
@@ -154,16 +168,20 @@ class MessageWakeTrigger(_BoundTrigger):
         return self._fire(reason, data)
 
 
-class CalendarWakeTrigger:
-    """Wake when a local calendar-like item becomes due.
+class ReminderWakeTrigger:
+    """Wake when a node-local reminder becomes due.
 
     Real local implementation over the node's own reminder store: the
     loop polls it, and a reminder entering its lead window wakes the loop
     so the tick can run reminder_check. Each (reminder, due_at) pair
     fires once; fired pairs are pruned after an hour.
+
+    This used to be mislabeled as the "calendar" source. Real calendar
+    events now come from GoogleCalendarWakeTrigger; this trigger is the
+    node's own reminders and nothing else.
     """
 
-    name = "calendar"
+    name = "reminder"
 
     def __init__(self, reminder_source: Callable[[], list[dict[str, Any]]],
                  lead_seconds: float = 300.0) -> None:
@@ -171,6 +189,7 @@ class CalendarWakeTrigger:
         self.lead_seconds = lead_seconds
         self._wake_fn: Callable[[str, str, dict], WakeEvent] | None = None
         self._fired: dict[tuple[str, float], float] = {}
+        self._fired_total = 0
 
     def bind(self, wake_fn: Callable[[str, str, dict], WakeEvent]) -> None:
         self._wake_fn = wake_fn
@@ -182,7 +201,7 @@ class CalendarWakeTrigger:
 
     def poll(self, now_ts: float) -> list[WakeEvent]:
         if self._wake_fn is None:
-            raise RuntimeError("calendar trigger is not bound to a loop")
+            raise RuntimeError("reminder trigger is not bound to a loop")
         self._prune(now_ts)
         events: list[WakeEvent] = []
         try:
@@ -204,12 +223,187 @@ class CalendarWakeTrigger:
             if key in self._fired:
                 continue
             self._fired[key] = now_ts
+            self._fired_total += 1
             events.append(self._wake_fn(
                 self.name,
                 f"reminder due: {r.get('title', rid)}",
                 {"reminder_id": rid, "title": r.get("title", ""), "due_at": due_ts},
             ))
         return events
+
+    def status(self) -> dict[str, Any]:
+        return {"name": self.name, "last_error": None,
+                "fired_total": self._fired_total,
+                "lead_seconds": self.lead_seconds}
+
+
+class GoogleCalendarWakeTrigger:
+    """Wake when a real Google Calendar event enters its lead window.
+
+    Real implementation, still free and local-first: the trigger shells
+    out to `hatch_gws_cli calendar +agenda --format json` (the user's
+    already-connected Google Calendar) and fires one wake per timed event
+    that starts within `lead_seconds` (or started at most `lead_seconds`
+    ago, so a just-started meeting still wakes the loop). Each
+    (summary, start) pair fires once; fired pairs are pruned after an
+    hour. All-day (date-only) events are skipped: there is no meaningful
+    lead window for them.
+
+    The agenda is re-fetched at most every `refresh_seconds`; polls in
+    between read the cache, so the loop's idle cadence does not spawn a
+    subprocess every iteration. A missing CLI, a disconnected calendar,
+    or unparsable output degrades to "no events" and records last_error
+    (surfaced on /ambient/status); the loop is never taken down. poll()
+    never raises once bound, so the loop's poll-failure journaling is not
+    spammed by a broken calendar connection.
+    """
+
+    name = "calendar"
+    _CLI = "hatch_gws_cli"
+
+    def __init__(
+        self,
+        runner: Callable[[list[str]], Any] | None = None,
+        lead_seconds: float = 300.0,
+        days_ahead: int = 2,
+        refresh_seconds: float = 300.0,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        self.lead_seconds = max(0.0, float(lead_seconds))
+        self.days_ahead = max(1, int(days_ahead))
+        self.refresh_seconds = max(30.0, float(refresh_seconds))
+        self._clock = clock
+        self._runner = runner or self._default_runner
+        self._wake_fn: Callable[[str, str, dict], WakeEvent] | None = None
+        self._fired: dict[tuple[str, str], float] = {}
+        self._fired_total = 0
+        self._cache: list[dict[str, Any]] = []
+        self._cache_at = 0.0
+        self._last_error: str | None = None
+        self._last_ok_at: float | None = None
+
+    @staticmethod
+    def _default_runner(argv: list[str]) -> Any:
+        if shutil.which(GoogleCalendarWakeTrigger._CLI) is None:
+            raise FileNotFoundError(
+                f"{GoogleCalendarWakeTrigger._CLI} not on PATH; "
+                "Google Calendar wake source unavailable")
+        return subprocess.run(
+            [GoogleCalendarWakeTrigger._CLI, *argv],
+            capture_output=True, text=True, timeout=60)
+
+    def bind(self, wake_fn: Callable[[str, str, dict], WakeEvent]) -> None:
+        self._wake_fn = wake_fn
+
+    def _prune(self, now_ts: float) -> None:
+        stale = [k for k, fired_at in self._fired.items() if now_ts - fired_at > 3600]
+        for k in stale:
+            del self._fired[k]
+
+    def _refresh(self, now_ts: float) -> None:
+        if self._cache_at > 0 and now_ts - self._cache_at < self.refresh_seconds:
+            return
+        try:
+            proc = self._runner(["calendar", "+agenda",
+                                 "--days", str(self.days_ahead),
+                                 "--format", "json"])
+        except Exception as e:  # noqa: BLE001 - any runner failure degrades
+            self._last_error = f"calendar fetch failed: {e}"
+            return
+        if getattr(proc, "returncode", 1) != 0:
+            err = (getattr(proc, "stderr", "") or "").strip()[:200]
+            self._last_error = f"calendar CLI exit {proc.returncode}: {err}"
+            return
+        try:
+            data = json.loads(getattr(proc, "stdout", "") or "{}")
+        except Exception as e:  # noqa: BLE001 - unparsable output degrades
+            self._last_error = f"calendar output unparsable: {e}"
+            return
+        events = data.get("events")
+        if not isinstance(events, list):
+            self._last_error = "calendar output has no events list"
+            return
+        self._cache = [e for e in events if isinstance(e, dict)]
+        self._cache_at = now_ts
+        self._last_error = None
+        self._last_ok_at = now_ts
+
+    @staticmethod
+    def _start_ts(event: dict[str, Any]) -> float | None:
+        start = event.get("start")
+        if not isinstance(start, str) or "T" not in start:
+            return None  # all-day (date-only) events have no lead window
+        try:
+            dt = datetime.fromisoformat(start)
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+
+    def poll(self, now_ts: float) -> list[WakeEvent]:
+        if self._wake_fn is None:
+            raise RuntimeError("calendar trigger is not bound to a loop")
+        self._prune(now_ts)
+        self._refresh(now_ts)
+        events: list[WakeEvent] = []
+        for e in self._cache:
+            start_ts = self._start_ts(e)
+            if start_ts is None:
+                continue
+            if start_ts - self.lead_seconds > now_ts:
+                continue  # too far out
+            if start_ts < now_ts - self.lead_seconds:
+                continue  # long over; waking now is noise
+            summary = str(e.get("summary", "")).strip()
+            start_s = str(e.get("start", ""))
+            key = (summary, start_s)
+            if key in self._fired:
+                continue
+            self._fired[key] = now_ts
+            self._fired_total += 1
+            events.append(self._wake_fn(
+                self.name,
+                f"calendar event starting: {summary or '(untitled)'}",
+                {"summary": summary,
+                 "start": start_s,
+                 "end": str(e.get("end", "")),
+                 "calendar": str(e.get("calendar", "")),
+                 "location": str(e.get("location", "")),
+                 "start_ts": start_ts},
+            ))
+        return events
+
+    def status(self) -> dict[str, Any]:
+        return {"name": self.name, "last_error": self._last_error,
+                "last_ok_at": self._last_ok_at,
+                "fired_total": self._fired_total,
+                "lead_seconds": self.lead_seconds,
+                "cached_events": len(self._cache)}
+
+    def upcoming_within(self, window_seconds: float,
+                        now_ts: float | None = None) -> list[dict[str, Any]]:
+        """Cached timed events starting within the window, soonest first.
+
+        Pure read: never fires a wake, never refreshes the cache. Used by
+        the upcoming_events_brief Shadow Act to digest the calendar
+        without waking the loop.
+        """
+        now_ts = self._clock() if now_ts is None else now_ts
+        out: list[dict[str, Any]] = []
+        for e in self._cache:
+            start_ts = self._start_ts(e)
+            if start_ts is None:
+                continue
+            if now_ts <= start_ts <= now_ts + window_seconds:
+                out.append({"summary": str(e.get("summary", "")),
+                            "start": str(e.get("start", "")),
+                            "end": str(e.get("end", "")),
+                            "calendar": str(e.get("calendar", "")),
+                            "location": str(e.get("location", "")),
+                            "start_ts": start_ts})
+        out.sort(key=lambda d: d["start_ts"])
+        return out
 
 
 class LoopRecord(BaseModel):
@@ -308,6 +502,21 @@ class AmbientLoop:
     @property
     def last_wake_at(self) -> Any | None:
         return self._last_wake_at
+
+    def trigger_statuses(self) -> list[dict[str, Any]]:
+        """Per-trigger health for /ambient/status. Triggers without a
+        status() method report just their name."""
+        out: list[dict[str, Any]] = []
+        for t in self._triggers:
+            fn = getattr(t, "status", None)
+            if callable(fn):
+                try:
+                    out.append(dict(fn()))
+                    continue
+                except Exception:
+                    pass
+            out.append({"name": getattr(t, "name", "?"), "last_error": None})
+        return out
 
     def _transition(self, to: LoopState, reason: str = "") -> None:
         with self._state_lock:
@@ -542,47 +751,36 @@ class CompactionReport(BaseModel):
     summary_text: str
 
 
-# Lines that look like durable user facts worth carrying across compaction.
-_FACT_PATTERNS = (
-    re.compile(r"(?i)\b(my|i'm|i am|i've|i have)\b[^.!?\n]{0,90}"),
-    re.compile(r"(?i)\b(remember|prefer|always|never|don't|do not)\b[^.!?\n]{0,90}"),
-)
-
-
 class SessionCompactor:
     """Automatic context compaction with continuity.
 
-    Deterministic and local: no model call. When a session passes its
-    token budget, messages older than the recent window are folded into
-    one system summary message (message count, time range, opening user
-    intent, extracted key facts); the recent window is kept verbatim.
+    The summary itself is produced by a CompressionBackend (see
+    agent_core.compression): deterministic and local by default, with a
+    real seam to a local AXIOM-AETHER checkout when one is configured and
+    actually provides a summarizer. When a session passes its token
+    budget, messages older than the recent window are folded into one
+    system summary message; the recent window is kept verbatim. If the
+    configured backend is unavailable at compact time, compaction falls
+    back to the deterministic backend so the loop never breaks.
     """
 
     def __init__(self, budget_tokens: int = 8000, keep_recent: int = 10,
-                 max_facts: int = 8) -> None:
+                 max_facts: int = 8,
+                 backend: CompressionBackend | None = None) -> None:
         if budget_tokens < 100:
             raise ValueError("budget_tokens must be at least 100")
         self.budget_tokens = budget_tokens
         self.keep_recent = max(1, keep_recent)
         self.max_facts = max(1, max_facts)
+        self.backend = backend or DeterministicBackend(max_facts=self.max_facts)
 
     def needs_compaction(self, session: AgentSession) -> bool:
         return session.estimated_tokens > self.budget_tokens
 
-    def _key_facts(self, messages: list[SessionMessage]) -> list[str]:
-        facts: list[str] = []
-        for m in messages:
-            if m.role != "user":
-                continue
-            for pat in _FACT_PATTERNS:
-                for hit in pat.findall(m.content):
-                    text = " ".join(hit.split()) if isinstance(hit, str) else ""
-                    text = text.strip(" .")
-                    if text and text not in facts:
-                        facts.append(text)
-                    if len(facts) >= self.max_facts:
-                        return facts
-        return facts
+    def _active_backend(self) -> CompressionBackend:
+        if self.backend.available():
+            return self.backend
+        return DeterministicBackend(max_facts=self.max_facts)
 
     def compact(self, session: AgentSession) -> CompactionReport:
         tokens_before = session.estimated_tokens
@@ -597,22 +795,7 @@ class SessionCompactor:
                 tokens_before=tokens_before, tokens_after=tokens_before,
                 summary_text="")
 
-        first_user = next((m.content for m in folded if m.role == "user"), "")
-        facts = self._key_facts(folded)
-        span = ""
-        try:
-            span = f"{folded[0].created_at} .. {folded[-1].created_at}"
-        except Exception:
-            pass
-        lines = [
-            f"Context compacted: {len(folded)} older messages folded ({span}).",
-        ]
-        if first_user:
-            lines.append(f"Opening intent: {first_user[:200]}")
-        if facts:
-            lines.append("Key facts carried forward:")
-            lines.extend(f"- {f}" for f in facts)
-        summary_text = "\n".join(lines)
+        summary_text = self._active_backend().summarize(folded)
         summary_msg = SessionMessage(role="system", kind="compaction_summary",
                                      content=summary_text)
         session.messages = [summary_msg, *keep]

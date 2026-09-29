@@ -166,7 +166,17 @@ Wake sources (all local, no cloud services):
 - `MessageWakeTrigger`: the ask pipeline (`/agent/ask`, `/agent/ask_stream`)
   delivers a wake on every inbound message; `POST /ambient/wake` with source
   `message` covers other local message bridges.
-- `CalendarWakeTrigger`: polls the node's own reminder store; a pending
+- `GoogleCalendarWakeTrigger`: polls the user's real Google Calendar with
+  `hatch_gws_cli calendar +agenda --format json` (read-only; the already
+  connected calendar, no new accounts or services). A timed event entering
+  its 5-minute lead window (or started at most 5 minutes ago) wakes the
+  loop once per (summary, start); all-day events are skipped. The agenda
+  is cached for 5 minutes so the 30s idle cadence never spawns a process
+  per tick, and a missing CLI or disconnected calendar degrades to "no
+  events" with `last_error` surfaced on `GET /ambient/status` instead of
+  taking the loop down. Tuned with `SHADOW_CALENDAR_LEAD_SECONDS`,
+  `SHADOW_CALENDAR_DAYS`, `SHADOW_CALENDAR_REFRESH_SECONDS`.
+- `ReminderWakeTrigger`: polls the node's own reminder store; a pending
   reminder entering its 5-minute lead window wakes the loop once per
   (reminder, due_at).
 
@@ -184,11 +194,26 @@ flagged `response_interrupted` in metadata instead of silently resuming.
 
 `SessionCompactor` compacts automatically on append past the token budget
 (default 8000 estimated tokens, estimates are `len//4`): messages older
-than the recent window fold into one deterministic system summary (message
-count, time span, opening user intent, extracted key facts); the recent
+than the recent window fold into one system summary message; the recent
 window is kept verbatim. The folded summary is ingested into the
 user-owned memory engine (source kind `session`), so memory stays the
 source of truth and sessions stay the working set.
+
+The summary itself is produced by a `CompressionBackend`
+(`agent_core.compression`): `DeterministicBackend` (the original local
+summarizer: message count, time span, opening intent, extracted key
+facts) is the default and the automatic fallback. `AxiomBackend` is a
+real seam to a local AXIOM-AETHER checkout: it becomes available only
+when `<path>/axiom_engine/summarize.py` defines
+`summarize_text(text: str) -> str`, and otherwise reports a concrete
+unavailable reason. AXIOM-AETHER upstream exposes no summarization
+entrypoint as of 2026-09-29, so the backend honestly stays on
+deterministic until such a module exists; nothing is faked. Select with
+`SHADOW_COMPRESSION_BACKEND` (`deterministic` or `axiom`); an unknown
+name or an unavailable AXIOM falls back to deterministic with the reason
+audit-logged at startup (`compression_backend_selected`). If the primary
+backend breaks at runtime, compaction still falls back per compact call,
+so the loop never dies on a compression failure.
 
 HTTP surface:
 
@@ -196,7 +221,50 @@ HTTP surface:
   `GET /agent/sessions/{id}`, `POST /agent/sessions/{id}/close`
 - `POST /agent/ask` accepts an optional `session_id` and appends the turn
   (user + assistant) to that session; the response echoes `session_id`.
-- `POST /ambient/wake` with `{"source": "push"|"message"|"calendar"|"operator",
+- `POST /ambient/wake` with `{"source": "push"|"message"|"calendar"|"reminder"|"operator",
   "reason": ..., "payload": {...}}`
-- `GET /ambient/status` now also reports `loop` state, wake count, and open
-  session count.
+- `GET /ambient/status` now also reports `loop` state, wake count, open
+  session count, and per-trigger health (`triggers`: name, last_error,
+  fired_total).
+
+## 9. Shadow Acts (v0.3): policy-gated proactive actions
+
+Shadow Acts are the ambient loop's narrow action surface. Each act is a
+named, auditable behavior in `agent_core.shadow_acts` that runs inside
+the `shadow_acts` scheduler task and through the manual
+`POST /ambient/acts/run` endpoint. Every act goes through the single
+policy path, `core.policy.decide()`:
+
+- ALLOW: the act runs; the run is audit-recorded.
+- REQUIRE_APPROVAL: the runner files a normal approval request (one
+  pending request per act, deduped across ticks) and holds the act. A
+  granted one-time approval is claimed on a later tick and runs the act
+  exactly once. The runner cannot manufacture approval.
+- DENY: the act is skipped and the denial is audit-recorded.
+
+Standing autonomy is granted exactly like any other tool: an explicit
+`tool_tiers` entry in the policy document, e.g.
+`{"shadow_act:upcoming_events_brief": "auto_approve"}`. With no tier
+(the default), the default SUGGEST_ONLY profile makes decide() require
+approval, so acts are held, never silently auto-run. Removing the tier
+revokes autonomy. Tiers waive only the approval requirement; the hard
+gates (emergency pause, blocked tools, destructive double-confirmation)
+are evaluated first and cannot be waived. See
+`apps/shadow-node/shadow_node/policy.yaml.example` for the grant shape.
+
+v0.3 act surface (all local-only, no network, no credentials):
+
+- `upcoming_events_brief` (local_notify): digest of Google Calendar
+  events starting in the next 24h via the node's own notify path.
+  Notifies at most once per digest content; held during quiet hours.
+- `due_reminders_digest` (local_notify): reminders due in the next 24h,
+  same notify-once and quiet-hours behavior.
+- `ambient_health` (local_read): trigger health, loop state, open
+  sessions, active compression backend. Never notifies, never writes.
+
+HTTP surface:
+
+- `GET /ambient/acts`: registered acts with their current policy
+  evaluation (dry run; creates nothing).
+- `POST /ambient/acts/run` with `{"act": "<name>"}`: run one act
+  through the policy gate manually. Unknown names are a 404.

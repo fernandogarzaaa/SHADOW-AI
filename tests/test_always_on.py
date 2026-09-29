@@ -9,12 +9,13 @@ from agent_core import (
     AgentSession,
     AmbientLoop,
     AmbientScheduler,
-    CalendarWakeTrigger,
+    GoogleCalendarWakeTrigger,
     InMemoryKV,
     LoopRecord,
     LoopState,
     MessageWakeTrigger,
     PushWakeTrigger,
+    ReminderWakeTrigger,
     RunJournal,
     SessionCompactor,
     SessionStore,
@@ -184,7 +185,7 @@ def test_unbound_trigger_deliver_raises():
         MessageWakeTrigger().deliver(preview="x")
 
 
-def test_calendar_trigger_fires_due_reminder_once():
+def test_reminder_trigger_fires_due_reminder_once():
     fired = []
     # fixed timestamps: a real reminder store returns stable due_at values
     t_due = time.time() - 10
@@ -197,27 +198,27 @@ def test_calendar_trigger_fires_due_reminder_once():
             {"id": "r3", "title": "Broken", "due_at": "not-a-time"},
         ]
 
-    trig = CalendarWakeTrigger(source, lead_seconds=300.0)
+    trig = ReminderWakeTrigger(source, lead_seconds=300.0)
     trig.bind(lambda src, reason, payload: fired.append((src, reason, payload))
               or WakeEvent(source=src, reason=reason, payload=payload))
     now = time.time()
     first = trig.poll(now)
     assert len(first) == 1
-    assert first[0].source == "calendar"
+    assert first[0].source == "reminder"
     assert first[0].payload["reminder_id"] == "r1"
     # second poll: already fired, nothing new
     assert trig.poll(now + 5) == []
 
 
-def test_calendar_trigger_wakes_loop(scheduler, store):
+def test_reminder_trigger_wakes_loop(scheduler, store):
     scheduler.configure(enabled=True, interval_seconds=3600, tasks=["probe"])
-    cal = CalendarWakeTrigger(
+    trig = ReminderWakeTrigger(
         lambda: [{"id": "r9", "title": "Due now", "due_at": time.time() - 1}],
         lead_seconds=300.0)
-    loop, _ = _loop(scheduler, store, triggers=(cal,), idle_poll_seconds=1.0)
+    loop, _ = _loop(scheduler, store, triggers=(trig,), idle_poll_seconds=1.0)
     loop.start()
     try:
-        # the calendar poll fires on the first idle wakeup without any
+        # the reminder poll fires on the first idle wakeup without any
         # explicit wake() call
         assert _wait_for(lambda: len(scheduler.calls) >= 1, timeout=8.0)
     finally:
