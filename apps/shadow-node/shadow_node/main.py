@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from agent_core import *
 from agent_core import (
     RunJournal, CheckpointStore, ClaimRegistry, GhostRunSession,
-    AmbientScheduler, InMemoryKV, AmbientLoop, CalendarWakeTrigger,
+    AmbientScheduler, InMemoryKV, AmbientLoop, ReminderWakeTrigger,
+    GoogleCalendarWakeTrigger,
     MessageWakeTrigger, PushWakeTrigger, SessionStore, SessionCompactor,
 )
 from memory_engine import *
@@ -251,26 +252,51 @@ ambient_scheduler=AmbientScheduler(store=_ambient_kv, journal=ambient_journal,
                                    checkpoints=ambient_checkpoints)
 # Always-on loop ("o"-pattern, local-first): one background thread owns the
 # scheduler tick and the SLEEPING/AWAKE lifecycle. Wake sources are local:
-# device push taps (POST /ambient/wake), the node's own reminder store as
-# the calendar source, and inbound messages from the ask pipeline.
-# Durable conversation sessions live in session_store, backed by the same
-# encrypted runtime DB as everything else ambient, with automatic context
-# compaction whose folded summaries are ingested into the user-owned
-# memory engine (memory stays the source of truth).
-session_store=SessionStore(_ambient_kv, compactor=SessionCompactor(), memory=memory,
+# device push taps (POST /ambient/wake), the node's own reminder store,
+# the user's real Google Calendar (via the already-connected
+# hatch_gws_cli; read-only polling, cached), and inbound messages from
+# the ask pipeline. Push providers needing paid accounts (APNs/FCM) are
+# deliberately not wired: the local push path stays, and the account
+# step is documented, not stubbed.
+# Durable conversation sessions with automatic compaction. The summary
+# backend is selectable via SHADOW_COMPRESSION_BACKEND ("deterministic"
+# default, "axiom" for a local AXIOM-AETHER checkout): selection fails
+# safe to deterministic and the choice is audit-logged at startup.
+_compactor_backend, _compactor_fallback = select_backend(
+    os.getenv("SHADOW_COMPRESSION_BACKEND", "deterministic"))
+session_store=SessionStore(_ambient_kv, compactor=SessionCompactor(backend=_compactor_backend), memory=memory,
                            event_sink=bus.publish, audit=sentinel_audit)
+sentinel_audit.record("ambient", "compression_backend_selected",
+                      {"backend": _compactor_backend.name,
+                       "fallback_reason": _compactor_fallback})
 _rehydrated_sessions=session_store.rehydrate()
-calendar_trigger=CalendarWakeTrigger(
+reminder_trigger=ReminderWakeTrigger(
     reminder_source=lambda: [{"id": r.id, "title": r.title, "due_at": r.due_at}
                              for r in reminder_store.reminders.values()
                              if r.status == "pending"])
+google_calendar_trigger=GoogleCalendarWakeTrigger(
+    lead_seconds=float(os.getenv("SHADOW_CALENDAR_LEAD_SECONDS", "300")),
+    days_ahead=int(os.getenv("SHADOW_CALENDAR_DAYS", "2")),
+    refresh_seconds=float(os.getenv("SHADOW_CALENDAR_REFRESH_SECONDS", "300")))
 message_trigger=MessageWakeTrigger()
 push_trigger=PushWakeTrigger()
 ambient_loop=AmbientLoop(scheduler=ambient_scheduler, store=_ambient_kv,
                          journal=ambient_journal,
-                         triggers=(calendar_trigger, message_trigger, push_trigger),
+                         triggers=(reminder_trigger, google_calendar_trigger,
+                                   message_trigger, push_trigger),
                          event_sink=bus.publish, audit=sentinel_audit)
 ambient_loop.start()
+# Shadow Acts (v0.3): the runner is built once and handed to the
+# scheduler context after the loop exists. Acts run inside the ambient
+# tick through the policy gate; without an explicit tool_tiers grant in
+# the policy document they are held for approval, never silently
+# auto-run. See agent_core.shadow_acts and docs/AMBIENT.md.
+shadow_act_runner=ShadowActRunner(core, profile, audit=sentinel_audit)
+ambient_scheduler.update_context({"shadow_acts": shadow_act_runner,
+                                  "calendar": google_calendar_trigger,
+                                  "ambient_loop": ambient_loop,
+                                  "agent_sessions": session_store,
+                                  "compression_backend": _compactor_backend})
 # Hybrid local+frontier router and provider credential store.
 hybrid=HybridRouter(model, axiom)
 credentials=provider_auth.CredentialStore()
@@ -1055,16 +1081,18 @@ def ambient_status():
             "loop":{"state":ambient_loop.state.value, "wake_count":ambient_loop.wake_count,
                     "last_wake_at":str(ambient_loop.last_wake_at) if ambient_loop.last_wake_at else None,
                     "sessions_open":len(session_store.list()),
-                    "sessions_rehydrated":_rehydrated_sessions}}
+                    "sessions_rehydrated":_rehydrated_sessions},
+            "triggers":ambient_loop.trigger_statuses()}
 class WakeRequest(BaseModel): source:str; reason:str=""; payload:dict={}
 @app.post("/ambient/wake")
 def ambient_wake(req:WakeRequest):
     """Wake the always-on loop from a local source.
 
     Sources: "push" (device push tap, via the companion app), "message"
-    (inbound message), "calendar" (local calendar item), "operator"
-    (manual). The loop journals the wake and, when ambient is enabled,
-    transitions SLEEPING -> AWAKE and runs its cycle.
+    (inbound message), "calendar" (real Google Calendar event),
+    "reminder" (node-local reminder), "operator" (manual). The loop
+    journals the wake and, when ambient is enabled, transitions
+    SLEEPING -> AWAKE and runs its cycle.
     """
     src=req.source.lower()
     try:
@@ -1076,13 +1104,48 @@ def ambient_wake(req:WakeRequest):
             evt=message_trigger.deliver(session_id=req.payload.get("session_id"),
                                         preview=str(req.payload.get("preview","")),
                                         metadata=req.payload)
-        elif src in ("calendar","timer","operator"):
+        elif src in ("calendar","reminder","timer","operator"):
             evt=ambient_loop.wake(src, req.reason, req.payload)
         else:
             raise HTTPException(400, f"unknown wake source: {req.source!r}")
     except RuntimeError as e:
         raise HTTPException(503, str(e))
     return {"wake_id":evt.id, "source":evt.source, "loop_state":ambient_loop.state.value}
+
+
+@app.get("/ambient/acts")
+def ambient_acts():
+    """List the registered Shadow Acts with their current policy
+    evaluation. The evaluation is a dry run: it never creates approvals
+    or runs anything. An act executes autonomously only when its
+    evaluation is ALLOW, which additionally requires an explicit
+    tool_tiers grant in the policy document."""
+    acts = []
+    for name, act in shadow_act_runner.acts.items():
+        try:
+            d = shadow_act_runner.evaluate(name)
+            decision = {"outcome": d.outcome.value, "rule_id": d.rule_id,
+                        "risk": d.risk.value, "reason": d.reason}
+        except Exception as e:
+            decision = {"outcome": "error", "reason": str(e)}
+        acts.append({"name": name, "description": act.description,
+                     "effect": act.effect, "tool_name": f"shadow_act:{name}",
+                     "decision": decision})
+    return {"acts": acts}
+
+
+class ActRunRequest(BaseModel): act:str
+@app.post("/ambient/acts/run")
+def ambient_acts_run(req:ActRunRequest):
+    """Manually run one Shadow Act through the same policy gate the
+    ambient tick uses. ALLOW runs it; REQUIRE_APPROVAL files (or reuses)
+    an approval request and holds it; DENY refuses. Unknown act names
+    are a 404."""
+    try:
+        result = shadow_act_runner.run_one(req.act, ambient_scheduler.task_context())
+    except KeyError:
+        raise HTTPException(404, f"unknown shadow act: {req.act!r}")
+    return result
 class SessionCreateRequest(BaseModel): title:str=""; metadata:dict={}
 @app.post("/agent/sessions")
 def create_session(req:SessionCreateRequest):

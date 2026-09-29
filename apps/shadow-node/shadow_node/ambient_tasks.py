@@ -7,10 +7,13 @@ no files, send no network requests, and touch no credentials. Anything that
 should act on the world goes through the normal approval-gated agent path.
 
 The exceptions are feed_digest (appends rendered units to the node's own
-feed journal) and reminder_check (fires due reminders: marks them, advances
-recurrence, sends pushes). Both touch only the node's own stores and its
-notification path; neither reads credentials nor reaches the network beyond
-the configured push service.
+feed journal), reminder_check (fires due reminders: marks them, advances
+recurrence, sends pushes), and shadow_acts (runs the registered Shadow
+Acts). shadow_acts is the narrow policy-gated exception: each act runs
+through core.policy.decide(), executes only on ALLOW, files a normal
+approval request on REQUIRE_APPROVAL, and is skipped on DENY. All three
+touch only the node's own stores and its notification path; none read
+credentials nor reach the network beyond the configured push service.
 
 Available tasks:
 - morning_brief: deterministic digest of pending approvals, recent execution
@@ -23,12 +26,17 @@ Available tasks:
 - reminder_check: fires due reminders through the node's notify/publish/feed
   path. During quiet hours nothing fires; due reminders wait for the next
   check after quiet hours end.
+- shadow_acts: run every registered Shadow Act through the policy gate
+  (see agent_core.shadow_acts). Autonomous execution additionally
+  requires an explicit tool_tiers grant in the policy document; without
+  one, acts are held for approval, never silently auto-run.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-BUILTIN_TASKS = ("morning_brief", "memory_digest", "feed_digest", "reminder_check")
+BUILTIN_TASKS = ("morning_brief", "memory_digest", "feed_digest", "reminder_check",
+                 "shadow_acts")
 
 
 def _as_dict(item):
@@ -127,7 +135,25 @@ def memory_digest(ctx: dict) -> dict:
 
 def build_task_map() -> dict:
     return {"morning_brief": morning_brief, "memory_digest": memory_digest,
-            "feed_digest": feed_digest, "reminder_check": reminder_check}
+            "feed_digest": feed_digest, "reminder_check": reminder_check,
+            "shadow_acts": shadow_acts}
+
+
+def shadow_acts(ctx: dict) -> dict:
+    """Run every registered Shadow Act through the policy gate.
+
+    The runner (built once by the node, in the scheduler context under
+    "shadow_acts") evaluates each act with core.policy.decide(): ALLOW
+    runs it, REQUIRE_APPROVAL files a normal approval request and holds
+    it, DENY skips it. This is the narrow policy-gated exception to the
+    read-only task contract; see agent_core.shadow_acts for the full
+    contract and the act surface.
+    """
+    runner = ctx.get("shadow_acts")
+    if runner is None:
+        return {"summary": "shadow_acts: no runner in scheduler context",
+                "data": {}}
+    return runner.run_all(ctx)
 
 
 def feed_digest(ctx: dict) -> dict:
