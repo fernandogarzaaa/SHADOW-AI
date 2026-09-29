@@ -138,3 +138,65 @@ How to verify:
 - The scheduler thread is a daemon; it can never take the node down. A
   failing task is journaled and the tick continues.
 - Enabling ambient is an explicit operator action and is itself audit-logged.
+
+## 7. Always-on loop ("o"-pattern, local-first)
+
+`AmbientLoop` (`packages/agent-core/agent_core/always_on.py`) is the node's
+always-on background loop. One daemon thread drives `AmbientScheduler.tick()`
+with an explicit lifecycle:
+
+- Steady states: `SLEEPING` (idle: the thread blocks on an event, no
+  busy-wait) and `AWAKE` (processing wake events and running the tick).
+  Transients `STARTING`, `STOPPING`, `STOPPED` make every transition
+  observable in the journal and as `ambient.loop.state` events.
+- Idle resource behavior: while `SLEEPING` the thread waits with a timeout
+  of `min(idle_poll_seconds, seconds_until_next_tick)`. An enabled node with
+  an hourly tick wakes at most once an hour plus on real events; a disabled
+  node sleeps the full idle poll and does no work.
+- Clean shutdown: `stop()` signals, joins the thread, persists a loop
+  record (`ambient_loop` collection), and journals it. The ASGI lifespan in
+  `main.py` calls `stop()` on server shutdown. A restart that finds a loop
+  record not marked clean journals "previous loop did not shut down
+  cleanly".
+
+Wake sources (all local, no cloud services):
+
+- `PushWakeTrigger`: the companion app calls `POST /ambient/wake` with
+  source `push` when the user taps a notification.
+- `MessageWakeTrigger`: the ask pipeline (`/agent/ask`, `/agent/ask_stream`)
+  delivers a wake on every inbound message; `POST /ambient/wake` with source
+  `message` covers other local message bridges.
+- `CalendarWakeTrigger`: polls the node's own reminder store; a pending
+  reminder entering its 5-minute lead window wakes the loop once per
+  (reminder, due_at).
+
+Opt-in rule preserved: the loop does no work until ambient is enabled.
+Wake events received while disabled are journaled as held and the loop
+stays `SLEEPING`.
+
+## 8. Durable sessions and automatic compaction
+
+`SessionStore` keeps conversation sessions in the runtime store
+(`agent_sessions` collection, encrypted when `SHADOW_RUNTIME_DB` is set),
+so they survive process restarts. `rehydrate()` runs on boot: open sessions
+whose last message is from the user (the assistant never answered) are
+flagged `response_interrupted` in metadata instead of silently resuming.
+
+`SessionCompactor` compacts automatically on append past the token budget
+(default 8000 estimated tokens, estimates are `len//4`): messages older
+than the recent window fold into one deterministic system summary (message
+count, time span, opening user intent, extracted key facts); the recent
+window is kept verbatim. The folded summary is ingested into the
+user-owned memory engine (source kind `session`), so memory stays the
+source of truth and sessions stay the working set.
+
+HTTP surface:
+
+- `POST /agent/sessions`, `GET /agent/sessions`,
+  `GET /agent/sessions/{id}`, `POST /agent/sessions/{id}/close`
+- `POST /agent/ask` accepts an optional `session_id` and appends the turn
+  (user + assistant) to that session; the response echoes `session_id`.
+- `POST /ambient/wake` with `{"source": "push"|"message"|"calendar"|"operator",
+  "reason": ..., "payload": {...}}`
+- `GET /ambient/status` now also reports `loop` state, wake count, and open
+  session count.

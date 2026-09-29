@@ -17,6 +17,21 @@ from .ambient import (
     RunCheckpoint,
     RunJournal,
 )
+from .always_on import (
+    AgentSession,
+    AmbientLoop,
+    CalendarWakeTrigger,
+    CompactionReport,
+    LoopRecord,
+    LoopState,
+    MessageWakeTrigger,
+    PushWakeTrigger,
+    SessionCompactor,
+    SessionMessage,
+    SessionStore,
+    WakeEvent,
+    WakeTrigger,
+)
 from .verification import (
     ExecutionRecord,
     EvidenceItem,
