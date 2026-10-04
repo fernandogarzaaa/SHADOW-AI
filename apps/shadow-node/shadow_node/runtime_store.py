@@ -81,10 +81,15 @@ class PersistentDeviceSessionStore(DeviceSessionStore):
         for secret in store.all("device_secrets", _Secret):
             self.secrets[secret.id] = secret.value
 
-    def register(self, name: str, public_key: str, secret: str | None = None, is_owner: bool = False) -> Device:
-        dev = super().register(name, public_key, secret, is_owner=is_owner)
+    def register(self, name: str, public_key: str, secret: str | None = None, is_owner: bool = False,
+                 credential_scheme: str = "stored") -> Device:
+        dev = super().register(name, public_key, secret, is_owner=is_owner, credential_scheme=credential_scheme)
         self._store.put("devices", dev.id, dev)
-        self._store.put("device_secrets", dev.id, _Secret(id=dev.id, value=self.secrets[dev.id]))
+        # HMAC-derived devices persist no per-device secret (the signing
+        # secret is recomputed from the node master); persisting an empty
+        # row would only confuse a future audit.
+        if dev.id in self.secrets:
+            self._store.put("device_secrets", dev.id, _Secret(id=dev.id, value=self.secrets[dev.id]))
         return dev
 
     def revoke(self, device_id: str):

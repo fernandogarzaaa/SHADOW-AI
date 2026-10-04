@@ -19,6 +19,10 @@ from .request_hygiene import check_request_hygiene, HygieneError
 from .ambient_tasks import build_task_map, BUILTIN_TASKS
 from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
+from .device_credentials import (
+    load_master_secret, derive_device_token, token_scheme_for_version,
+    DEVICE_TOKEN_VERSION,
+)
 from .providers import build_frontier, CATALOG
 from .hybrid import HybridRouter
 from .self_model import build_self_model, classify_self_intent, render_self_answer
@@ -74,6 +78,20 @@ if _runtime_db:
     _approval_store=_runtime_store
 else:
     audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); consents:list[ConsentGrant]=[]; _approval_store=None
+# Node master secret for HMAC-derived device credentials
+# (device_credentials.py). Loaded once at boot: from SHADOW_MASTER_SECRET,
+# then the key file, else generated and persisted with 0600 perms. The
+# value is never logged and never returned by any API. When unavailable
+# (unwritable key path), pairing falls back to legacy random stored
+# secrets and derived-scheme devices fail closed at verify time.
+try:
+    _MASTER_SECRET=load_master_secret()
+except Exception:
+    # Unwritable key path or empty configured value: pairing falls back
+    # to legacy random stored secrets, and derived-scheme devices fail
+    # closed at verify time. (No logger available this early in boot.)
+    _MASTER_SECRET=None
+sessions.master_secret=_MASTER_SECRET
 # Sentinel-lite: tamper-evident audit chain + credential vault, backed by the
 # encrypted runtime DB when configured, in-memory otherwise. Every policy
 # decision, approval event, credential resolution, and execution verdict lands
@@ -534,11 +552,23 @@ def pair_confirm(req:PairConfirm):
                 return JSONResponse(status_code=202,content={"pairing_id":req.pairing_id,"status":"pending"})
     entry=pairing.pop(req.pairing_id)
     with _pairing_lock:
-        secret=secrets.token_hex(32)
-        # The owner flag is set at registration time so the persistent row
-        # carries it: assigning it after register() lost the flag on restart.
-        dev=sessions.register(entry["device_name"], entry["public_key"], secret,
-                              is_owner=(entry.get("approved_by")=="bootstrap"))
+        if _MASTER_SECRET is not None:
+            # HMAC-derived device credential (OpenDots backlog #6): the
+            # device's request-signing secret is derived from the node
+            # master secret and the minted device id. Nothing per device
+            # is stored; verification recomputes the token.
+            dev=sessions.register(entry["device_name"], entry["public_key"], None,
+                                  is_owner=(entry.get("approved_by")=="bootstrap"),
+                                  credential_scheme=token_scheme_for_version(DEVICE_TOKEN_VERSION))
+            secret=derive_device_token(_MASTER_SECRET, dev.id)
+        else:
+            # Master secret unavailable (unwritable key path): legacy
+            # random stored secret. Still 256 bits, still per device.
+            secret=secrets.token_hex(32)
+            # The owner flag is set at registration time so the persistent row
+            # carries it: assigning it after register() lost the flag on restart.
+            dev=sessions.register(entry["device_name"], entry["public_key"], secret,
+                                  is_owner=(entry.get("approved_by")=="bootstrap"))
     audit.append(AuditEvent(actor="pairing",event_type="device_paired",status="trusted",metadata={"device_id":dev.id,"fingerprint":dev.fingerprint,"approved_by":entry.get("approved_by")})); return {"device":dev,"secret":secret}
 @app.post("/devices/register")
 def register(req:DeviceRegisterRequest, request:Request):
