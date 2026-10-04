@@ -29,7 +29,7 @@ from .ideas import (IdeaStore, IdeaCreate, IdeaUpdate, PlannedAction)
 from .reminders import (ReminderStore, ReminderCreate, ReminderUpdate, fire_due)
 from .reminders import RECURRENCES as REMINDER_RECURRENCES, STATUSES as REMINDER_STATUSES
 from .artifacts import (ArtifactStore, ArtifactCreate, ArtifactUpdate, ARTIFACT_KINDS,
-                        AGENT_READ_LIMIT)
+                        AGENT_READ_LIMIT, RevisionConflictError)
 from . import voice as voice_mod
 from . import media as media_mod
 from .ambient_tasks import morning_brief as _amb_morning_brief, memory_digest as _amb_memory_digest
@@ -173,8 +173,12 @@ def _artifact_create_tool(params):
 def _artifact_update_tool(params):
     artifact_id=params.get("id") or params.get("artifact_id")
     if not artifact_id: return {"error":"id is required"}
-    a=artifact_store.update(artifact_id, ArtifactUpdate(
-        title=params.get("title"), kind=params.get("kind"), content=params.get("content")))
+    try:
+        a=artifact_store.update(artifact_id, ArtifactUpdate(
+            title=params.get("title"), kind=params.get("kind"), content=params.get("content"),
+            expected_version=params.get("expected_version")))
+    except RevisionConflictError as e:
+        return {"error":str(e)}
     if a is None: return {"error":"artifact not found"}
     return {"id":a.id,"title":a.title,"version":a.version,"reference":f"artifact:{a.id}"}
 def _artifact_read_tool(params):
@@ -801,7 +805,10 @@ def get_artifact(artifact_id:str):
     return a.model_dump()
 @app.patch("/artifacts/{artifact_id}")
 def update_artifact(artifact_id:str, patch:ArtifactUpdate):
-    a=artifact_store.update(artifact_id, patch)
+    try:
+        a=artifact_store.update(artifact_id, patch)
+    except RevisionConflictError as e:
+        raise HTTPException(409, str(e))
     if a is None: raise HTTPException(404,"artifact not found")
     audit.append(AuditEvent(actor="user",event_type="artifact_updated",status="ok",
                             metadata={"artifact_id":a.id,"version":a.version}))

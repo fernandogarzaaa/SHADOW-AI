@@ -278,3 +278,45 @@ def test_agent_artifact_tools_registered():
     assert out2["content"] == "hello"
     out3 = main.core.tools._tools["artifact_update"]({"id": out["id"], "content": "hello v2"})
     assert out3["version"] == 2
+
+
+# --- Optimistic concurrency (expected_version 409) ---
+
+def test_artifact_patch_expected_version(client):
+    r = client.post("/artifacts", json={"title": "Doc", "kind": "markdown", "content": "# v1"})
+    assert r.status_code == 201, r.text
+    aid = r.json()["id"]
+
+    # Correct expected_version succeeds and bumps the version.
+    r = client.patch(f"/artifacts/{aid}", json={"content": "# v2", "expected_version": 1})
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] == 2
+
+    # Stale expected_version -> 409; stored content and version untouched.
+    r = client.patch(f"/artifacts/{aid}", json={"content": "# lost", "expected_version": 1})
+    assert r.status_code == 409, r.text
+    assert "version" in r.json()["error"]["message"]
+    got = client.get(f"/artifacts/{aid}").json()
+    assert got["version"] == 2 and got["content"] == "# v2"
+
+    # Omitted expected_version keeps backward-compatible blind-write behavior.
+    r = client.patch(f"/artifacts/{aid}", json={"content": "# v3"})
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] == 3
+
+    # Non-positive expected_version is rejected by request validation.
+    r = client.patch(f"/artifacts/{aid}", json={"content": "x", "expected_version": 0})
+    assert r.status_code == 422
+
+    client.delete(f"/artifacts/{aid}")
+
+
+def test_artifact_update_tool_expected_version():
+    from shadow_node.artifacts import ArtifactStore, ArtifactCreate, ArtifactUpdate, RevisionConflictError
+    import pytest as _pytest
+    store = ArtifactStore(None)
+    a = store.create(ArtifactCreate(title="T", content="v1"))
+    store.update(a.id, ArtifactUpdate(content="v2", expected_version=1))
+    with _pytest.raises(RevisionConflictError):
+        store.update(a.id, ArtifactUpdate(content="stale", expected_version=1))
+    assert store.get(a.id).content == "v2"

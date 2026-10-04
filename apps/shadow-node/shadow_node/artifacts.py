@@ -16,6 +16,17 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
+
+class RevisionConflictError(ValueError):
+    """Optimistic-concurrency conflict on a versioned write.
+
+    Pattern adapted from OpenDots' expectedRevision 409 check
+    (CopilotKit/OpenDots, MIT (c) Atai Barkai, src/server/pages.ts
+    lines 174-184): the writer supplies the version it read, and the
+    store rejects the write when the stored version has moved on.
+    """
+
+
 ARTIFACT_KINDS = ("markdown", "html", "code", "csv", "json", "text")
 MAX_TITLE_LEN = 200
 MAX_CONTENT_BYTES = 1024 * 1024  # 1 MiB per artifact version
@@ -61,6 +72,11 @@ class ArtifactUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=MAX_TITLE_LEN)
     kind: str | None = None
     content: str | None = None
+    expected_version: int | None = Field(
+        default=None, ge=1,
+        description="Optimistic concurrency: reject the PATCH with 409 when the "
+                    "stored version differs. Omit for backward-compatible blind writes.",
+    )
 
     @field_validator("kind")
     @classmethod
@@ -186,6 +202,11 @@ class ArtifactStore:
         a = self._artifacts.get(artifact_id)
         if a is None:
             return None
+        if req.expected_version is not None and req.expected_version != a.version:
+            raise RevisionConflictError(
+                f"artifact {artifact_id} changed: expected version {req.expected_version}, "
+                f"current version is {a.version}. Reload the latest revision before saving."
+            )
         if req.title is not None:
             a.title = req.title.strip()
         if req.kind is not None:
