@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 def _fresh_client(monkeypatch, tmp_path):
     monkeypatch.setenv("SHADOW_RUNTIME_DB", str(tmp_path / "runtime.db"))
     monkeypatch.setenv("SHADOW_RUNTIME_KEY_FILE", str(tmp_path / "runtime.key"))
+    monkeypatch.setenv("SHADOW_MASTER_SECRET_FILE", str(tmp_path / "master.key"))
     monkeypatch.delenv("SHADOW_MEMORY_DB", raising=False)
     monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # persistence test: auth not under test
     import shadow_node.main as m
@@ -35,5 +36,9 @@ def test_paired_device_persists_across_restart(monkeypatch, tmp_path):
     device_id = paired["device"]["id"]
 
     c2, m2 = _fresh_client(monkeypatch, tmp_path)
-    assert device_id in m2.sessions.devices            # device restored
-    assert m2.sessions.secrets.get(device_id)          # secret restored too
+    dev = m2.sessions.devices[device_id]                   # device row restored
+    assert dev.credential_scheme == "hmac-v1"
+    assert device_id not in m2.sessions.secrets            # stateless: nothing stored per device
+    # The signing secret is recomputed from the master secret, not
+    # restored: identical across the restart, so the device keeps working.
+    assert m2.sessions.device_signing_secret(dev) == paired["secret"]

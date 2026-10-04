@@ -24,5 +24,12 @@ The iOS app must be transparent about data access, use App Intents/Share Extensi
 ## Beta Authenticated Transport
 Signed device requests add nonce replay protection, timestamp validation, device fingerprint validation, revocation checks, session expiration, and audit events for failed auth attempts.
 
+### Device credential derivation
+A device's request-signing secret is derived, not stored: `token = HMAC-SHA256(master, "shadow-device:v<version>:<device_id>")` (hex). The node master secret comes from `SHADOW_MASTER_SECRET` (64 hex chars preferred), then `SHADOW_MASTER_SECRET_FILE` (default `data/keys/master.key`, 0600), else generated once and persisted. The master is never logged and never returned by any API. Request verification recomputes the token and compares with `hmac.compare_digest`; a device whose scheme needs a master that is unavailable fails closed.
+
+Devices enrolled before this scheme carry `credential_scheme: "stored"` and keep their random persisted secrets; they are unaffected by master rotation.
+
+Rotation: replace the master secret AND bump `DEVICE_TOKEN_VERSION` in `device_credentials.py`. The version is part of the derivation input, so every previously derived token stops verifying immediately and each device must complete a fresh pairing ceremony. There is no grace period by design. Authenticated ECDH is the documented upgrade path if the node ever goes remote or multi-user.
+
 ## Prompt Injection Defense
 Retrieved memory is marked as untrusted context and cannot override system policy. Requests to leak secrets, bypass consent, ignore policy, or auto-send without approval are blocked and audited.

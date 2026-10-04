@@ -155,6 +155,12 @@ class DeviceSessionStore:
     # One in-memory ledger per store so claim() stays atomic across threads
     # (a fresh ledger per request would give every call its own lock).
     _memory_ledger: InMemoryNonceLedger | None = field(default=None, repr=False)
+    # Node master secret for HMAC-derived device credentials
+    # (shadow_node.device_credentials). When set, devices whose
+    # credential_scheme is "hmac-vN" have their request-signing secret
+    # derived at verify time instead of looked up from `secrets`.
+    # None -> legacy behavior: every device uses its stored secret.
+    master_secret: bytes | None = None
 
     def __post_init__(self):
         if self._memory_ledger is None:
@@ -176,12 +182,45 @@ class DeviceSessionStore:
             except Exception:
                 pass  # auditing must never break auth
 
-    def register(self, name: str, public_key: str, secret: str | None = None, is_owner: bool = False) -> Device:
+    def register(self, name: str, public_key: str, secret: str | None = None, is_owner: bool = False,
+                 credential_scheme: str = "stored") -> Device:
         fp = fingerprint_for_key(public_key)
-        dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True, is_owner=is_owner)
+        dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True, is_owner=is_owner,
+                     credential_scheme=credential_scheme)
         self.devices[dev.id] = dev
-        self.secrets[dev.id] = secret or secrets.token_hex(32)
+        # HMAC-derived devices ("hmac-vN") store nothing per device: the
+        # signing secret is recomputed from the node master secret at
+        # verify time (see device_signing_secret). Stored-scheme devices
+        # keep the legacy random secret.
+        if not credential_scheme.startswith("hmac-"):
+            self.secrets[dev.id] = secret or secrets.token_hex(32)
         return dev
+
+    def device_signing_secret(self, dev: Device) -> str | None:
+        """Resolve the HMAC secret used to sign/verify a device's requests.
+
+        Derived devices recompute from the node master secret (fail
+        closed when the master is unavailable); stored devices use the
+        persisted random secret. Returns None when no secret can be
+        resolved.
+        """
+        if dev.credential_scheme.startswith("hmac-"):
+            if self.master_secret is None:
+                return None
+            try:
+                # Deferred: shadow_node depends on agent_core, so this
+                # import must not run at module load.
+                from shadow_node.device_credentials import derive_device_token, version_from_scheme
+            except ImportError:
+                return None
+            version = version_from_scheme(dev.credential_scheme)
+            if version is None:
+                return None
+            try:
+                return derive_device_token(self.master_secret, dev.id, version)
+            except Exception:
+                return None
+        return self.secrets.get(dev.id)
 
     def register_ed25519(self, name: str, ed25519_public_key: bytes, is_owner: bool = False) -> Device:
         """Register a device with an Ed25519 public key instead of a shared secret."""
@@ -197,7 +236,12 @@ class DeviceSessionStore:
             self.devices[device_id].revoked = True
 
     def _verify_hmac(self, dev: Device, signature: str, nonce: str, timestamp: str, method: str, path: str, body: str) -> tuple[bool, str]:
-        expected = sign_request(self.secrets[dev.id], method, path, body, nonce, int(timestamp))
+        secret = self.device_signing_secret(dev)
+        if secret is None:
+            # Fail closed: derived-scheme device with no master secret
+            # configured, or stored-scheme device with no secret on file.
+            return False, "unknown_device_secret"
+        expected = sign_request(secret, method, path, body, nonce, int(timestamp))
         if not hmac.compare_digest(signature, expected):
             return False, "invalid_signature"
         return True, "ok"

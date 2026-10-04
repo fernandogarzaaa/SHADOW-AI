@@ -81,5 +81,10 @@ class Device(BaseModel):
     # Owner devices may manage other devices (revoke, approve pairings,
     # initiate enrollment). The first-ever (bootstrap) device becomes owner.
     is_owner: bool=False
+    # How this device's request-signing secret is obtained: "stored" (a
+    # random secret persisted in the encrypted runtime DB, pre-HMAC
+    # devices) or "hmac-vN" (derived at verify time from the node master
+    # secret via device_credentials; nothing stored per device).
+    credential_scheme: str="stored"
 class CloudEscalationRequest(BaseModel):
     id: str = Field(default_factory=lambda:new_id("clr")); purpose: str; redacted_context: str; model: str; approved: bool=False
