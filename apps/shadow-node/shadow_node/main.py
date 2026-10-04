@@ -15,6 +15,7 @@ from axiom_adapter import AxiomAdapter
 from ghost_adapter import GhostAdapter, LocalActionExecutor
 from .connectors import read_local_document
 from .runtime_scope import check_runtime_scope, RuntimeScopeError
+from .request_hygiene import check_request_hygiene, HygieneError
 from .ambient_tasks import build_task_map, BUILTIN_TASKS
 from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
@@ -400,6 +401,21 @@ async def auth_middleware(request:Request, call_next):
                 resp.headers["Vary"]="Origin"
             return resp
     return await call_next(request)
+@app.middleware("http")
+async def hygiene_middleware(request:Request, call_next):
+    # Request hygiene (OpenDots backlog #10): body limit, JSON content-type
+    # enforcement, and sec-fetch-site cross-site rejection. Registered last
+    # so it runs outermost, before auth and rate limiting: oversized or
+    # malformed requests are rejected before any expensive work.
+    try:
+        check_request_hygiene(request.method, request.url.path, request.headers, CORS_ORIGINS)
+    except HygieneError as e:
+        log.warning("hygiene_rejected", extra={"path":request.url.path,"method":request.method,"code":e.code})
+        return JSONResponse(status_code=e.status_code, content={"error":{"code":e.code,"message":str(e)}})
+    response=await call_next(request)
+    response.headers["Cache-Control"]="no-store"
+    response.headers["X-Content-Type-Options"]="nosniff"
+    return response
 WEB_INDEX=os.path.join(os.path.dirname(__file__),"web","index.html")
 @app.get("/", include_in_schema=False)
 def dashboard(): return FileResponse(WEB_INDEX)
