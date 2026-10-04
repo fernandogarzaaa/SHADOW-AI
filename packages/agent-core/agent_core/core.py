@@ -2,13 +2,21 @@ from .models import *
 from .policy import PolicyEngine
 from .safety import is_suspicious_user_request
 class ApprovalWorkflow:
-    def __init__(self, store=None):
+    def __init__(self, store=None, event_sink=None):
         self.requests: dict[str, ApprovalRequest]={}
         self._store=store
+        # Optional callable(event_type: str, request: ApprovalRequest) invoked on
+        # create/decide/expire so the node can fan events out to live clients.
+        self._event_sink=event_sink
         # Load persisted approvals on init
         if store is not None:
             for req in store.all("approvals", ApprovalRequest):
                 self.requests[req.id]=req
+
+    def _emit(self, event_type:str, req:ApprovalRequest):
+        if self._event_sink is not None:
+            try: self._event_sink(event_type, req)
+            except Exception: pass  # events are best-effort; never break the workflow
 
     def _persist(self, req: ApprovalRequest):
         if self._store is not None:
@@ -18,6 +26,7 @@ class ApprovalWorkflow:
         req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=action.destructive)
         self._persist(req)
         self.requests[req.id]=req
+        self._emit("approval.created", req)
         return req
 
     def decide(self, approval_id:str, approve:bool, deny_reason:str|None=None):
@@ -30,12 +39,14 @@ class ApprovalWorkflow:
             req.decided_at=now()
             self._persist(req)
             self.requests[approval_id]=req
+            self._emit("approval.updated", req)
             raise ValueError("approval is expired")
         req.status=ApprovalStatus.APPROVED if approve else ApprovalStatus.DENIED
         req.deny_reason=deny_reason
         req.decided_at=now()
         self._persist(req)
         self.requests[approval_id]=req
+        self._emit("approval.updated", req)
         return req
 
     def sweep_expired(self)->list[str]:
@@ -48,6 +59,7 @@ class ApprovalWorkflow:
                 req.decided_at=now()
                 self._persist(req)
                 self.requests[rid]=req
+                self._emit("approval.updated", req)
                 expired.append(rid)
         return expired
 class ToolRegistry:
@@ -65,10 +77,10 @@ class AgentPlanner:
         elif any(w in lowered for w in ["delete","remove","destroy"]): tool="delete_file"; desc="Potential destructive local action"; destructive=True
         return AgentPlan(user_intent=prompt, actions=[AgentAction(tool_name=tool, description=desc, destructive=destructive, destination=dest)], rationale="Deterministic beta planner with policy gate.")
 class AgentCore:
-    def __init__(self, profile:UserProfile|None=None, approval_store=None):
+    def __init__(self, profile:UserProfile|None=None, approval_store=None, event_sink=None):
         self.profile=profile or UserProfile()
         self.policy=PolicyEngine()
-        self.approvals=ApprovalWorkflow(store=approval_store)
+        self.approvals=ApprovalWorkflow(store=approval_store, event_sink=event_sink)
         self.tools=ToolRegistry()
         self.audit=[]
     def propose(self,prompt:str, data_used:list[str]|None=None, model_used:str|None=None):

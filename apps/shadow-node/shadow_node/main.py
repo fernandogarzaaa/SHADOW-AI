@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, WebSocket, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent_core import *
@@ -12,7 +12,8 @@ from .crypto_config import load_fernet_key
 from .providers import build_frontier, CATALOG
 from .hybrid import HybridRouter
 from . import provider_auth
-import tempfile, hashlib, uuid, os, time, secrets
+from .events import EventBus
+import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request
 APP_VERSION="1.0.0-rc"
 app=FastAPI(title="Shadow Node", version=APP_VERSION)
 # CORS: localhost by default; add deployed PWA/app origins via SHADOW_CORS_ORIGINS
@@ -38,7 +39,33 @@ if _runtime_db:
     _approval_store=_runtime_store
 else:
     audit:list[AuditEvent]=[]; sessions=DeviceSessionStore(); consents:list[ConsentGrant]=[]; _approval_store=None
-profile=UserProfile(); core=AgentCore(profile, approval_store=_approval_store); store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
+profile=UserProfile()
+bus=EventBus()
+EXPO_PUSH_ENABLED=os.getenv("SHADOW_EXPO_PUSH_ENABLED","false").lower()=="true"
+def _send_expo_push(token:str, title:str, body:str, data:dict):
+    """Best-effort Expo push; failures are logged, never raised."""
+    try:
+        payload=json.dumps({"to":token,"title":title,"body":body,"data":data,"sound":"default"}).encode()
+        req=urllib.request.Request("https://exp.host/--/api/v2/push/send", data=payload,
+                                   headers={"Content-Type":"application/json","Accept":"application/json"})
+        urllib.request.urlopen(req, timeout=8)
+    except Exception as e:
+        log.warning("expo_push_failed", extra={"error":str(e)[:200]})
+def _notify_approval_created(req):
+    if not EXPO_PUSH_ENABLED: return
+    def _run():
+        for device_id, token in list(sessions.push_tokens.items()):
+            dev=sessions.devices.get(device_id)
+            if dev is None or dev.revoked: continue
+            _send_expo_push(token, "Approval needed",
+                            req.action_preview or req.action.description,
+                            {"type":"approval.created","approval_id":req.id})
+    threading.Thread(target=_run, daemon=True).start()
+def _approval_event_sink(event_type:str, req):
+    bus.publish(event_type, req.model_dump(mode="json"))
+    if event_type=="approval.created": _notify_approval_created(req)
+core=AgentCore(profile, approval_store=_approval_store, event_sink=_approval_event_sink)
+store=_build_memory_store(); memory=MemoryEngine(store); axiom=AxiomAdapter(); ghost=GhostAdapter(); model_config=ModelProviderConfig(); model=LocalMockModel(); pairing={}
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor=LocalActionExecutor()
 for _tool in action_executor.names(): core.tools.register(_tool, (lambda t: (lambda params: action_executor.run(t, params, explicit_consent=t in action_executor.CONSENT_REQUIRED)))(_tool))
@@ -137,7 +164,8 @@ def delete_source(source_id:str): memory.delete_by_source(source_id); audit.appe
 @app.get("/memory/export")
 def export_memory(include_sensitive:bool=False): return memory.export(include_sensitive)
 @app.post("/agent/ask")
-def ask(req:AskRequest):
+def ask(req:AskRequest): return _run_ask_pipeline(req)
+def _run_ask_pipeline(req:AskRequest):
     if is_suspicious_user_request(req.prompt):
         audit.append(AuditEvent(actor="user",event_type="suspicious_request_blocked",proposed_action=req.prompt,status="blocked")); raise HTTPException(403,"request blocked by prompt-injection/data-exfiltration policy")
     results=memory.search(req.prompt,5,include_sensitive=False); raw_context="\n".join(mark_untrusted(r.item.text) for r in results); plan=core.propose(req.prompt, data_used=[r.attribution for r in results], model_used="local_mock")
@@ -157,6 +185,54 @@ def ask(req:AskRequest):
     cloud_used=out["route"]=="frontier"
     audit.append(AuditEvent(actor="agent",event_type="agent_ask",data_used=[r.attribution for r in results],model_used=out["provider"],status="answered",metadata={"route":out["route"],"tokens_saved":out["savings"]["tokens_saved_estimate"],"grounding":out["grounding"]}))
     return {"answer":out["answer"],"sources":[r.model_dump() for r in results],"why":[r.explanation for r in results],"model_used":out["provider"],"cloud_allowed":cloud_used,"untrusted_context":True,"context_package":out["context_package"],"plan":plan,"route":out["route"],"routing_reason":out["reason"],"grounding":out["grounding"],"regrounded":out["regrounded"],"savings":out["savings"]}
+def _sse_data(event_type:str, properties:dict)->str:
+    return "data: "+json.dumps({"type":event_type,"properties":properties})+"\n\n"
+@app.get("/agent/stream")
+async def agent_stream(request:Request):
+    """Long-lived SSE bus: node.hello on connect, then approval.created /
+    approval.updated as they happen. Authenticated like any other endpoint
+    (HMAC headers; XHR/fetch can set them, no query-param auth needed)."""
+    q=bus.subscribe()
+    async def gen():
+        yield _sse_data("node.hello", {"node":"shadow-node","version":APP_VERSION,
+                                       "device_id":request.headers.get("x-shadow-device-id")})
+        try:
+            while True:
+                if await request.is_disconnected(): break
+                try:
+                    evt=await asyncio.wait_for(q.get(), timeout=25)
+                except asyncio.TimeoutError:
+                    yield ":heartbeat\n\n"; continue
+                yield "data: "+json.dumps(evt)+"\n\n"
+        finally:
+            bus.unsubscribe(q)
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
+@app.post("/agent/ask_stream")
+def ask_stream(req:AskRequest):
+    """Run the ask pipeline, then stream the answer as agent.message.delta
+    chunks followed by agent.message.done. Chunking is delivery-level
+    (progressive rendering), not token-level generation."""
+    result=_run_ask_pipeline(req)
+    session_id=new_id("ses"); message_id=new_id("msg")
+    answer=result["answer"] or ""
+    chunks=[answer[i:i+160] for i in range(0, len(answer), 160)] or [""]
+    def gen():
+        for ch in chunks:
+            yield _sse_data("agent.message.delta", {"sessionID":session_id,"messageID":message_id,"delta":ch})
+        yield _sse_data("agent.message.done", {"sessionID":session_id,"messageID":message_id,
+                                               "answer":answer,"sources":result["sources"],
+                                               "model_used":result["model_used"],"route":result["route"]})
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
+class PushTokenRequest(BaseModel): push_token:str
+@app.post("/devices/{device_id}/push-token")
+def set_push_token(device_id:str, req:PushTokenRequest):
+    if device_id not in sessions.devices: raise HTTPException(404,"unknown device")
+    if not req.push_token.startswith("ExponentPushToken["): raise HTTPException(400,"not an Expo push token")
+    sessions.push_tokens[device_id]=req.push_token
+    audit.append(AuditEvent(actor="user",event_type="push_token_registered",status="stored",metadata={"device_id":device_id}))
+    return {"device_id":device_id,"push_registered":True}
 @app.post("/agent/plan")
 def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")

@@ -78,6 +78,8 @@ class DeviceSessionStore:
     secrets: dict[str, str] = field(default_factory=dict)
     nonces: dict[str, float] = field(default_factory=dict)  # nonce -> seen unix timestamp
     audit: list[AuditEvent] = field(default_factory=list)
+    # Expo push tokens per device id (registered via POST /devices/{id}/push-token)
+    push_tokens: dict[str, str] = field(default_factory=dict)
     # Ed25519 public keys per device (optional upgrade from HMAC secrets)
     ed25519_keys: dict[str, bytes] = field(default_factory=dict)
 
