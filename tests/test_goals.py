@@ -1,6 +1,7 @@
 """Goals (Phase 3): CRUD, progress entries, briefing, persistence, auth."""
 import tempfile
 import time
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -91,7 +92,8 @@ def test_progress_entries_newest_first_and_rollup(client):
 
 def test_briefing_flags_stale_due_overdue(client):
     stale = _create(client, title="stale goal")
-    due = _create(client, title="due goal", target_date="2026-10-02")
+    due = _create(client, title="due goal",
+                  target_date=(date.today() + timedelta(days=2)).isoformat())
     over = _create(client, title="overdue goal", target_date="2020-01-01")
     fresh = _create(client, title="fresh goal")
     client.post(f"/goals/{fresh['id']}/progress", json={"note": "moving"})
