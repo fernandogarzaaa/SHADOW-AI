@@ -1,5 +1,6 @@
 from .models import *
 from .policy import PolicyEngine, PolicyOutcome
+from .capabilities import AgentPersona, default_persona, persona_from_dict
 from .safety import is_suspicious_user_request
 from .security import envelope_hash
 import threading
@@ -186,10 +187,14 @@ class AgentPlanner:
         return AgentPlan(user_intent=prompt, actions=[AgentAction(tool_name=tool, description=desc, destructive=destructive, destination=dest)], rationale="Deterministic beta planner with policy gate.")
 class AgentCore:
     def __init__(self, profile:UserProfile|None=None, approval_store=None, event_sink=None, execution_store=None,
-                 audit_chain=None, vault=None, policy=None, policy_file=None, mock_tools:bool=False):
+                 audit_chain=None, vault=None, policy=None, policy_file=None, mock_tools:bool=False,
+                 persona:AgentPersona|dict|None=None):
         self.profile=profile or UserProfile()
         # The single policy authority: every action decision flows through it.
         self.policy=PolicyEngine(policy=policy, policy_file=policy_file)
+        # Persona capability envelope (validated). Defaults to the permissive
+        # default, which preserves the historical policy behavior.
+        self.persona=persona_from_dict(persona)
         self.audit_chain=audit_chain
         self.vault=vault
         self.approvals=ApprovalWorkflow(store=approval_store, event_sink=event_sink, audit_chain=audit_chain)
@@ -245,7 +250,7 @@ class AgentCore:
         action.destructive=self.policy.is_destructive(action)
         rec=ExecutionRecord(intent=action.description, action=action, approval_id=approval_id,
                             approved=approved, double_confirmed=double_confirmed)
-        decision=self.policy.decide(action,self.profile,approved,double_confirmed)
+        decision=self.policy.decide(action,self.profile,approved,double_confirmed,self.persona)
         ok=decision.outcome==PolicyOutcome.ALLOW
         reason=decision.reason
         rec.policy_allowed=ok; rec.policy_reason=reason

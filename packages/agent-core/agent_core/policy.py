@@ -17,6 +17,12 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from .models import *
+from .capabilities import (
+    AgentPersona,
+    MEMORY_TOOLS,
+    RESEARCH_TOOLS,
+    persona_from_dict,
+)
 
 # Built-in default policy. Mirrors the historical hard-coded rule sets so a
 # node without an explicit policy file behaves exactly as before. The operator
@@ -196,6 +202,7 @@ class PolicyEngine:
         profile: UserProfile,
         approved: bool = False,
         double_confirmed: bool = False,
+        persona: AgentPersona | dict | None = None,
     ) -> PolicyDecision:
         """Evaluate one action. Fixed rule order; first match wins."""
         risk = self.classify_action(action)
@@ -220,6 +227,15 @@ class PolicyEngine:
                 rule_id="destructive_needs_double_confirm",
                 risk=risk,
             )
+        # Persona capability envelope. Runs after the hard gates above, so a
+        # persona can never override emergency pause, blocked tools, or the
+        # destructive double-confirmation. It runs before the approval tiers:
+        # a denied capability is denied outright, never waived by a tier or
+        # an approval. (Adapted from OpenDots' per-run permission check,
+        # src/server/dot-agent.ts, which aborts the run on permission drift.)
+        persona_decision = self._check_persona(action, persona, risk)
+        if persona_decision is not None:
+            return persona_decision
         # Per-tool approval tiers. These run after the hard gates above, so a
         # tier can only relax the approval requirement, never override a
         # denial. An empty tool_tiers map (the default) falls straight
@@ -271,6 +287,47 @@ class PolicyEngine:
             outcome=PolicyOutcome.ALLOW, reason="Allowed.", rule_id="allow", risk=risk
         )
 
+    def _check_persona(
+        self,
+        action: AgentAction,
+        persona: AgentPersona | dict | None,
+        risk: RiskClass,
+    ) -> PolicyDecision | None:
+        """Enforce the persona capability envelope. Returns a DENY decision or None."""
+        if persona is None:
+            return None
+        p = persona_from_dict(persona)
+        tool = action.tool_name.lower()
+        if tool in p.denied_tools:
+            return PolicyDecision(
+                outcome=PolicyOutcome.DENY,
+                reason=f"Tool '{action.tool_name}' is denied by the active persona.",
+                rule_id="persona_denied_tool",
+                risk=risk,
+            )
+        if p.allowed_tools and tool not in p.allowed_tools:
+            return PolicyDecision(
+                outcome=PolicyOutcome.DENY,
+                reason=f"Tool '{action.tool_name}' is not granted by the active persona.",
+                rule_id="persona_not_granted",
+                risk=risk,
+            )
+        if tool in RESEARCH_TOOLS and not p.research_allowed:
+            return PolicyDecision(
+                outcome=PolicyOutcome.DENY,
+                reason=f"Tool '{action.tool_name}' needs research capability; the active persona has research disabled.",
+                rule_id="persona_research_disabled",
+                risk=risk,
+            )
+        if tool in MEMORY_TOOLS and not p.memory_allowed:
+            return PolicyDecision(
+                outcome=PolicyOutcome.DENY,
+                reason=f"Tool '{action.tool_name}' needs memory capability; the active persona has memory disabled.",
+                rule_id="persona_memory_disabled",
+                risk=risk,
+            )
+        return None
+
     # -- compatibility wrappers ----------------------------------------------
     def can_execute(
         self,
@@ -278,8 +335,9 @@ class PolicyEngine:
         profile: UserProfile,
         approved: bool = False,
         double_confirmed: bool = False,
+        persona: AgentPersona | dict | None = None,
     ) -> tuple[bool, str]:
-        decision = self.decide(action, profile, approved, double_confirmed)
+        decision = self.decide(action, profile, approved, double_confirmed, persona)
         return decision.outcome == PolicyOutcome.ALLOW, decision.reason
 
     def cloud_allowed(self, grants: list[ConsentGrant], explicit_approval: bool, trusted_mode: bool = False) -> bool:
