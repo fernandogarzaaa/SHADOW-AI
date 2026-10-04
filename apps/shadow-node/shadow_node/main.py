@@ -14,6 +14,7 @@ from memory_engine import *
 from axiom_adapter import AxiomAdapter
 from ghost_adapter import GhostAdapter, LocalActionExecutor
 from .connectors import read_local_document
+from .runtime_scope import check_runtime_scope, RuntimeScopeError
 from .ambient_tasks import build_task_map, BUILTIN_TASKS
 from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
@@ -343,6 +344,22 @@ class OAuthExchangeRequest(BaseModel): state:str; code:str
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request:Request, exc:HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error":{"code":str(exc.detail),"message":str(exc.detail),"path":request.url.path}})
+@app.middleware("http")
+async def runtime_scope_middleware(request:Request, call_next):
+    # Runtime scope guard (OpenDots backlog #7): explicit (path, method)
+    # allowlist plus strict ID validation for the sensitive route families,
+    # independent of the framework router. Failures are client errors (400)
+    # in the standard error envelope. CORS preflight (OPTIONS) passes
+    # through untouched: the preflighted method is scope-checked on the
+    # real request, mirroring auth_middleware's OPTIONS exemption.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    try:
+        check_runtime_scope(request.method, request.url.path, request.query_params)
+    except RuntimeScopeError as e:
+        log.warning("runtime_scope_denied", extra={"path":request.url.path,"method":request.method,"reason":str(e)})
+        return JSONResponse(status_code=400, content={"error":{"code":"runtime_scope_denied","message":str(e)}})
+    return await call_next(request)
 @app.middleware("http")
 async def observability_middleware(request:Request, call_next):
     start=time.perf_counter()
