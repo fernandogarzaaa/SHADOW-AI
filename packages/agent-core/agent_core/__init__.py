@@ -1,6 +1,7 @@
 from .models import *
 from .policy import PolicyEngine, PolicyDecision, PolicyOutcome, DEFAULT_POLICY
 from .capabilities import AgentPersona, default_persona, persona_from_dict, MEMORY_TOOLS, RESEARCH_TOOLS
+from .run_guard import RunGuard, PermissionDriftError
 from .audit import AuditChain, AuditEntry, entry_hash
 from .vault import CredentialVault, CredentialRecord, SurrogateRecord
 from .core import AgentCore, AgentPlanner, ApprovalWorkflow, ToolRegistry

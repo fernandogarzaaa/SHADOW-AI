@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .core import AgentCore
 from .models import AgentAction, new_id, now
+from .run_guard import RunGuard, PermissionDriftError
 
 # Runtime store collections used by this module.
 _JOURNAL_COLLECTION = "ambient_journals"
@@ -71,6 +72,7 @@ class JournalEntryType(str, Enum):
     CHECKPOINT = "checkpoint"
     INTERRUPTED = "interrupted"
     COMPLETED = "completed"
+    ABORTED = "aborted"
     CLAIM = "claim"
 
 
@@ -92,10 +94,15 @@ class RunCheckpoint(BaseModel):
     steps: list[dict[str, Any]] = Field(default_factory=list)
     results: list[dict[str, Any]] = Field(default_factory=list)
     step_index: int = 0  # next step to execute
-    status: str = "running"  # running | interrupted | completed | failed
+    status: str = "running"  # running | interrupted | completed | failed | aborted
     approval_id: str | None = None
     double_confirmed: bool = False
     error: str | None = None
+    # Live permission re-check (OpenDots backlog #4): baseline snapshot of
+    # the permission triple at run start. run_next() aborts the run when the
+    # live permissions drift from this baseline. Plain data so it survives
+    # process restarts with the checkpoint.
+    permission_baseline: dict[str, Any] | None = None
     updated_at: Any = Field(default_factory=now)
 
 
@@ -356,6 +363,7 @@ class GhostRunSession:
             steps=[dict(s) for s in steps],
             approval_id=approval_id,
             double_confirmed=double_confirmed,
+            permission_baseline=RunGuard.snapshot(self.core),
         )
         self.checkpoints.save(cp)
         self.journal.append(run_id, JournalEntryType.RUN_STARTED,
@@ -401,6 +409,24 @@ class GhostRunSession:
             return None
         if cp.status not in ("running", "interrupted"):
             raise ValueError(f"run {run_id} is {cp.status}; resume it first")
+        # Live permission re-check (OpenDots backlog #4, DotAgent check() /
+        # abortRun()): abort the run when permissions drifted since start.
+        # The baseline lives in the checkpoint, so this also catches drift
+        # across process restarts.
+        guard = RunGuard(self.core, cp.permission_baseline)
+        try:
+            guard.check()
+        except PermissionDriftError as e:
+            cp.status = "aborted"
+            cp.error = str(e)
+            self.checkpoints.save(cp)
+            self.journal.append(run_id, JournalEntryType.ABORTED,
+                                f"run aborted: {e}", {"error": str(e), "drifted": e.drifted})
+            _emit(self._event_sink, "ghost.run.aborted",
+                  {"run_id": run_id, "error": str(e), "drifted": e.drifted})
+            _audit_record(self._audit, "ghost", "ghost.run.aborted",
+                          {"run_id": run_id, "error": str(e)})
+            raise
         if cp.step_index >= len(cp.steps):
             return self._finish(run_id, cp, "completed", None)
 
