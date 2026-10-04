@@ -63,7 +63,8 @@ def test_ghost_local_mode_executes_real_steps(workspace):
     assert (workspace / "ghost.md").exists()
 
 
-def test_execute_endpoint_runs_real_action_after_approval(workspace):
+def test_execute_endpoint_runs_real_action_after_approval(workspace, monkeypatch):
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # action execution under test, not auth
     import shadow_node.main as m
     importlib.reload(m)
     client = TestClient(m.app)
@@ -78,7 +79,8 @@ def test_execute_endpoint_runs_real_action_after_approval(workspace):
     assert "note.create" in client.get("/tools").json()["tools"]
 
 
-def test_execute_endpoint_blocks_without_approval(workspace):
+def test_execute_endpoint_blocks_without_approval(workspace, monkeypatch):
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # action execution under test, not auth
     import shadow_node.main as m
     importlib.reload(m)
     client = TestClient(m.app)

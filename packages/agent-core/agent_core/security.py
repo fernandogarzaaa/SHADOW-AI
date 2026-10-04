@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hmac, hashlib, time, os
+import hmac, hashlib, time, os, secrets
 from dataclasses import dataclass, field
 from .models import Device, AuditEvent, now
 
@@ -76,7 +76,7 @@ def verify_ed25519(public_key_bytes: bytes, signature_hex: str, method: str, pat
 class DeviceSessionStore:
     devices: dict[str, Device] = field(default_factory=dict)
     secrets: dict[str, str] = field(default_factory=dict)
-    nonces: set[str] = field(default_factory=set)
+    nonces: dict[str, float] = field(default_factory=dict)  # nonce -> seen unix timestamp
     audit: list[AuditEvent] = field(default_factory=list)
     # Ed25519 public keys per device (optional upgrade from HMAC secrets)
     ed25519_keys: dict[str, bytes] = field(default_factory=dict)
@@ -85,7 +85,7 @@ class DeviceSessionStore:
         fp = fingerprint_for_key(public_key)
         dev = Device(name=name, public_key=public_key, fingerprint=fp, trusted=True)
         self.devices[dev.id] = dev
-        self.secrets[dev.id] = secret or hashlib.sha256((public_key + dev.id).encode()).hexdigest()
+        self.secrets[dev.id] = secret or secrets.token_hex(32)
         return dev
 
     def register_ed25519(self, name: str, ed25519_public_key: bytes) -> Device:
@@ -133,6 +133,9 @@ class DeviceSessionStore:
             return fail("missing_signature")
         if not nonce:
             return fail("missing_nonce")
+        now_ts=int(time.time())
+        for _n,_ts in list(self.nonces.items()):
+            if now_ts-_ts>MAX_SKEW_SECONDS: del self.nonces[_n]
         if nonce in self.nonces:
             return fail("replayed_nonce")
         try:
@@ -154,5 +157,5 @@ class DeviceSessionStore:
 
         if not ok:
             return fail(reason)
-        self.nonces.add(nonce)
+        self.nonces[nonce]=now_ts
         return True, "ok"

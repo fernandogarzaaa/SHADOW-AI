@@ -102,7 +102,7 @@ def test_auth_required_allows_cors_preflight(monkeypatch):
 
 def test_rate_limit_middleware_returns_429(monkeypatch):
     monkeypatch.setenv("SHADOW_RATE_LIMIT_RPM", "1")
-    monkeypatch.delenv("SHADOW_AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("SHADOW_AUTH_REQUIRED", "false")  # isolate rate limiting from auth
     import shadow_node.main as m
     importlib.reload(m)
     c = TestClient(m.app)
