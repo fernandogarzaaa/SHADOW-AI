@@ -337,6 +337,11 @@ class ExecuteRequest(BaseModel):
     approved: bool = False
     double_confirmed: bool = False
     approval_id: str | None = None
+    # HITL run linkage (OpenDots backlog #1): the idempotency receipt key.
+    # When the policy suspends for approval, the returned approval carries
+    # this pair; retries reuse the pending approval instead of duplicating it.
+    thread_id: str | None = None
+    tool_call_id: str | None = None
 class ApprovalCreateRequest(BaseModel): action:AgentAction; reason:str="User requested approval"
 class EmergencyPauseRequest(BaseModel): paused:bool; reason:str|None=None
 class ConsentRequest(BaseModel): data_source:str; scope:str; purpose:str; retention_days:int=30; model_access_level:ModelAccessLevel=ModelAccessLevel.LOCAL_ONLY
@@ -1082,7 +1087,8 @@ def plan(req:AskRequest): return core.propose(req.prompt)
 @app.post("/agent/execute")
 def execute(req:ExecuteRequest):
     server_approved = _resolve_server_approval(req.approval_id, req.action)
-    res=core.execute(req.action,server_approved,req.double_confirmed,approval_id=req.approval_id); audit.extend(core.drain_audit())
+    res=core.execute(req.action,server_approved,req.double_confirmed,approval_id=req.approval_id,
+                     thread_id=req.thread_id, tool_call_id=req.tool_call_id); audit.extend(core.drain_audit())
     if req.approval_id:
         try:
             core.approvals.attach_execution(req.approval_id, res["execution_id"], res["verification"])
@@ -1311,6 +1317,16 @@ def create_approval(req:ApprovalCreateRequest):
     # requirement matches what policy will enforce at execution (audit P0-4).
     req.action.destructive=core.policy.is_destructive(req.action)
     approval=core.approvals.create(req.action, req.reason); audit.append(AuditEvent(actor="user", event_type="approval_created", proposed_action=req.action.description, status="pending", metadata={"approval_id":approval.id})); return approval
+@app.get("/approvals/receipt")
+def approval_receipt(thread_id: str, tool_call_id: str):
+    """Idempotency receipt lookup (OpenDots' restorePageReview analog):
+    returns the approval card for a (thread_id, tool_call_id) pair so a
+    client that lost the suspend response can recover it without minting
+    a duplicate. 404 when no receipt exists."""
+    req = core.approvals.receipt(thread_id, tool_call_id)
+    if req is None:
+        raise HTTPException(404, "no approval receipt for (thread_id, tool_call_id)")
+    return {"approval": req.model_dump(mode="json"), "card": req.card}
 @app.get("/approvals")
 def approvals(status: str | None = None):
     """Uniform page envelope. ?status= filters by approval status

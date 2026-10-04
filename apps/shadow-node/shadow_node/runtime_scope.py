@@ -63,6 +63,7 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/ambient/wake": frozenset({"POST"}),
     # approvals
     "/approvals": frozenset({"GET", "POST"}),
+    "/approvals/receipt": frozenset({"GET"}),
     "/approvals/sweep": frozenset({"POST"}),
     "/approvals/{id}/approve": frozenset({"POST"}),
     "/approvals/{id}/deny": frozenset({"POST"}),

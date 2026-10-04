@@ -205,8 +205,11 @@ def test_execute_unknown_tool_fails_closed_by_default(workspace):
 def test_execute_blocked_is_failed_with_evidence(workspace):
     core = _core_with_real_tools()
     res = core.execute(_action("note.create", {"title": "Blocked"}), approved=False)
+    # Backlog #1: approval-required actions suspend (no longer fail outright).
     assert res["ok"] is False
-    assert res["verification"] == "failed"
+    assert res["status"] == "approval_pending"
+    assert res["verification"] == "uncertain"
+    assert res["approval_id"].startswith("apr_")
     rec = core.executions[res["execution_id"]]
     assert rec.tool_result is None
     assert any(e.kind == "policy_decision" for e in rec.evidence)
@@ -328,9 +331,12 @@ def test_execute_with_unknown_approval_id_is_404(api_client):
 def test_execute_blocked_still_records_failed_execution(api_client):
     client, m = api_client
     r = client.post("/agent/execute", json={"action": _note_action(), "approved": False}).json()
-    assert r["ok"] is False and r["verification"] == "failed"
+    # Backlog #1: approval-required actions suspend; the execution record is
+    # kept with an uncertain verdict until the approval is decided.
+    assert r["ok"] is False and r["status"] == "approval_pending"
+    assert r["verification"] == "uncertain"
     detail = client.get(f"/executions/{r['execution_id']}").json()
-    assert detail["verification"] == "failed"
+    assert detail["verification"] == "uncertain"
     assert detail["tool_result"] is None
 
 

@@ -32,6 +32,14 @@ class ApprovalWorkflow:
         if store is not None:
             for req in store.all("approvals", ApprovalRequest):
                 self.requests[req.id]=req
+        # Idempotency receipts: (thread_id, tool_call_id) -> approval_id.
+        # OpenDots keys its page-review receipts PRIMARY KEY(threadId,
+        # toolCallId); the same pair here returns the pending approval
+        # instead of minting a duplicate.
+        self._receipts: dict[tuple[str,str],str]={}
+        for req in self.requests.values():
+            if req.thread_id and req.tool_call_id:
+                self._receipts[(req.thread_id, req.tool_call_id)]=req.id
 
     def _emit(self, event_type:str, req:ApprovalRequest):
         if self._event_sink is not None:
@@ -47,14 +55,32 @@ class ApprovalWorkflow:
         if self._store is not None:
             self._store.put("approvals", req.id, req)
 
-    def create(self, action: AgentAction, reason: str):
-        req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=action.destructive)
+    def create(self, action: AgentAction, reason: str, thread_id: str|None=None, tool_call_id: str|None=None):
+        # Idempotency: a retry of the same tool call reuses the pending
+        # approval instead of creating a duplicate card.
+        if thread_id and tool_call_id:
+            existing_id=self._receipts.get((thread_id, tool_call_id))
+            if existing_id is not None:
+                existing=self.requests.get(existing_id)
+                if existing is not None and existing.status==ApprovalStatus.PENDING:
+                    return existing
+        req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=action.destructive, thread_id=thread_id, tool_call_id=tool_call_id)
         req.binding_hash=envelope_hash(action)
         self._persist(req)
         self.requests[req.id]=req
+        if thread_id and tool_call_id:
+            self._receipts[(thread_id, tool_call_id)]=req.id
         self._emit("approval.created", req)
         self._record("approval.created", {"approval_id": req.id, "tool_name": action.tool_name, "risk": action.risk.value, "reason": reason})
         return req
+
+    def receipt(self, thread_id: str, tool_call_id: str) -> ApprovalRequest|None:
+        """Look up the approval for a (thread_id, tool_call_id) receipt
+        (OpenDots' restorePageReview analog for lost responses)."""
+        approval_id=self._receipts.get((thread_id, tool_call_id))
+        if approval_id is None:
+            return None
+        return self.requests.get(approval_id)
 
     def decide(self, approval_id:str, approve:bool, deny_reason:str|None=None):
         current=self.requests[approval_id]
@@ -243,7 +269,8 @@ class AgentCore:
         if self.execution_store is not None:
             self.execution_store.put("executions", rec.id, rec)
 
-    def execute(self, action:AgentAction, approved:bool=False, double_confirmed:bool=False, approval_id:str|None=None):
+    def execute(self, action:AgentAction, approved:bool=False, double_confirmed:bool=False, approval_id:str|None=None,
+                thread_id:str|None=None, tool_call_id:str|None=None):
         # Server-derived destructiveness (audit P0-4): normalize before the
         # approval claim so the envelope comparison matches what POST
         # /approvals stored. Idempotent; policy derives this independently.
@@ -251,6 +278,26 @@ class AgentCore:
         rec=ExecutionRecord(intent=action.description, action=action, approval_id=approval_id,
                             approved=approved, double_confirmed=double_confirmed)
         decision=self.policy.decide(action,self.profile,approved,double_confirmed,self.persona)
+        # HITL suspend (OpenDots backlog #1): when the policy asks for
+        # approval and no approval was presented, the run suspends here. A
+        # decision card is persisted and fanned out (approval.created on SSE
+        # + push); the caller resumes by calling execute() again with the
+        # returned approval_id once the user decides. The (thread_id,
+        # tool_call_id) receipt makes retries idempotent.
+        if decision.outcome==PolicyOutcome.REQUIRE_APPROVAL and approval_id is None:
+            req=self.approvals.create(action, decision.reason, thread_id, tool_call_id)
+            rec.approval_id=req.id
+            rec.policy_allowed=False
+            rec.policy_reason=decision.reason
+            rec.evidence.append(evidence_policy(False, f"[{decision.rule_id}] {decision.reason}"))
+            rec.verification_reason=f"approval pending: {req.id}"
+            self._persist_execution(rec)
+            self._record("execution.suspended", {"execution_id": rec.id, "approval_id": req.id,
+                                                 "thread_id": thread_id, "tool_call_id": tool_call_id})
+            self.audit.append(AuditEvent(actor="agent_core", event_type="execute", data_used=action.data_used, model_used=action.model_used, proposed_action=action.description, permission_checked=decision.reason, status="suspended-awaiting-approval"))
+            return {"ok":False,"status":"approval_pending","approval_id":req.id,"reason":decision.reason,
+                    "verification":rec.verification.value,"verification_reason":rec.verification_reason,
+                    "execution_id":rec.id,"thread_id":thread_id,"tool_call_id":tool_call_id,"card":req.card}
         ok=decision.outcome==PolicyOutcome.ALLOW
         reason=decision.reason
         rec.policy_allowed=ok; rec.policy_reason=reason

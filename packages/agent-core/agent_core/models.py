@@ -36,6 +36,10 @@ class AgentTask(BaseModel):
     id: str = Field(default_factory=lambda:new_id("tsk")); prompt: str; plan: AgentPlan|None=None; status: str="created"; created_at: datetime=Field(default_factory=now)
 class ApprovalRequest(BaseModel):
     id: str = Field(default_factory=lambda:new_id("apr")); action: AgentAction; reason: str; action_preview: str; data_used_preview: list[str]=[]; model_used_preview: str|None=None; destination_preview: str|None=None; risk_label: RiskClass=RiskClass.LOW; kind: ApprovalKind=ApprovalKind.ONE_TIME; requires_double_confirmation: bool=False; status: ApprovalStatus=ApprovalStatus.PENDING; deny_reason: str|None=None; created_at: datetime=Field(default_factory=now); decided_at: datetime|None=None; expires_at: datetime=Field(default_factory=lambda: now()+timedelta(minutes=15))
+    # HITL run linkage (OpenDots backlog #1): the idempotency receipt key
+    # (thread_id, tool_call_id). Retrying the same tool call returns the
+    # existing pending approval instead of minting a duplicate.
+    thread_id: str|None=None; tool_call_id: str|None=None
     # Verification linkage: once the approved action runs, the approval card
     # carries the execution id and its VERIFIED / FAILED / UNCERTAIN / CONFLICTING
     # verdict so clients can show proof, not just a claim of completion.
@@ -47,6 +51,29 @@ class ApprovalRequest(BaseModel):
     # (tool, params, destination, data/model scope, risk, destructive, policy
     # version). The presented action must reproduce this hash at claim time.
     binding_hash: str|None=None
+    @property
+    def card(self) -> dict:
+        """Decision-card payload for approval UIs (OpenDots PageReviewCard
+        analog, adapted: SHADOW adds the risk class OpenDots lacks)."""
+        title = (self.action.description or self.action.tool_name).strip()
+        if len(title) > 80:
+            title = title[:77] + "..."
+        return {
+            "approval_id": self.id,
+            "title": title,
+            "tool_name": self.action.tool_name,
+            "preview": self.action_preview,
+            "risk": self.risk_label.value,
+            "destination": self.destination_preview,
+            "data_used": self.data_used_preview,
+            "requires_double_confirmation": self.requires_double_confirmation,
+            "thread_id": self.thread_id,
+            "tool_call_id": self.tool_call_id,
+            "status": self.status.value,
+            "deny_reason": self.deny_reason,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "footnote": "Nothing runs until you approve.",
+        }
 class AuditEvent(BaseModel):
     id: str = Field(default_factory=lambda:new_id("aud")); actor: str; event_type: str; data_used: list[str]=[]; model_used: str|None=None; permission_checked: str|None=None; proposed_action: str|None=None; status: str="recorded"; result: str|None=None; timestamp: datetime=Field(default_factory=now); metadata: dict[str, Any]={}
 class Device(BaseModel):
