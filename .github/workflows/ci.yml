@@ -17,6 +17,17 @@ jobs:
         run: pytest -q
       - name: Demo smoke
         run: make demo
+      - name: Package install check
+        run: |
+          python -m venv /tmp/pkgcheck
+          /tmp/pkgcheck/bin/pip install --quiet .
+          cd /tmp && /tmp/pkgcheck/bin/python - <<'PY'
+          import os, shadow_node, agent_core, memory_engine, axiom_adapter, ghost_adapter
+          d = os.path.dirname(shadow_node.__file__)
+          for f in ("policy.yaml", "web/index.html"):
+              assert os.path.isfile(os.path.join(d, f)), f"missing package data: {f}"
+          print("package install OK")
+          PY
       - name: Secret scan
         run: |
           if grep -rEn "sk-[A-Za-z0-9]{20,}|(api[_-]?key|secret|password)[[:space:]]*=[[:space:]]*['\"][^'\"]{8,}" \
