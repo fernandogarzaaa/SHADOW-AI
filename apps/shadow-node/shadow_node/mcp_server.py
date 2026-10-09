@@ -15,6 +15,7 @@ from .mcp_tools import RouteEngine
 try:
     import anyio
     from mcp.server import Server
+    from mcp.server.context import ServerRequestContext
     from mcp.server.stdio import stdio_server
     import mcp.types as types
 except ImportError as e:  # pragma: no cover - exercised only without the extra installed
@@ -23,7 +24,6 @@ except ImportError as e:  # pragma: no cover - exercised only without the extra 
 
 def build_server(engine: RouteEngine | None = None) -> "Server":
     engine = engine or RouteEngine()
-    server = Server("shadow-router")
     tools = [
         types.Tool(
             name=s["name"],
@@ -34,16 +34,26 @@ def build_server(engine: RouteEngine | None = None) -> "Server":
         for s in engine.tool_specs()
     ]
 
-    @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        return tools
+    # MCP 2.x uses constructor-based handler registration; the v1
+    # @server.list_tools() / @server.call_tool() decorators were removed.
+    async def _list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=tools)
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-        result = engine.dispatch(name, arguments)
-        return [types.TextContent(type="text", text=json.dumps(result, default=str))]
+    async def _call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> types.CallToolResult:
+        result = engine.dispatch(params.name, params.arguments)
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps(result, default=str))]
+        )
 
-    return server
+    return Server(
+        "shadow-router",
+        on_list_tools=_list_tools,
+        on_call_tool=_call_tool,
+    )
 
 
 def main() -> None:
