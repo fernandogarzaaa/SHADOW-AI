@@ -78,7 +78,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
-    "@babel/core": "^7.28.5",
+    "@babel/core": "^8.0.6",
     "@types/react": "~19.0.14",
     "babel-preset-expo": "^54.0.9",
     "sharp": "^0.34.5",
