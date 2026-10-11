@@ -1,6 +1,12 @@
 from .models import *
 from .policy import PolicyEngine, PolicyDecision, PolicyOutcome, DEFAULT_POLICY
-from .capabilities import AgentPersona, default_persona, persona_from_dict, MEMORY_TOOLS, RESEARCH_TOOLS
+from .capabilities import (
+    AgentPersona,
+    default_persona,
+    persona_from_dict,
+    MEMORY_TOOLS,
+    RESEARCH_TOOLS,
+)
 from .run_guard import RunGuard, PermissionDriftError
 from .audit import AuditChain, AuditEntry, entry_hash
 from .vault import CredentialVault, CredentialRecord, SurrogateRecord
@@ -18,6 +24,7 @@ from .ambient import (
     JournalEntryType,
     RunCheckpoint,
     RunJournal,
+    quiet_ends_at,
 )
 from .always_on import (
     AgentSession,
@@ -45,6 +52,13 @@ from .shadow_acts import (
     SHADOW_ACTS,
     ShadowAct,
     ShadowActRunner,
+)
+from .paced_plans import (
+    PacedPlan,
+    PlanStatus,
+    PlanStep,
+    PlanStepStatus,
+    PlanStore,
 )
 from .verification import (
     ExecutionRecord,

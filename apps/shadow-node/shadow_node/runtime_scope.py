@@ -20,6 +20,7 @@ The allowlist is data, not code. ``tests/test_runtime_scope.py`` asserts it
 stays in sync with the real route table in both directions: every scoped
 route+method must be listed, and nothing listed may be phantom.
 """
+
 from __future__ import annotations
 
 import re
@@ -55,6 +56,9 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     # ambient
     "/ambient/acts": frozenset({"GET"}),
     "/ambient/acts/run": frozenset({"POST"}),
+    "/ambient/plans": frozenset({"GET"}),
+    "/ambient/plans/{plan_id}": frozenset({"GET"}),
+    "/ambient/plans/{plan_id}/cancel": frozenset({"POST"}),
     "/ambient/config": frozenset({"POST"}),
     "/ambient/runs": frozenset({"GET"}),
     "/ambient/runs/{run_id}": frozenset({"GET"}),
@@ -166,14 +170,10 @@ def check_runtime_scope(
         params = {k: v for k, v in m.groupdict().items()}
         for name, value in params.items():
             if not SAFE_ID_RE.match(value):
-                raise RuntimeScopeError(
-                    f"malformed id in path parameter {name!r}"
-                )
+                raise RuntimeScopeError(f"malformed id in path parameter {name!r}")
         for name, value in params.items():
             qv = (query_params or {}).get(name)
             if qv is not None and qv != value:
-                raise RuntimeScopeError(
-                    f"path/query disagreement for {name!r}"
-                )
+                raise RuntimeScopeError(f"path/query disagreement for {name!r}")
         return params
     return None

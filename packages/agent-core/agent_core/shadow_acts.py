@@ -36,15 +36,19 @@ Act surface is deliberately narrow and local-only:
 No paid services, no network calls, no credential access. Anything
 beyond this surface goes through the normal approval-gated agent path.
 """
+
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from .models import AgentAction, ApprovalStatus
+from .paced_plans import PacedPlan, PlanStatus, PlanStepStatus, PlanStore
 from .policy import PolicyDecision, PolicyOutcome
 
 DAY = 24 * 3600
@@ -53,8 +57,14 @@ DAY = 24 * 3600
 @dataclass
 class ShadowAct:
     """One proactive behavior. run(ctx) returns a result dict with
-    "summary" (str), "data" (dict), and optionally "notify" ((title,
-    body) tuple) when effect == "local_notify"."""
+    "summary" (str), "data" (dict), and optionally:
+    - "notify" ((title, body) tuple) when effect == "local_notify":
+      single-shot notification, today's behavior.
+    - "plan" (list of {"title", "body", "deliver_at"} step dicts):
+      paced delivery. The runner stores a PacedPlan and delivers each
+      step at its deliver_at time instead of notifying once. When both
+      are present, the plan wins and the single notify is skipped."""
+
     name: str
     description: str
     effect: str  # "local_notify" | "local_read"
@@ -69,30 +79,47 @@ def _fmt_start(start_ts: float) -> str:
 def upcoming_events_brief(ctx: dict) -> dict:
     cal = ctx.get("calendar")
     if cal is None:
-        return {"summary": "upcoming_events_brief: no calendar source in context",
-                "data": {}, "notify": None}
+        return {
+            "summary": "upcoming_events_brief: no calendar source in context",
+            "data": {},
+            "notify": None,
+        }
     events = cal.upcoming_within(DAY)
     if not events:
-        return {"summary": "upcoming_events_brief: no events in the next 24h",
-                "data": {"count": 0}, "notify": None}
+        return {
+            "summary": "upcoming_events_brief: no events in the next 24h",
+            "data": {"count": 0},
+            "notify": None,
+        }
     lines = []
     for e in events:
         cal_name = f" ({e['calendar']})" if e.get("calendar") else ""
         loc = f" @ {e['location']}" if e.get("location") else ""
         lines.append(f"- {_fmt_start(e['start_ts'])}: {e['summary']}{cal_name}{loc}")
     body = "\n".join(lines)
-    data_events = [{"summary": e["summary"], "start": e["start"],
-                    "calendar": e.get("calendar", "")} for e in events]
-    return {"summary": f"upcoming_events_brief: {len(events)} event(s) in the next 24h",
-            "data": {"count": len(events), "events": data_events},
-            "notify": (f"{len(events)} upcoming event(s)", body)}
+    data_events = [
+        {
+            "summary": e["summary"],
+            "start": e["start"],
+            "calendar": e.get("calendar", ""),
+        }
+        for e in events
+    ]
+    return {
+        "summary": f"upcoming_events_brief: {len(events)} event(s) in the next 24h",
+        "data": {"count": len(events), "events": data_events},
+        "notify": (f"{len(events)} upcoming event(s)", body),
+    }
 
 
 def due_reminders_digest(ctx: dict) -> dict:
     store = ctx.get("reminders")
     if store is None:
-        return {"summary": "due_reminders_digest: no reminder store in context",
-                "data": {}, "notify": None}
+        return {
+            "summary": "due_reminders_digest: no reminder store in context",
+            "data": {},
+            "notify": None,
+        }
     now = time.time()
     due = []
     for r in store.reminders.values():
@@ -106,14 +133,18 @@ def due_reminders_digest(ctx: dict) -> dict:
             due.append({"title": getattr(r, "title", ""), "due_at": due_ts})
     due.sort(key=lambda d: d["due_at"])
     if not due:
-        return {"summary": "due_reminders_digest: no reminders due in the next 24h",
-                "data": {"count": 0}, "notify": None}
+        return {
+            "summary": "due_reminders_digest: no reminders due in the next 24h",
+            "data": {"count": 0},
+            "notify": None,
+        }
     lines = [f"- {_fmt_start(d['due_at'])}: {d['title']}" for d in due]
     body = "\n".join(lines)
-    return {"summary": f"due_reminders_digest: {len(due)} reminder(s) due in the next 24h",
-            "data": {"count": len(due),
-                     "reminders": [{"title": d["title"]} for d in due]},
-            "notify": (f"{len(due)} reminder(s) due soon", body)}
+    return {
+        "summary": f"due_reminders_digest: {len(due)} reminder(s) due in the next 24h",
+        "data": {"count": len(due), "reminders": [{"title": d["title"]} for d in due]},
+        "notify": (f"{len(due)} reminder(s) due soon", body),
+    }
 
 
 def ambient_health(ctx: dict) -> dict:
@@ -134,9 +165,11 @@ def ambient_health(ctx: dict) -> dict:
         "open_sessions": open_sessions,
         "compression_backend": backend.name if backend is not None else "unknown",
     }
-    summary = (f"ambient_health: loop={data['loop_state']} wakes={data['wake_count']} "
-               f"sessions={open_sessions} backend={data['compression_backend']} "
-               f"triggers_ok={len(triggers) - len(errors)}/{len(triggers)}")
+    summary = (
+        f"ambient_health: loop={data['loop_state']} wakes={data['wake_count']} "
+        f"sessions={open_sessions} backend={data['compression_backend']} "
+        f"triggers_ok={len(triggers) - len(errors)}/{len(triggers)}"
+    )
     return {"summary": summary, "data": data, "notify": None}
 
 
@@ -144,22 +177,22 @@ SHADOW_ACTS: tuple[ShadowAct, ...] = (
     ShadowAct(
         name="upcoming_events_brief",
         description="Summarize locally cached Google Calendar events starting "
-                    "in the next 24h into a digest delivered through the "
-                    "node's own notification path.",
+        "in the next 24h into a digest delivered through the "
+        "node's own notification path.",
         effect="local_notify",
         run=upcoming_events_brief,
     ),
     ShadowAct(
         name="due_reminders_digest",
         description="Summarize node-local reminders due in the next 24h into "
-                    "a digest delivered through the node's own notification path.",
+        "a digest delivered through the node's own notification path.",
         effect="local_notify",
         run=due_reminders_digest,
     ),
     ShadowAct(
         name="ambient_health",
         description="Report ambient loop health: trigger status, loop state, "
-                    "open sessions, active compression backend. Read-only.",
+        "open sessions, active compression backend. Read-only.",
         effect="local_read",
         run=ambient_health,
     ),
@@ -171,14 +204,21 @@ class ShadowActRunner:
     node; driven by the ambient scheduler task and the manual
     POST /ambient/acts/run endpoint."""
 
-    def __init__(self, core: Any, profile: Any,
-                 acts: tuple[ShadowAct, ...] | None = None,
-                 audit: Any | None = None) -> None:
+    def __init__(
+        self,
+        core: Any,
+        profile: Any,
+        acts: tuple[ShadowAct, ...] | None = None,
+        audit: Any | None = None,
+        plan_store: PlanStore | None = None,
+    ) -> None:
         self.core = core
         self.profile = profile
         self.acts: dict[str, ShadowAct] = {a.name: a for a in (acts or SHADOW_ACTS)}
         self._audit = audit
         self._last_notify_hash: dict[str, str] = {}
+        self._plans = plan_store if plan_store is not None else PlanStore()
+        self._delivery_lock = threading.Lock()
 
     def _record(self, event_type: str, payload: dict) -> None:
         if self._audit is None:
@@ -189,26 +229,30 @@ class ShadowActRunner:
             pass
 
     def _action_for(self, act: ShadowAct) -> AgentAction:
-        return AgentAction(tool_name=f"shadow_act:{act.name}",
-                           description=act.description, params={})
+        return AgentAction(
+            tool_name=f"shadow_act:{act.name}", description=act.description, params={}
+        )
 
     def evaluate(self, name: str) -> PolicyDecision:
         """Dry-run policy evaluation for status reporting. Pure: never
         creates approvals or runs anything."""
-        return self.core.policy.decide(self._action_for(self.acts[name]),
-                                       self.profile)
+        return self.core.policy.decide(self._action_for(self.acts[name]), self.profile)
 
     def _pending_approval_for(self, tool_name: str) -> Any | None:
         for req in self.core.approvals.requests.values():
-            if (req.status == ApprovalStatus.PENDING
-                    and req.action.tool_name == tool_name):
+            if (
+                req.status == ApprovalStatus.PENDING
+                and req.action.tool_name == tool_name
+            ):
                 return req
         return None
 
     def _granted_approval_for(self, tool_name: str) -> Any | None:
         for req in self.core.approvals.requests.values():
-            if (req.status == ApprovalStatus.APPROVED
-                    and req.action.tool_name == tool_name):
+            if (
+                req.status == ApprovalStatus.APPROVED
+                and req.action.tool_name == tool_name
+            ):
                 return req
         return None
 
@@ -221,43 +265,77 @@ class ShadowActRunner:
         if granted is not None:
             try:
                 claimed = self.core.approvals.claim(granted.id, action)
-                return self._execute(act, ctx, via="approval_claim",
-                                     approval_id=claimed.id)
+                return self._execute(
+                    act, ctx, via="approval_claim", approval_id=claimed.id
+                )
             except (KeyError, ValueError):
                 pass  # fell through: re-evaluate below
 
         decision = self.core.policy.decide(action, self.profile)
         action.risk = decision.risk
-        base = {"act": name, "outcome": decision.outcome.value,
-                "rule_id": decision.rule_id, "risk": decision.risk.value}
+        base = {
+            "act": name,
+            "outcome": decision.outcome.value,
+            "rule_id": decision.rule_id,
+            "risk": decision.risk.value,
+        }
         self._record(f"act.{name}.decision", base)
 
         if decision.outcome == PolicyOutcome.DENY:
-            return {"summary": f"{name}: denied by policy ({decision.rule_id}: "
-                               f"{decision.reason})",
-                    "data": base, "notified": False}
+            return {
+                "summary": f"{name}: denied by policy ({decision.rule_id}: "
+                f"{decision.reason})",
+                "data": base,
+                "notified": False,
+            }
         if decision.outcome == PolicyOutcome.REQUIRE_APPROVAL:
             pending = self._pending_approval_for(action.tool_name)
             if pending is None:
                 pending = self.core.approvals.create(
-                    action, f"Shadow act '{name}' wants to run: {decision.reason}")
-            self._record(f"act.{name}.held_for_approval",
-                         {**base, "approval_id": pending.id})
-            return {"summary": f"{name}: held for approval ({pending.id})",
-                    "data": {**base, "approval_id": pending.id},
-                    "notified": False}
+                    action, f"Shadow act '{name}' wants to run: {decision.reason}"
+                )
+            self._record(
+                f"act.{name}.held_for_approval", {**base, "approval_id": pending.id}
+            )
+            return {
+                "summary": f"{name}: held for approval ({pending.id})",
+                "data": {**base, "approval_id": pending.id},
+                "notified": False,
+            }
         return self._execute(act, ctx, via="policy_allow")
 
-    def _execute(self, act: ShadowAct, ctx: dict, via: str,
-                 approval_id: str | None = None) -> dict:
+    def _execute(
+        self, act: ShadowAct, ctx: dict, via: str, approval_id: str | None = None
+    ) -> dict:
         result = act.run(ctx)
         data = dict(result.get("data", {}))
         data.update({"act": act.name, "outcome": "allow", "via": via})
         if approval_id:
             data["approval_id"] = approval_id
         notified = False
-        notify = result.get("notify")
         summary = result.get("summary", "")
+        plan_steps = result.get("plan")
+        if plan_steps:
+            # Paced delivery wins over the single-shot notify: store the
+            # plan, deliver each step at its own deliver_at time.
+            # Deduplicate: a repeated identical plan for the same act
+            # reuses the existing active plan instead of double-scheduling.
+            plan = self._dedupe_or_create_plan(act.name, plan_steps)
+            data["plan_id"] = plan.id
+            data["plan_steps"] = len(plan.steps)
+            summary += f" (paced plan {plan.id}: {len(plan.steps)} step(s) scheduled)"
+            self._record(
+                f"act.{act.name}.plan_created",
+                {
+                    "act": act.name,
+                    "via": via,
+                    "plan_id": plan.id,
+                    "steps": len(plan.steps),
+                    "summary": summary,
+                },
+            )
+            return {"summary": summary, "data": data, "notified": notified}
+        notify = result.get("notify")
         if notify and act.effect == "local_notify":
             title, body = notify
             digest = hashlib.sha256(f"{title}\n{body}".encode()).hexdigest()
@@ -272,10 +350,145 @@ class ShadowActRunner:
                 self._last_notify_hash[act.name] = digest
                 notified = True
                 summary += " (notified)"
-        self._record(f"act.{act.name}.ran",
-                     {"act": act.name, "via": via, "notified": notified,
-                      "summary": summary})
+        self._record(
+            f"act.{act.name}.ran",
+            {"act": act.name, "via": via, "notified": notified, "summary": summary},
+        )
         return {"summary": summary, "data": data, "notified": notified}
+
+    def _dedupe_or_create_plan(self, act_name: str, step_dicts: list) -> PacedPlan:
+        """Create a plan unless an identical active plan already exists
+        for this act. Steps are compared by (title, body, deliver_at);
+        ids are ignored so repeated runs of the same act do not
+        double-schedule identical deliveries."""
+        wanted = sorted(
+            (
+                str(s.get("title", "")),
+                str(s.get("body") or ""),
+                float(s.get("deliver_at", 0.0)),
+            )
+            for s in step_dicts
+        )
+        for plan in self._plans.list(active_only=True):
+            if plan.act_name != act_name:
+                continue
+            have = sorted((s.title, s.body, s.deliver_at) for s in plan.steps)
+            if have == wanted:
+                return plan
+        return self._plans.create(act_name, step_dicts)
+
+    def deliver_due_plans(self, ctx: dict, now: float | None = None) -> dict:
+        """Deliver paced-plan steps whose deliver_at has arrived.
+
+        Runs on every ambient tick (called from the shadow_acts ambient
+        task). Each due step goes through the existing notify/publish
+        path and is recorded as a feed card when a feed store is in the
+        context. Steps due inside quiet hours are deferred to the end
+        of quiet hours; the deferral is recorded on the step so it stays
+        visible instead of being dropped silently.
+        """
+        now = time.time() if now is None else now
+        is_quiet = ctx.get("is_quiet", lambda: False)
+        quiet_until = ctx.get("quiet_until", lambda: None)
+        notify_fn = ctx.get("notify", lambda t, b, d: None)
+        publish_fn = ctx.get("publish", lambda e, p: None)
+        # feed_add(kind, title, body): the node wires this to its feed
+        # store; kept as a callable so agent_core never imports the app.
+        feed_add = ctx.get("feed_add")
+        delivered = 0
+        deferred = 0
+        # Serialize the whole pass: overlapping ambient ticks must not
+        # deliver the same step twice.
+        with self._delivery_lock:
+            for plan in self._plans.list(active_only=True):
+                for step in plan.pending_steps():
+                    if step.deliver_at > now:
+                        continue
+                    if is_quiet():
+                        ends_at = quiet_until()
+                        if ends_at is None:
+                            ends_at = now + 3600  # next tick; still visible as deferred
+                        step.deferred_from = step.deliver_at
+                        step.deliver_at = ends_at
+                        step.deferred_to = ends_at
+                        step.status = PlanStepStatus.DEFERRED
+                        deferred += 1
+                        self._record(
+                            "plan.step_deferred",
+                            {
+                                "plan_id": plan.id,
+                                "step_id": step.id,
+                                "deferred_from": step.deferred_from,
+                                "deferred_to": step.deferred_to,
+                            },
+                        )
+                        continue
+                    notify_fn(
+                        step.title,
+                        step.body,
+                        {
+                            "type": "plan_step.delivered",
+                            "plan_id": plan.id,
+                            "step_id": step.id,
+                            "act": plan.act_name,
+                        },
+                    )
+                    publish_fn(
+                        "plan_step.delivered",
+                        {
+                            "plan_id": plan.id,
+                            "step_id": step.id,
+                            "title": step.title,
+                            "delivered_at": now,
+                        },
+                    )
+                    if feed_add is not None:
+                        try:
+                            feed_add("plan_step", step.title, step.body)
+                        except Exception as e:  # noqa: BLE001
+                            # Feed is best-effort: a feed failure must not
+                            # block the delivery or cause a duplicate
+                            # notification on a later tick.
+                            self._record(
+                                "plan.feed_failed",
+                                {
+                                    "plan_id": plan.id,
+                                    "step_id": step.id,
+                                    "error": str(e),
+                                },
+                            )
+                    step.status = PlanStepStatus.DELIVERED
+                    step.delivered_at = now
+                    delivered += 1
+                    self._record(
+                        "plan.step_delivered",
+                        {"plan_id": plan.id, "step_id": step.id},
+                    )
+                if plan.is_complete():
+                    plan.status = PlanStatus.COMPLETED
+                self._plans.save(plan)
+        summary = (
+            f"paced_plans: {delivered} step(s) delivered, "
+            f"{deferred} deferred to end of quiet hours"
+        )
+        return {
+            "summary": summary,
+            "data": {"delivered": delivered, "deferred": deferred},
+        }
+
+    def get_plan(self, plan_id: str) -> PacedPlan:
+        """Inspect one stored plan. KeyError for unknown ids."""
+        return self._plans.get(plan_id)
+
+    def list_plans(self, active_only: bool = False) -> list[PacedPlan]:
+        return self._plans.list(active_only=active_only)
+
+    def cancel_plan(self, plan_id: str) -> PacedPlan:
+        """Cancel a plan: pending and deferred steps become cancelled.
+        Delivered steps stay delivered."""
+        plan = self._plans.cancel(plan_id)
+        self._record("plan.cancelled", {"plan_id": plan_id})
+        return plan
 
     def run_all(self, ctx: dict) -> dict:
         outcomes: dict[str, dict] = {}
@@ -284,15 +497,20 @@ class ShadowActRunner:
                 outcomes[name] = self.run_one(name, ctx)
             except Exception as e:  # noqa: BLE001 - one bad act holds no others
                 self._record(f"act.{name}.error", {"error": str(e)})
-                outcomes[name] = {"summary": f"{name}: error: {e}",
-                                  "data": {"act": name, "error": str(e)},
-                                  "notified": False}
-        ran = sum(1 for o in outcomes.values()
-                  if o["data"].get("outcome") == "allow")
-        held = sum(1 for o in outcomes.values()
-                   if o["data"].get("outcome") == "require_approval")
-        denied = sum(1 for o in outcomes.values()
-                     if o["data"].get("outcome") == "deny")
-        return {"summary": f"shadow_acts: {ran} ran, {held} held for approval, "
-                           f"{denied} denied",
-                "data": {"acts": outcomes}}
+                outcomes[name] = {
+                    "summary": f"{name}: error: {e}",
+                    "data": {"act": name, "error": str(e)},
+                    "notified": False,
+                }
+        ran = sum(1 for o in outcomes.values() if o["data"].get("outcome") == "allow")
+        held = sum(
+            1
+            for o in outcomes.values()
+            if o["data"].get("outcome") == "require_approval"
+        )
+        denied = sum(1 for o in outcomes.values() if o["data"].get("outcome") == "deny")
+        return {
+            "summary": f"shadow_acts: {ran} ran, {held} held for approval, "
+            f"{denied} denied",
+            "data": {"acts": outcomes},
+        }

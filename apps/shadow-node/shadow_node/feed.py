@@ -9,6 +9,7 @@ Generation is fully offline: prose is rendered from structured data with
 templates, never by a cloud model. Units persist encrypted in the runtime
 store's "feed" collection when configured, in-memory otherwise.
 """
+
 from __future__ import annotations
 
 import time
@@ -21,7 +22,13 @@ MAX_BODY_LEN = 8000
 FEED_CAP = 200  # keep the newest N units
 MIN_REGEN_SECONDS = 20 * 3600  # one unit per kind per ~20h
 
-FEED_KINDS = ("morning_brief", "goals_briefing", "memory_digest", "reminder")
+FEED_KINDS = (
+    "morning_brief",
+    "goals_briefing",
+    "memory_digest",
+    "reminder",
+    "plan_step",
+)
 # Kinds the feed_digest ambient task generates on its interval. "reminder"
 # units are event-driven (fired reminders), never scheduled.
 DIGEST_KINDS = ("morning_brief", "goals_briefing", "memory_digest")
@@ -62,12 +69,19 @@ def render_morning_brief(data: dict) -> tuple[str, str]:
     if pending:
         parts.append(
             "Approvals waiting on you:\n"
-            + _lines(f"[{p.get('risk', '?')}] {p.get('preview', p.get('id', '?'))}" for p in pending[:5])
+            + _lines(
+                f"[{p.get('risk', '?')}] {p.get('preview', p.get('id', '?'))}"
+                for p in pending[:5]
+            )
         )
     if recent:
         parts.append(
             f"Agent activity (last 24h): {recent} executions — "
-            + (", ".join(f"{k}: {v}" for k, v in verdicts.items()) if verdicts else "no verdicts yet")
+            + (
+                ", ".join(f"{k}: {v}" for k, v in verdicts.items())
+                if verdicts
+                else "no verdicts yet"
+            )
         )
     if claims:
         parts.append(
@@ -77,29 +91,39 @@ def render_morning_brief(data: dict) -> tuple[str, str]:
     if devices:
         parts.append(f"Paired devices: {devices}")
     if not parts:
-        parts.append("Quiet shift. No pending approvals, no recent executions, no open claims.")
+        parts.append(
+            "Quiet shift. No pending approvals, no recent executions, no open claims."
+        )
     return "Morning brief", "\n\n".join(parts)
 
 
 def render_goals_briefing(b) -> tuple[str, str]:
     parts = [f"{b.active_count} active goals, {b.completed_count} completed all-time."]
     if b.overdue:
-        parts.append("Overdue:\n" + _lines(f"{g.title} (due {g.target_date})" for g in b.overdue[:5]))
+        parts.append(
+            "Overdue:\n"
+            + _lines(f"{g.title} (due {g.target_date})" for g in b.overdue[:5])
+        )
     if b.due_soon:
-        parts.append("Due within 7 days:\n" + _lines(f"{g.title} (due {g.target_date})" for g in b.due_soon[:5]))
+        parts.append(
+            "Due within 7 days:\n"
+            + _lines(f"{g.title} (due {g.target_date})" for g in b.due_soon[:5])
+        )
     if b.stale:
         parts.append(
             "Stale — no progress in 7+ days:\n" + _lines(g.title for g in b.stale[:5])
         )
     if b.completed_this_week:
         parts.append(
-            "Completed this week:\n" + _lines(g.title for g in b.completed_this_week[:5])
+            "Completed this week:\n"
+            + _lines(g.title for g in b.completed_this_week[:5])
         )
     if b.recent_entries:
         parts.append(
             "Recent progress:\n"
             + _lines(
-                f"{e.goal_title}: {e.note[:80]}" + (f" ({e.percent}%)" if e.percent is not None else "")
+                f"{e.goal_title}: {e.note[:80]}"
+                + (f" ({e.percent}%)" if e.percent is not None else "")
                 for e in b.recent_entries[:5]
             )
         )
@@ -147,7 +171,9 @@ class FeedStore:
 
     def _persist_marker(self, kind: str, at: float) -> None:
         if self._store is not None:
-            self._store.put("feed_markers", f"marker:{kind}", _GenMarker(kind=kind, at=at))
+            self._store.put(
+                "feed_markers", f"marker:{kind}", _GenMarker(kind=kind, at=at)
+            )
 
     def add(self, unit: FeedUnit) -> FeedUnit:
         self.units.insert(0, unit)
@@ -166,13 +192,14 @@ class FeedStore:
     def list(self, limit: int = 20, offset: int = 0) -> tuple[list[FeedUnit], int]:
         limit = max(1, min(limit, 200))
         offset = max(0, offset)
-        return self.units[offset:offset + limit], len(self.units)
+        return self.units[offset : offset + limit], len(self.units)
 
     def due_kinds(self, kinds: list[str], now: float, force: bool = False) -> list[str]:
         if force:
             return list(kinds)
         return [
-            k for k in kinds
+            k
+            for k in kinds
             if now - self._last_generated.get(k, 0) >= MIN_REGEN_SECONDS
         ]
 
@@ -207,7 +234,9 @@ def generate_units(
             title, body = renderers[kind]()
         except Exception:
             continue
-        unit = FeedUnit(kind=kind, title=title[:MAX_TITLE_LEN], body=body[:MAX_BODY_LEN])
+        unit = FeedUnit(
+            kind=kind, title=title[:MAX_TITLE_LEN], body=body[:MAX_BODY_LEN]
+        )
         feed_store.add(unit)
         feed_store.mark_generated(kind, now)
         made.append(unit)
