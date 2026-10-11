@@ -134,6 +134,7 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/providers/{name}/oauth/start": frozenset({"GET"}),
     # reminders
     "/reminders": frozenset({"GET", "POST"}),
+    "/reminders/parse": frozenset({"POST"}),
     "/reminders/check": frozenset({"POST"}),
     "/reminders/due": frozenset({"GET"}),
     "/reminders/{reminder_id}": frozenset({"GET", "PATCH", "DELETE"}),
@@ -144,6 +145,9 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/custom-panels/parse": frozenset({"POST"}),
     "/custom-panels/{panel_id}": frozenset({"GET", "PATCH", "DELETE"}),
     "/custom-panels/{panel_id}/render": frozenset({"GET"}),
+    # scheduled tasks (unified reminders + ambient tasks)
+    "/scheduled-tasks": frozenset({"GET", "POST"}),
+    "/scheduled-tasks/{task_id}": frozenset({"GET", "PATCH", "DELETE"}),
     # persona
     "/persona": frozenset({"GET", "PUT"}),
 }
