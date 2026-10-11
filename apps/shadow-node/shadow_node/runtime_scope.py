@@ -125,6 +125,8 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/reminders/check": frozenset({"POST"}),
     "/reminders/due": frozenset({"GET"}),
     "/reminders/{reminder_id}": frozenset({"GET", "PATCH", "DELETE"}),
+    # glanceable data panels (Hark item 2)
+    "/panels": frozenset({"GET"}),
     # persona
     "/persona": frozenset({"GET", "PUT"}),
 }
