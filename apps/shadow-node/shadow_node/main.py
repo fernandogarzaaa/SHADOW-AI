@@ -63,6 +63,20 @@ from .reminders import (
     RECURRENCES as REMINDER_RECURRENCES,
     STATUSES as REMINDER_STATUSES,
 )
+from .custom_panels import (
+    CustomPanelDef,
+    CustomPanelFilter,
+    CustomPanelRegistry,
+    CustomPanelSort,
+    PanelClarification,
+    PanelDeleteRequest,
+    PanelInputs,
+    PanelParseRequest,
+    PanelProposal,
+    PanelUpdateRequest,
+    parse_panel_request,
+    render_panel,
+)
 from .artifacts import (
     ArtifactStore,
     ArtifactCreate,
@@ -208,6 +222,7 @@ goal_store = GoalStore(_runtime_store if _runtime_db else None)
 feed_store = FeedStore(_runtime_store if _runtime_db else None)
 idea_store = IdeaStore(_runtime_store if _runtime_db else None)
 reminder_store = ReminderStore(_runtime_store if _runtime_db else None)
+panel_registry = CustomPanelRegistry(_runtime_store if _runtime_db else None)
 artifact_store = ArtifactStore(_runtime_store if _runtime_db else None)
 media_store = media_mod.MediaStore(_runtime_store if _runtime_db else None)
 set_system_prompt_override(system_prompt_for(persona))
@@ -1677,6 +1692,121 @@ def list_panels():
         if r.status == ApprovalStatus.PENDING
     ]
     return [p.model_dump() for p in build_panels(pending, goal_store.briefing(), memory.export())]
+
+
+# --- Custom panels (Hark item 3: natural-language panel creation) ---
+@app.post("/custom-panels/parse")
+def parse_custom_panel(req: PanelParseRequest):
+    """Parse "make a panel showing my top 5 overdue goals" into a panel
+    proposal, or return a clarifying question. Ambiguous input is never
+    guessed."""
+    result = parse_panel_request(req.text)
+    if isinstance(result, PanelProposal):
+        return {
+            "status": "proposal",
+            "proposal": {
+                "name": result.name,
+                "source": result.source.value,
+                "filter": result.filter.value,
+                "sort": result.sort.value,
+                "limit": result.limit,
+                "matched": result.matched,
+            },
+        }
+    return {
+        "status": "needs_clarification",
+        "question": result.question,
+        "options": result.options,
+    }
+
+
+@app.get("/custom-panels")
+def list_custom_panels():
+    """List custom panel definitions (inspectable: the definition is the panel)."""
+    return [p.model_dump(mode="json") for p in panel_registry.list()]
+
+
+@app.post("/custom-panels", status_code=201)
+def create_custom_panel(defn: CustomPanelDef):
+    """Create a custom panel from a definition (or a confirmed parse proposal)."""
+    try:
+        panel = panel_registry.create(defn)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return panel.model_dump(mode="json")
+
+
+@app.get("/custom-panels/{panel_id}")
+def get_custom_panel(panel_id: str):
+    try:
+        return panel_registry.get(panel_id).model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(404, "unknown panel")
+
+
+@app.patch("/custom-panels/{panel_id}")
+def update_custom_panel(panel_id: str, req: PanelUpdateRequest):
+    try:
+        panel = panel_registry.update(
+            panel_id,
+            name=req.name,
+            filter=req.filter,
+            sort=req.sort,
+            limit=req.limit,
+            fields=req.fields,
+        )
+    except KeyError:
+        raise HTTPException(404, "unknown panel")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return panel.model_dump(mode="json")
+
+
+@app.delete("/custom-panels/{panel_id}")
+def delete_custom_panel(panel_id: str, req: PanelDeleteRequest):
+    """Delete a custom panel. Irreversible: requires explicit confirm=true."""
+    if not req.confirm:
+        raise HTTPException(
+            409, "deleting a panel is irreversible: set confirm=true to proceed"
+        )
+    try:
+        panel_registry.delete(panel_id)
+    except KeyError:
+        raise HTTPException(404, "unknown panel")
+    return {"deleted": panel_id}
+
+
+def _custom_panel_inputs() -> PanelInputs:
+    pending = [
+        r for r in core.approvals.requests.values() if r.status == ApprovalStatus.PENDING
+    ]
+    briefing = goal_store.briefing()
+    active = [
+        goal_store.summarize(g)
+        for g in goal_store.goals.values()
+        if g.status == GoalStatus.ACTIVE
+    ]
+    return PanelInputs(
+        approvals=pending,
+        goal_active=active,
+        goal_overdue=briefing.overdue,
+        goal_due_soon=briefing.due_soon,
+        goal_stale=briefing.stale,
+        goal_completed=briefing.completed_this_week,
+        reminders=list(reminder_store.reminders.values()),
+        memory_items=memory.export(),
+        feed_units=list(feed_store.units),
+    )
+
+
+@app.get("/custom-panels/{panel_id}/render")
+def render_custom_panel(panel_id: str):
+    """Render a custom panel as panel JSON (same shape as built-in panels)."""
+    try:
+        defn = panel_registry.get(panel_id)
+    except KeyError:
+        raise HTTPException(404, "unknown panel")
+    return render_panel(defn, _custom_panel_inputs()).model_dump(mode="json")
 
 
 # --- Artifacts (assistant parity: durable documents) ---

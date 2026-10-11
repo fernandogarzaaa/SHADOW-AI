@@ -39,8 +39,8 @@ class RuntimeScopeError(ValueError):
 
 #: Explicit (route template -> allowed methods) contract for the sensitive
 #: route families: agent execution, approvals, artifacts, devices, memory,
-#: providers, pairing, claims, goals, ideas, reminders, media, ambient, and
-#: the persona endpoint. Anything not listed here but under these families is
+#: providers, pairing, claims, goals, ideas, reminders, media, ambient,
+#: custom panels, and the persona endpoint. Anything not listed here but under these families is
 #: denied; routes outside these families are left to the framework router.
 SCOPED_ROUTES: dict[str, frozenset[str]] = {
     # agent
@@ -139,6 +139,11 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/reminders/{reminder_id}": frozenset({"GET", "PATCH", "DELETE"}),
     # glanceable data panels (Hark item 2)
     "/panels": frozenset({"GET"}),
+    # custom panels (Hark item 3)
+    "/custom-panels": frozenset({"GET", "POST"}),
+    "/custom-panels/parse": frozenset({"POST"}),
+    "/custom-panels/{panel_id}": frozenset({"GET", "PATCH", "DELETE"}),
+    "/custom-panels/{panel_id}/render": frozenset({"GET"}),
     # persona
     "/persona": frozenset({"GET", "PUT"}),
 }

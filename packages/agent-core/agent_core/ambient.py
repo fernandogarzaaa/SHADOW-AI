@@ -63,6 +63,9 @@ class InMemoryKV:
     def all(self, collection: str, model: Any) -> list[Any]:
         return list(self._data.get(collection, {}).values())
 
+    def delete(self, collection: str, id: str) -> None:
+        self._data.get(collection, {}).pop(id, None)
+
 
 class JournalEntryType(str, Enum):
     RUN_STARTED = "run_started"
