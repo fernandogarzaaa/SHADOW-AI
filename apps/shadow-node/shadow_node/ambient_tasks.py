@@ -31,12 +31,18 @@ Available tasks:
   requires an explicit tool_tiers grant in the policy document; without
   one, acts are held for approval, never silently auto-run.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-BUILTIN_TASKS = ("morning_brief", "memory_digest", "feed_digest", "reminder_check",
-                 "shadow_acts")
+BUILTIN_TASKS = (
+    "morning_brief",
+    "memory_digest",
+    "feed_digest",
+    "reminder_check",
+    "shadow_acts",
+)
 
 
 def _as_dict(item):
@@ -52,11 +58,13 @@ def morning_brief(ctx: dict) -> dict:
     if core is not None:
         for req in core.approvals.requests.values():
             if req.status.value == "pending":
-                pending.append({
-                    "id": req.id,
-                    "preview": req.action_preview or req.action.description,
-                    "risk": req.risk_label.value,
-                })
+                pending.append(
+                    {
+                        "id": req.id,
+                        "preview": req.action_preview or req.action.description,
+                        "risk": req.risk_label.value,
+                    }
+                )
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         verdicts: dict[str, int] = {}
         recent = 0
@@ -69,7 +77,9 @@ def morning_brief(ctx: dict) -> dict:
                     continue
             if started and started >= cutoff:
                 recent += 1
-                verdicts[rec.verification.value] = verdicts.get(rec.verification.value, 0) + 1
+                verdicts[rec.verification.value] = (
+                    verdicts.get(rec.verification.value, 0) + 1
+                )
     else:
         verdicts, recent = {}, 0
 
@@ -111,7 +121,9 @@ def memory_digest(ctx: dict) -> dict:
     expiring_soon = 0
     now = datetime.now(timezone.utc)
     for it in items:
-        by_category[str(it.get("category", "?"))] = by_category.get(str(it.get("category", "?")), 0) + 1
+        by_category[str(it.get("category", "?"))] = (
+            by_category.get(str(it.get("category", "?")), 0) + 1
+        )
         by_type[str(it.get("type", "?"))] = by_type.get(str(it.get("type", "?")), 0) + 1
         exp = it.get("expires_at")
         if exp:
@@ -134,9 +146,13 @@ def memory_digest(ctx: dict) -> dict:
 
 
 def build_task_map() -> dict:
-    return {"morning_brief": morning_brief, "memory_digest": memory_digest,
-            "feed_digest": feed_digest, "reminder_check": reminder_check,
-            "shadow_acts": shadow_acts}
+    return {
+        "morning_brief": morning_brief,
+        "memory_digest": memory_digest,
+        "feed_digest": feed_digest,
+        "reminder_check": reminder_check,
+        "shadow_acts": shadow_acts,
+    }
 
 
 def shadow_acts(ctx: dict) -> dict:
@@ -151,9 +167,15 @@ def shadow_acts(ctx: dict) -> dict:
     """
     runner = ctx.get("shadow_acts")
     if runner is None:
-        return {"summary": "shadow_acts: no runner in scheduler context",
-                "data": {}}
-    return runner.run_all(ctx)
+        return {"summary": "shadow_acts: no runner in scheduler context", "data": {}}
+    result = runner.run_all(ctx)
+    # Paced delivery: after acts run, deliver any plan steps whose
+    # deliver_at has arrived (quiet-hour deferral handled inside).
+    delivery = runner.deliver_due_plans(ctx)
+    data = dict(result.get("data", {}))
+    data["paced_delivery"] = delivery["data"]
+    summary = result.get("summary", "") + "; " + delivery["summary"]
+    return {"summary": summary, "data": data}
 
 
 def feed_digest(ctx: dict) -> dict:
@@ -164,7 +186,14 @@ def feed_digest(ctx: dict) -> dict:
     read-only task contract: the only world-state change is an append to the
     node's own feed journal.
     """
-    from .feed import FEED_KINDS, DIGEST_KINDS, generate_units, render_goals_briefing, render_memory_digest, render_morning_brief
+    from .feed import (
+        FEED_KINDS,
+        DIGEST_KINDS,
+        generate_units,
+        render_goals_briefing,
+        render_memory_digest,
+        render_morning_brief,
+    )
 
     feed_store = ctx.get("feed_store")
     if feed_store is None:
@@ -174,8 +203,11 @@ def feed_digest(ctx: dict) -> dict:
     renderers = {
         "morning_brief": lambda: render_morning_brief(morning_brief(ctx)["data"]),
         "goals_briefing": (
-            lambda: render_goals_briefing(goal_store.briefing())
-            if goal_store is not None else ("Goals briefing", "No goals tracked yet.")
+            lambda: (
+                render_goals_briefing(goal_store.briefing())
+                if goal_store is not None
+                else ("Goals briefing", "No goals tracked yet.")
+            )
         ),
         "memory_digest": lambda: render_memory_digest(memory_digest(ctx)["data"]),
     }
@@ -183,9 +215,10 @@ def feed_digest(ctx: dict) -> dict:
     kinds = [u.kind for u in units]
     return {
         "summary": f"feed_digest: generated {len(units)} units ({', '.join(kinds) or 'none due'})",
-        "data": {"units": [{"id": u.id, "kind": u.kind, "title": u.title} for u in units]},
+        "data": {
+            "units": [{"id": u.id, "kind": u.kind, "title": u.title} for u in units]
+        },
     }
-
 
 
 def reminder_check(ctx: dict) -> dict:
@@ -202,15 +235,20 @@ def reminder_check(ctx: dict) -> dict:
     store = ctx.get("reminders")
     feed_store = ctx.get("feed_store")
     if store is None or feed_store is None:
-        return {"summary": "reminder_check: missing reminders or feed store in context", "data": {}}
+        return {
+            "summary": "reminder_check: missing reminders or feed store in context",
+            "data": {},
+        }
     is_quiet = ctx.get("is_quiet", lambda: False)
     notify = ctx.get("notify", lambda title, body, data: None)
     publish = ctx.get("publish", lambda event_type, payload: None)
     now = _time.time()
     if is_quiet():
         due = store.due(now)
-        return {"summary": f"reminder_check: quiet hours, {len(due)} due reminders held",
-                "data": {"held": len(due)}}
+        return {
+            "summary": f"reminder_check: quiet hours, {len(due)} due reminders held",
+            "data": {"held": len(due)},
+        }
     fired = fire_due(store, now, is_quiet, notify, publish, feed_store)
     return {
         "summary": f"reminder_check: fired {len(fired)} reminders",

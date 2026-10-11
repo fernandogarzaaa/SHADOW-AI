@@ -19,11 +19,12 @@ Stealth mode: the scheduler runs with surface=False. Journal entries, audit
 log lines, and checkpoints are still written, but no SSE events and no push
 notifications are emitted. See docs/AMBIENT.md for the exact definition.
 """
+
 from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable
 
@@ -158,6 +159,39 @@ class AmbientConfig(BaseModel):
         return mins >= start or mins < end
 
 
+def quiet_ends_at(
+    quiet_start: str | None, quiet_end: str | None, at: datetime | None = None
+) -> float | None:
+    """Epoch seconds when the current quiet period ends, node-local time.
+
+    Returns None when quiet hours are not configured or `at` (default
+    now) is not inside quiet hours. Used to defer paced plan steps to
+    the end of quiet hours instead of dropping them.
+    """
+    if not quiet_start or not quiet_end:
+        return None
+    at = at or datetime.now()  # noqa: DTZ005  # node-local, matches is_quiet
+    start = parse_hhmm(quiet_start)
+    end = parse_hhmm(quiet_end)
+    if start == end:
+        return None
+    mins = at.hour * 60 + at.minute
+    if start < end:
+        in_quiet = start <= mins < end
+        end_day = at.date()
+    else:
+        in_quiet = mins >= start or mins < end
+        # overnight: if we are past midnight but before end, quiet ends
+        # today; if we are after start, it ends tomorrow.
+        end_day = at.date() if mins < end else at.date() + timedelta(days=1)
+    if not in_quiet:
+        return None
+    end_dt = datetime.combine(end_day, datetime.min.time()).replace(
+        hour=end // 60, minute=end % 60
+    )
+    return end_dt.timestamp()
+
+
 def parse_hhmm(v: str) -> int:
     """Parse "HH:MM" (24h) to minutes since midnight. Raises ValueError."""
     parts = str(v).split(":")
@@ -204,7 +238,11 @@ class RunJournal:
     ) -> JournalEntry:
         if isinstance(entry_type, str):
             entry_type = JournalEntryType(entry_type)
-        existing = [e for e in self._store.all(_JOURNAL_COLLECTION, JournalEntry) if e.run_id == run_id]
+        existing = [
+            e
+            for e in self._store.all(_JOURNAL_COLLECTION, JournalEntry)
+            if e.run_id == run_id
+        ]
         entry = JournalEntry(
             run_id=run_id,
             seq=len(existing) + 1,
@@ -217,9 +255,13 @@ class RunJournal:
         return entry
 
     def for_run(self, run_id: str, limit: int = 500) -> list[JournalEntry]:
-        entries = [e for e in self._store.all(_JOURNAL_COLLECTION, JournalEntry) if e.run_id == run_id]
+        entries = [
+            e
+            for e in self._store.all(_JOURNAL_COLLECTION, JournalEntry)
+            if e.run_id == run_id
+        ]
         entries.sort(key=lambda e: (e.seq, str(e.created_at)))
-        return entries[-max(1, limit):]
+        return entries[-max(1, limit) :]
 
     def run_ids(self) -> list[str]:
         """Distinct run ids, most recently active first."""
@@ -272,12 +314,16 @@ class ClaimRegistry:
     def _decide(self, claim_id: str, status: ClaimStatus, evidence: str) -> Claim:
         claim = self.get(claim_id)
         if claim.status != ClaimStatus.UNCONFIRMED:
-            raise ValueError(f"claim {claim_id} is already {claim.status.value}; decided claims are final")
-        updated = claim.model_copy(update={
-            "status": status,
-            "evidence": [*claim.evidence, evidence],
-            "decided_at": now(),
-        })
+            raise ValueError(
+                f"claim {claim_id} is already {claim.status.value}; decided claims are final"
+            )
+        updated = claim.model_copy(
+            update={
+                "status": status,
+                "evidence": [*claim.evidence, evidence],
+                "decided_at": now(),
+            }
+        )
         self._store.put(_CLAIM_COLLECTION, claim.id, updated)
         return updated
 
@@ -290,7 +336,9 @@ class ClaimRegistry:
     def link_execution(self, claim_id: str, execution_id: str) -> Claim:
         claim = self.get(claim_id)
         if execution_id not in claim.execution_ids:
-            updated = claim.model_copy(update={"execution_ids": [*claim.execution_ids, execution_id]})
+            updated = claim.model_copy(
+                update={"execution_ids": [*claim.execution_ids, execution_id]}
+            )
             self._store.put(_CLAIM_COLLECTION, claim.id, updated)
             return updated
         return claim
@@ -366,15 +414,29 @@ class GhostRunSession:
             permission_baseline=RunGuard.snapshot(self.core),
         )
         self.checkpoints.save(cp)
-        self.journal.append(run_id, JournalEntryType.RUN_STARTED,
-                            f"run started: {objective} ({len(steps)} steps)",
-                            {"kind": kind, "approval_id": approval_id})
-        self.journal.append(run_id, JournalEntryType.CHECKPOINT,
-                            "checkpoint saved at step 0", {"step_index": 0})
-        _emit(self._event_sink, "ghost.run.started",
-              {"run_id": run_id, "objective": objective, "steps": len(steps)})
-        _audit_record(self._audit, "ghost", "ghost.run.started",
-                      {"run_id": run_id, "objective": objective, "steps": len(steps)})
+        self.journal.append(
+            run_id,
+            JournalEntryType.RUN_STARTED,
+            f"run started: {objective} ({len(steps)} steps)",
+            {"kind": kind, "approval_id": approval_id},
+        )
+        self.journal.append(
+            run_id,
+            JournalEntryType.CHECKPOINT,
+            "checkpoint saved at step 0",
+            {"step_index": 0},
+        )
+        _emit(
+            self._event_sink,
+            "ghost.run.started",
+            {"run_id": run_id, "objective": objective, "steps": len(steps)},
+        )
+        _audit_record(
+            self._audit,
+            "ghost",
+            "ghost.run.started",
+            {"run_id": run_id, "objective": objective, "steps": len(steps)},
+        )
         return run_id
 
     def _load_running(self, run_id: str) -> RunCheckpoint:
@@ -383,7 +445,9 @@ class GhostRunSession:
             raise KeyError(f"unknown run: {run_id}")
         return cp
 
-    def _resolve_step_approval(self, approval_id: str | None, action: AgentAction) -> bool:
+    def _resolve_step_approval(
+        self, approval_id: str | None, action: AgentAction
+    ) -> bool:
         """Resolve a ghost step's approval through the server-side binding.
 
         Returns False when the step references no approval (the step then
@@ -399,7 +463,8 @@ class GhostRunSession:
         if self._approval_resolver is None:
             raise RuntimeError(
                 "ghost run step references an approval but no approval "
-                "resolver is configured; refusing to execute")
+                "resolver is configured; refusing to execute"
+            )
         return bool(self._approval_resolver(approval_id, action))
 
     def run_next(self, run_id: str) -> dict[str, Any] | None:
@@ -420,12 +485,23 @@ class GhostRunSession:
             cp.status = "aborted"
             cp.error = str(e)
             self.checkpoints.save(cp)
-            self.journal.append(run_id, JournalEntryType.ABORTED,
-                                f"run aborted: {e}", {"error": str(e), "drifted": e.drifted})
-            _emit(self._event_sink, "ghost.run.aborted",
-                  {"run_id": run_id, "error": str(e), "drifted": e.drifted})
-            _audit_record(self._audit, "ghost", "ghost.run.aborted",
-                          {"run_id": run_id, "error": str(e)})
+            self.journal.append(
+                run_id,
+                JournalEntryType.ABORTED,
+                f"run aborted: {e}",
+                {"error": str(e), "drifted": e.drifted},
+            )
+            _emit(
+                self._event_sink,
+                "ghost.run.aborted",
+                {"run_id": run_id, "error": str(e), "drifted": e.drifted},
+            )
+            _audit_record(
+                self._audit,
+                "ghost",
+                "ghost.run.aborted",
+                {"run_id": run_id, "error": str(e)},
+            )
             raise
         if cp.step_index >= len(cp.steps):
             return self._finish(run_id, cp, "completed", None)
@@ -448,29 +524,49 @@ class GhostRunSession:
         step_approval_id = step.get("approval_id", cp.approval_id)
         server_approved = self._resolve_step_approval(step_approval_id, action)
 
-        self.journal.append(run_id, JournalEntryType.ATTEMPT,
-                            f"step {cp.step_index + 1}/{len(cp.steps)}: {tool}",
-                            {"tool": tool, "description": desc})
+        self.journal.append(
+            run_id,
+            JournalEntryType.ATTEMPT,
+            f"step {cp.step_index + 1}/{len(cp.steps)}: {tool}",
+            {"tool": tool, "description": desc},
+        )
         if claim_statement:
             claim = self.claims.register(str(claim_statement), run_id=run_id)
             claim_id = claim.id
-            self.journal.append(run_id, JournalEntryType.CLAIM,
-                                f"claim registered: {claim_statement}", {"claim_id": claim_id})
+            self.journal.append(
+                run_id,
+                JournalEntryType.CLAIM,
+                f"claim registered: {claim_statement}",
+                {"claim_id": claim_id},
+            )
 
         try:
-            out = self.core.execute(action, approved=server_approved,
-                                    double_confirmed=cp.double_confirmed,
-                                    approval_id=step_approval_id)
+            out = self.core.execute(
+                action,
+                approved=server_approved,
+                double_confirmed=cp.double_confirmed,
+                approval_id=step_approval_id,
+            )
         except Exception as e:  # unexpected: checkpoint as interrupted, re-raise
             cp.status = "interrupted"
             cp.error = f"{type(e).__name__}: {e}"
             self.checkpoints.save(cp)
-            self.journal.append(run_id, JournalEntryType.INTERRUPTED,
-                                f"run interrupted by error at step {cp.step_index + 1}: {e}")
-            _emit(self._event_sink, "ghost.run.interrupted",
-                  {"run_id": run_id, "step_index": cp.step_index, "error": str(e)[:300]})
-            _audit_record(self._audit, "ghost", "ghost.run.interrupted",
-                          {"run_id": run_id, "step_index": cp.step_index})
+            self.journal.append(
+                run_id,
+                JournalEntryType.INTERRUPTED,
+                f"run interrupted by error at step {cp.step_index + 1}: {e}",
+            )
+            _emit(
+                self._event_sink,
+                "ghost.run.interrupted",
+                {"run_id": run_id, "step_index": cp.step_index, "error": str(e)[:300]},
+            )
+            _audit_record(
+                self._audit,
+                "ghost",
+                "ghost.run.interrupted",
+                {"run_id": run_id, "step_index": cp.step_index},
+            )
             raise
 
         execution_id = out.get("execution_id")
@@ -483,7 +579,8 @@ class GhostRunSession:
             "verification_reason": out.get("verification_reason", ""),
         }
         self.journal.append(
-            run_id, JournalEntryType.OBSERVATION,
+            run_id,
+            JournalEntryType.OBSERVATION,
             f"step {cp.step_index + 1} {verification}: {step_result['verification_reason'][:160]}",
             {"tool": tool, "verification": verification},
             execution_id=execution_id,
@@ -491,13 +588,27 @@ class GhostRunSession:
         if claim_id and execution_id:
             self.claims.link_execution(claim_id, execution_id)
             if verification == "verified":
-                self.claims.confirm(claim_id, f"step verification: {step_result['verification_reason'][:300]}")
-                self.journal.append(run_id, JournalEntryType.CLAIM,
-                                    "claim confirmed by step evidence", {"claim_id": claim_id})
+                self.claims.confirm(
+                    claim_id,
+                    f"step verification: {step_result['verification_reason'][:300]}",
+                )
+                self.journal.append(
+                    run_id,
+                    JournalEntryType.CLAIM,
+                    "claim confirmed by step evidence",
+                    {"claim_id": claim_id},
+                )
             elif verification in ("failed", "conflicting"):
-                self.claims.refute(claim_id, f"step verification: {step_result['verification_reason'][:300]}")
-                self.journal.append(run_id, JournalEntryType.CLAIM,
-                                    "claim refuted by step evidence", {"claim_id": claim_id})
+                self.claims.refute(
+                    claim_id,
+                    f"step verification: {step_result['verification_reason'][:300]}",
+                )
+                self.journal.append(
+                    run_id,
+                    JournalEntryType.CLAIM,
+                    "claim refuted by step evidence",
+                    {"claim_id": claim_id},
+                )
 
         cp.results.append(step_result)
         cp.step_index += 1
@@ -507,30 +618,68 @@ class GhostRunSession:
         if cp.step_index >= len(cp.steps):
             return self._finish(run_id, cp, "completed", None)
         self.checkpoints.save(cp)
-        self.journal.append(run_id, JournalEntryType.CHECKPOINT,
-                            f"checkpoint saved at step {cp.step_index}", {"step_index": cp.step_index})
-        _emit(self._event_sink, "ghost.run.step",
-              {"run_id": run_id, "step_index": cp.step_index, "tool": tool,
-               "verification": verification})
-        return {"status": "step_done", "run_id": run_id, "step_result": step_result,
-                "remaining": len(cp.steps) - cp.step_index}
+        self.journal.append(
+            run_id,
+            JournalEntryType.CHECKPOINT,
+            f"checkpoint saved at step {cp.step_index}",
+            {"step_index": cp.step_index},
+        )
+        _emit(
+            self._event_sink,
+            "ghost.run.step",
+            {
+                "run_id": run_id,
+                "step_index": cp.step_index,
+                "tool": tool,
+                "verification": verification,
+            },
+        )
+        return {
+            "status": "step_done",
+            "run_id": run_id,
+            "step_result": step_result,
+            "remaining": len(cp.steps) - cp.step_index,
+        }
 
-    def _finish(self, run_id: str, cp: RunCheckpoint, status: str, error: str | None) -> dict[str, Any]:
+    def _finish(
+        self, run_id: str, cp: RunCheckpoint, status: str, error: str | None
+    ) -> dict[str, Any]:
         cp.status = status
         cp.error = error
         self.checkpoints.save(cp)
         verdicts: dict[str, int] = {}
         for r in cp.results:
-            verdicts[r.get("verification", "uncertain")] = verdicts.get(r.get("verification", "uncertain"), 0) + 1
-        self.journal.append(run_id, JournalEntryType.COMPLETED,
-                            f"run {status}: {len(cp.results)} steps, verdicts {verdicts}",
-                            {"verdicts": verdicts})
-        _emit(self._event_sink, "ghost.run.completed",
-              {"run_id": run_id, "status": status, "verdicts": verdicts,
-               "execution_ids": [r.get("execution_id") for r in cp.results]})
-        _audit_record(self._audit, "ghost", "ghost.run.completed",
-                      {"run_id": run_id, "status": status, "verdicts": verdicts})
-        return {"status": status, "run_id": run_id, "results": cp.results, "verdicts": verdicts}
+            verdicts[r.get("verification", "uncertain")] = (
+                verdicts.get(r.get("verification", "uncertain"), 0) + 1
+            )
+        self.journal.append(
+            run_id,
+            JournalEntryType.COMPLETED,
+            f"run {status}: {len(cp.results)} steps, verdicts {verdicts}",
+            {"verdicts": verdicts},
+        )
+        _emit(
+            self._event_sink,
+            "ghost.run.completed",
+            {
+                "run_id": run_id,
+                "status": status,
+                "verdicts": verdicts,
+                "execution_ids": [r.get("execution_id") for r in cp.results],
+            },
+        )
+        _audit_record(
+            self._audit,
+            "ghost",
+            "ghost.run.completed",
+            {"run_id": run_id, "status": status, "verdicts": verdicts},
+        )
+        return {
+            "status": status,
+            "run_id": run_id,
+            "results": cp.results,
+            "verdicts": verdicts,
+        }
 
     def run_all(self, run_id: str, max_steps: int | None = None) -> dict[str, Any]:
         """Run steps until completion. max_steps caps the batch, leaving the
@@ -546,8 +695,12 @@ class GhostRunSession:
                 return out
             if max_steps is not None and done >= max_steps:
                 cp = self._load_running(run_id)
-                return {"status": "paused", "run_id": run_id,
-                        "step_index": cp.step_index, "results": cp.results}
+                return {
+                    "status": "paused",
+                    "run_id": run_id,
+                    "step_index": cp.step_index,
+                    "results": cp.results,
+                }
 
     def interrupt(self, run_id: str, reason: str = "operator stop") -> dict[str, Any]:
         cp = self._load_running(run_id)
@@ -556,28 +709,47 @@ class GhostRunSession:
         cp.status = "interrupted"
         cp.error = reason
         self.checkpoints.save(cp)
-        self.journal.append(run_id, JournalEntryType.INTERRUPTED, f"run interrupted: {reason}")
-        _emit(self._event_sink, "ghost.run.interrupted",
-              {"run_id": run_id, "step_index": cp.step_index, "error": reason[:300]})
+        self.journal.append(
+            run_id, JournalEntryType.INTERRUPTED, f"run interrupted: {reason}"
+        )
+        _emit(
+            self._event_sink,
+            "ghost.run.interrupted",
+            {"run_id": run_id, "step_index": cp.step_index, "error": reason[:300]},
+        )
         return {"status": "interrupted", "run_id": run_id, "step_index": cp.step_index}
 
     def resume(self, run_id: str) -> dict[str, Any]:
         """Resume an interrupted (or still-running) run from its checkpoint."""
         cp = self._load_running(run_id)
         if cp.status == "completed":
-            return {"status": "already_completed", "run_id": run_id, "results": cp.results}
+            return {
+                "status": "already_completed",
+                "run_id": run_id,
+                "results": cp.results,
+            }
         if cp.status not in ("running", "interrupted"):
             raise ValueError(f"run {run_id} is {cp.status} and cannot be resumed")
         cp.status = "running"
         cp.error = None
         self.checkpoints.save(cp)
-        self.journal.append(run_id, JournalEntryType.NOTE,
-                            f"run resumed from checkpoint at step {cp.step_index + 1}/{len(cp.steps)}",
-                            {"step_index": cp.step_index})
-        _emit(self._event_sink, "ghost.run.resumed",
-              {"run_id": run_id, "step_index": cp.step_index})
-        _audit_record(self._audit, "ghost", "ghost.run.resumed",
-                      {"run_id": run_id, "step_index": cp.step_index})
+        self.journal.append(
+            run_id,
+            JournalEntryType.NOTE,
+            f"run resumed from checkpoint at step {cp.step_index + 1}/{len(cp.steps)}",
+            {"step_index": cp.step_index},
+        )
+        _emit(
+            self._event_sink,
+            "ghost.run.resumed",
+            {"run_id": run_id, "step_index": cp.step_index},
+        )
+        _audit_record(
+            self._audit,
+            "ghost",
+            "ghost.run.resumed",
+            {"run_id": run_id, "step_index": cp.step_index},
+        )
         return self.run_all(run_id)
 
 
@@ -608,7 +780,9 @@ class AmbientScheduler:
         self._audit = audit
         # Node-supplied context handed to every task callable (core objects).
         self._task_context: dict = dict(context or {})
-        self.checkpoints = checkpoints if checkpoints is not None else CheckpointStore(self._store)
+        self.checkpoints = (
+            checkpoints if checkpoints is not None else CheckpointStore(self._store)
+        )
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -648,7 +822,9 @@ class AmbientScheduler:
             cfg.enabled = bool(enabled)
         if interval_seconds is not None:
             if interval_seconds < MIN_INTERVAL_SECONDS:
-                raise ValueError(f"interval must be at least {MIN_INTERVAL_SECONDS} seconds")
+                raise ValueError(
+                    f"interval must be at least {MIN_INTERVAL_SECONDS} seconds"
+                )
             cfg.interval_seconds = int(interval_seconds)
         if stealth_mode is not None:
             cfg.stealth_mode = bool(stealth_mode)
@@ -661,14 +837,30 @@ class AmbientScheduler:
         # Re-validate (raises ValueError on a bad HH:MM).
         cfg = AmbientConfig(**cfg.model_dump())
         self._save_config(cfg)
-        _audit_record(self._audit, "user", "ambient.config.changed",
-                      {"enabled": cfg.enabled, "interval_seconds": cfg.interval_seconds,
-                       "stealth_mode": cfg.stealth_mode, "tasks": cfg.tasks,
-                       "quiet_start": cfg.quiet_start, "quiet_end": cfg.quiet_end})
-        _emit(self._event_sink, "ambient.config.changed",
-              {"enabled": cfg.enabled, "stealth_mode": cfg.stealth_mode,
-               "interval_seconds": cfg.interval_seconds,
-               "quiet_start": cfg.quiet_start, "quiet_end": cfg.quiet_end})
+        _audit_record(
+            self._audit,
+            "user",
+            "ambient.config.changed",
+            {
+                "enabled": cfg.enabled,
+                "interval_seconds": cfg.interval_seconds,
+                "stealth_mode": cfg.stealth_mode,
+                "tasks": cfg.tasks,
+                "quiet_start": cfg.quiet_start,
+                "quiet_end": cfg.quiet_end,
+            },
+        )
+        _emit(
+            self._event_sink,
+            "ambient.config.changed",
+            {
+                "enabled": cfg.enabled,
+                "stealth_mode": cfg.stealth_mode,
+                "interval_seconds": cfg.interval_seconds,
+                "quiet_start": cfg.quiet_start,
+                "quiet_end": cfg.quiet_end,
+            },
+        )
         return cfg
 
     # -- ticking ----------------------------------------------------------
@@ -696,7 +888,9 @@ class AmbientScheduler:
             last = float(cfg.last_tick_at)
         return (at - last) >= cfg.interval_seconds
 
-    def tick(self, at: float | None = None, context: dict | None = None) -> dict[str, Any]:
+    def tick(
+        self, at: float | None = None, context: dict | None = None
+    ) -> dict[str, Any]:
         """Run one scheduler iteration. Returns what happened; never raises."""
         at = time.time() if at is None else at
         cfg = self.get_config()
@@ -705,9 +899,12 @@ class AmbientScheduler:
         if not self._due(cfg, at):
             return {"ran": False, "reason": "not_due"}
         run_id = new_id("amb")
-        self.journal.append(run_id, JournalEntryType.RUN_STARTED,
-                            f"ambient tick: tasks={cfg.tasks} stealth={cfg.stealth_mode}",
-                            {"kind": "ambient", "tasks": cfg.tasks, "stealth_mode": cfg.stealth_mode})
+        self.journal.append(
+            run_id,
+            JournalEntryType.RUN_STARTED,
+            f"ambient tick: tasks={cfg.tasks} stealth={cfg.stealth_mode}",
+            {"kind": "ambient", "tasks": cfg.tasks, "stealth_mode": cfg.stealth_mode},
+        )
         results: dict[str, Any] = {}
         ctx = dict(self._task_context)
         ctx.update(context or {})
@@ -715,42 +912,85 @@ class AmbientScheduler:
         for name in cfg.tasks:
             fn = self.tasks.get(name)
             if fn is None:
-                self.journal.append(run_id, JournalEntryType.NOTE,
-                                    f"unknown ambient task skipped: {name}")
+                self.journal.append(
+                    run_id,
+                    JournalEntryType.NOTE,
+                    f"unknown ambient task skipped: {name}",
+                )
                 results[name] = {"ok": False, "error": "unknown_task"}
                 continue
-            self.journal.append(run_id, JournalEntryType.ATTEMPT, f"ambient task: {name}")
+            self.journal.append(
+                run_id, JournalEntryType.ATTEMPT, f"ambient task: {name}"
+            )
             try:
                 out = fn(ctx) or {}
                 summary = str(out.get("summary", "done"))
-                self.journal.append(run_id, JournalEntryType.OBSERVATION,
-                                    f"task {name}: {summary[:200]}", {"task": name})
-                results[name] = {"ok": True, "summary": summary, "data": out.get("data", {})}
+                self.journal.append(
+                    run_id,
+                    JournalEntryType.OBSERVATION,
+                    f"task {name}: {summary[:200]}",
+                    {"task": name},
+                )
+                results[name] = {
+                    "ok": True,
+                    "summary": summary,
+                    "data": out.get("data", {}),
+                }
                 if not cfg.stealth_mode:
-                    _emit(self._event_sink, "ambient.task.completed",
-                          {"run_id": run_id, "task": name, "summary": summary[:200]})
+                    _emit(
+                        self._event_sink,
+                        "ambient.task.completed",
+                        {"run_id": run_id, "task": name, "summary": summary[:200]},
+                    )
             except Exception as e:
-                self.journal.append(run_id, JournalEntryType.DECISION,
-                                    f"task {name} failed: {e}", {"task": name, "error": str(e)[:300]})
+                self.journal.append(
+                    run_id,
+                    JournalEntryType.DECISION,
+                    f"task {name} failed: {e}",
+                    {"task": name, "error": str(e)[:300]},
+                )
                 results[name] = {"ok": False, "error": str(e)[:300]}
         cfg.last_tick_at = now()
         self._save_config(cfg)
-        self.journal.append(run_id, JournalEntryType.COMPLETED,
-                            f"ambient tick done: {len(results)} tasks", {"results": list(results)})
-        self.checkpoints.save(RunCheckpoint(
-            run_id=run_id, kind="ambient",
-            objective=f"ambient tick: {', '.join(cfg.tasks)}",
-            steps=[{"task": t} for t in cfg.tasks],
-            results=[{"task": t, **r} for t, r in results.items()],
-            step_index=len(results), status="completed",
-        ))
+        self.journal.append(
+            run_id,
+            JournalEntryType.COMPLETED,
+            f"ambient tick done: {len(results)} tasks",
+            {"results": list(results)},
+        )
+        self.checkpoints.save(
+            RunCheckpoint(
+                run_id=run_id,
+                kind="ambient",
+                objective=f"ambient tick: {', '.join(cfg.tasks)}",
+                steps=[{"task": t} for t in cfg.tasks],
+                results=[{"task": t, **r} for t, r in results.items()],
+                step_index=len(results),
+                status="completed",
+            )
+        )
         if not cfg.stealth_mode:
-            _emit(self._event_sink, "ambient.tick",
-                  {"run_id": run_id, "tasks": cfg.tasks,
-                   "summaries": {k: v.get("summary", "") for k, v in results.items()}})
-        _audit_record(self._audit, "ambient", "ambient.tick",
-                      {"run_id": run_id, "tasks": cfg.tasks, "stealth_mode": cfg.stealth_mode})
-        return {"ran": True, "run_id": run_id, "stealth_mode": cfg.stealth_mode, "results": results}
+            _emit(
+                self._event_sink,
+                "ambient.tick",
+                {
+                    "run_id": run_id,
+                    "tasks": cfg.tasks,
+                    "summaries": {k: v.get("summary", "") for k, v in results.items()},
+                },
+            )
+        _audit_record(
+            self._audit,
+            "ambient",
+            "ambient.tick",
+            {"run_id": run_id, "tasks": cfg.tasks, "stealth_mode": cfg.stealth_mode},
+        )
+        return {
+            "ran": True,
+            "run_id": run_id,
+            "stealth_mode": cfg.stealth_mode,
+            "results": results,
+        }
 
     # -- background thread -------------------------------------------------
     def start_background(self, poll_seconds: int = 30) -> None:
@@ -765,7 +1005,9 @@ class AmbientScheduler:
                 except Exception:
                     continue  # the scheduler never takes the node down
 
-        self._thread = threading.Thread(target=_loop, name="ambient-scheduler", daemon=True)
+        self._thread = threading.Thread(
+            target=_loop, name="ambient-scheduler", daemon=True
+        )
         self._thread.start()
 
     def stop_background(self) -> None:
