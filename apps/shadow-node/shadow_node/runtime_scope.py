@@ -52,6 +52,13 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/agent/sessions": frozenset({"GET", "POST"}),
     "/agent/sessions/{session_id}": frozenset({"GET"}),
     "/agent/sessions/{session_id}/close": frozenset({"POST"}),
+    "/agent/sessions/{session_id}/handoff": frozenset({"POST"}),
+    # continuity
+    "/continuity/handoffs": frozenset({"GET"}),
+    "/continuity/handoffs/{handoff_id}/claim": frozenset({"POST"}),
+    "/continuity/handoffs/{handoff_id}/cancel": frozenset({"POST"}),
+    "/continuity/overview": frozenset({"GET"}),
+    "/continuity/presence": frozenset({"POST"}),
     "/agent/stream": frozenset({"GET"}),
     # ambient
     "/ambient/acts": frozenset({"GET"}),

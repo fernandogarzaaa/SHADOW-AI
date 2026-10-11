@@ -911,6 +911,22 @@ class SessionStore:
                       {"session_id": session.id})
         return session
 
+    def note_device(self, session_id: str, device_id: str) -> AgentSession:
+        """Record which device last touched a session (cross-device continuity).
+
+        Idempotent per device; persists immediately. Raises KeyError for an
+        unknown session, mirroring get().
+        """
+        session = self.get(session_id)
+        seen = list(session.metadata.get("devices_seen") or [])
+        if device_id not in seen:
+            seen.append(device_id)
+        session.metadata["devices_seen"] = sorted(seen)
+        session.metadata["last_device_id"] = device_id
+        session.updated_at = now()
+        self._persist(session)
+        return session
+
     def rehydrate(self) -> dict[str, int]:
         """Reload sessions after a restart.
 
