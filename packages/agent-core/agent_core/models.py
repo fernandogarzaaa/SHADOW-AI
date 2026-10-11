@@ -35,7 +35,10 @@ class AgentPlan(BaseModel):
 class AgentTask(BaseModel):
     id: str = Field(default_factory=lambda:new_id("tsk")); prompt: str; plan: AgentPlan|None=None; status: str="created"; created_at: datetime=Field(default_factory=now)
 class ApprovalRequest(BaseModel):
-    id: str = Field(default_factory=lambda:new_id("apr")); action: AgentAction; reason: str; action_preview: str; data_used_preview: list[str]=[]; model_used_preview: str|None=None; destination_preview: str|None=None; risk_label: RiskClass=RiskClass.LOW; kind: ApprovalKind=ApprovalKind.ONE_TIME; requires_double_confirmation: bool=False; status: ApprovalStatus=ApprovalStatus.PENDING; deny_reason: str|None=None; created_at: datetime=Field(default_factory=now); decided_at: datetime|None=None; expires_at: datetime=Field(default_factory=lambda: now()+timedelta(minutes=15))
+    id: str = Field(default_factory=lambda:new_id("apr")); action: AgentAction; reason: str; action_preview: str; data_used_preview: list[str]=[]; model_used_preview: str|None=None; destination_preview: str|None=None; risk_label: RiskClass=RiskClass.LOW; kind: ApprovalKind=ApprovalKind.ONE_TIME; requires_double_confirmation: bool=False; status: ApprovalStatus=ApprovalStatus.PENDING; deny_reason: str|None=None; created_at: datetime=Field(default_factory=now); decided_at: datetime|None=None; expires_at: datetime=Field(default_factory=lambda: now()+timedelta(minutes=15)); consequence: str|None=None
+    # ^ Sentinel gate (Hark item 12): the concrete consequence shown on the
+    # confirmation card, derived from the policy's irreversible
+    # classification. None for reversible actions.
     # HITL run linkage (OpenDots backlog #1): the idempotency receipt key
     # (thread_id, tool_call_id). Retrying the same tool call returns the
     # existing pending approval instead of minting a duplicate.
@@ -67,6 +70,7 @@ class ApprovalRequest(BaseModel):
             "destination": self.destination_preview,
             "data_used": self.data_used_preview,
             "requires_double_confirmation": self.requires_double_confirmation,
+            "consequence": self.consequence,
             "thread_id": self.thread_id,
             "tool_call_id": self.tool_call_id,
             "status": self.status.value,
