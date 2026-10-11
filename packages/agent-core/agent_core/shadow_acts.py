@@ -40,10 +40,12 @@ beyond this surface goes through the normal approval-gated agent path.
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from .models import AgentAction, ApprovalStatus
 from .paced_plans import PacedPlan, PlanStatus, PlanStepStatus, PlanStore
@@ -216,6 +218,7 @@ class ShadowActRunner:
         self._audit = audit
         self._last_notify_hash: dict[str, str] = {}
         self._plans = plan_store if plan_store is not None else PlanStore()
+        self._delivery_lock = threading.Lock()
 
     def _record(self, event_type: str, payload: dict) -> None:
         if self._audit is None:
@@ -315,7 +318,9 @@ class ShadowActRunner:
         if plan_steps:
             # Paced delivery wins over the single-shot notify: store the
             # plan, deliver each step at its own deliver_at time.
-            plan = self._plans.create(act.name, plan_steps)
+            # Deduplicate: a repeated identical plan for the same act
+            # reuses the existing active plan instead of double-scheduling.
+            plan = self._dedupe_or_create_plan(act.name, plan_steps)
             data["plan_id"] = plan.id
             data["plan_steps"] = len(plan.steps)
             summary += f" (paced plan {plan.id}: {len(plan.steps)} step(s) scheduled)"
@@ -351,6 +356,27 @@ class ShadowActRunner:
         )
         return {"summary": summary, "data": data, "notified": notified}
 
+    def _dedupe_or_create_plan(self, act_name: str, step_dicts: list) -> PacedPlan:
+        """Create a plan unless an identical active plan already exists
+        for this act. Steps are compared by (title, body, deliver_at);
+        ids are ignored so repeated runs of the same act do not
+        double-schedule identical deliveries."""
+        wanted = sorted(
+            (
+                str(s.get("title", "")),
+                str(s.get("body") or ""),
+                float(s.get("deliver_at", 0.0)),
+            )
+            for s in step_dicts
+        )
+        for plan in self._plans.list(active_only=True):
+            if plan.act_name != act_name:
+                continue
+            have = sorted((s.title, s.body, s.deliver_at) for s in plan.steps)
+            if have == wanted:
+                return plan
+        return self._plans.create(act_name, step_dicts)
+
     def deliver_due_plans(self, ctx: dict, now: float | None = None) -> dict:
         """Deliver paced-plan steps whose deliver_at has arrived.
 
@@ -371,59 +397,76 @@ class ShadowActRunner:
         feed_add = ctx.get("feed_add")
         delivered = 0
         deferred = 0
-        for plan in self._plans.list(active_only=True):
-            for step in plan.pending_steps():
-                if step.deliver_at > now:
-                    continue
-                if is_quiet():
-                    ends_at = quiet_until()
-                    if ends_at is None:
-                        ends_at = now + 3600  # next tick; still visible as deferred
-                    step.deferred_from = step.deliver_at
-                    step.deliver_at = ends_at
-                    step.deferred_to = ends_at
-                    step.status = PlanStepStatus.DEFERRED
-                    deferred += 1
-                    self._record(
-                        "plan.step_deferred",
+        # Serialize the whole pass: overlapping ambient ticks must not
+        # deliver the same step twice.
+        with self._delivery_lock:
+            for plan in self._plans.list(active_only=True):
+                for step in plan.pending_steps():
+                    if step.deliver_at > now:
+                        continue
+                    if is_quiet():
+                        ends_at = quiet_until()
+                        if ends_at is None:
+                            ends_at = now + 3600  # next tick; still visible as deferred
+                        step.deferred_from = step.deliver_at
+                        step.deliver_at = ends_at
+                        step.deferred_to = ends_at
+                        step.status = PlanStepStatus.DEFERRED
+                        deferred += 1
+                        self._record(
+                            "plan.step_deferred",
+                            {
+                                "plan_id": plan.id,
+                                "step_id": step.id,
+                                "deferred_from": step.deferred_from,
+                                "deferred_to": step.deferred_to,
+                            },
+                        )
+                        continue
+                    notify_fn(
+                        step.title,
+                        step.body,
+                        {
+                            "type": "plan_step.delivered",
+                            "plan_id": plan.id,
+                            "step_id": step.id,
+                            "act": plan.act_name,
+                        },
+                    )
+                    publish_fn(
+                        "plan_step.delivered",
                         {
                             "plan_id": plan.id,
                             "step_id": step.id,
-                            "deferred_from": step.deferred_from,
-                            "deferred_to": step.deferred_to,
+                            "title": step.title,
+                            "delivered_at": now,
                         },
                     )
-                    continue
-                notify_fn(
-                    step.title,
-                    step.body,
-                    {
-                        "type": "plan_step.delivered",
-                        "plan_id": plan.id,
-                        "step_id": step.id,
-                        "act": plan.act_name,
-                    },
-                )
-                publish_fn(
-                    "plan_step.delivered",
-                    {
-                        "plan_id": plan.id,
-                        "step_id": step.id,
-                        "title": step.title,
-                        "delivered_at": now,
-                    },
-                )
-                if feed_add is not None:
-                    feed_add("plan_step", step.title, step.body)
-                step.status = PlanStepStatus.DELIVERED
-                step.delivered_at = now
-                delivered += 1
-                self._record(
-                    "plan.step_delivered", {"plan_id": plan.id, "step_id": step.id}
-                )
-            if plan.is_complete():
-                plan.status = PlanStatus.COMPLETED
-            self._plans.save(plan)
+                    if feed_add is not None:
+                        try:
+                            feed_add("plan_step", step.title, step.body)
+                        except Exception as e:  # noqa: BLE001
+                            # Feed is best-effort: a feed failure must not
+                            # block the delivery or cause a duplicate
+                            # notification on a later tick.
+                            self._record(
+                                "plan.feed_failed",
+                                {
+                                    "plan_id": plan.id,
+                                    "step_id": step.id,
+                                    "error": str(e),
+                                },
+                            )
+                    step.status = PlanStepStatus.DELIVERED
+                    step.delivered_at = now
+                    delivered += 1
+                    self._record(
+                        "plan.step_delivered",
+                        {"plan_id": plan.id, "step_id": step.id},
+                    )
+                if plan.is_complete():
+                    plan.status = PlanStatus.COMPLETED
+                self._plans.save(plan)
         summary = (
             f"paced_plans: {delivered} step(s) delivered, "
             f"{deferred} deferred to end of quiet hours"

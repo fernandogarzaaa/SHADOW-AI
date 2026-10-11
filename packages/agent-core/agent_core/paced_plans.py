@@ -159,14 +159,19 @@ class PlanStore:
         self._plans: dict[str, PacedPlan] = {}
         if kv is not None:
             try:
-                for raw in kv.all(self.COLLECTION, dict):
+                rows = kv.all(self.COLLECTION, dict)
+            except Exception:  # noqa: BLE001
+                # Collection unreadable: start empty, memory is source of truth.
+                rows = []
+            for raw in rows:
+                try:
                     plan = (
                         raw if isinstance(raw, PacedPlan) else PacedPlan.from_dict(raw)
                     )
-                    self._plans[plan.id] = plan
-            except Exception:  # noqa: BLE001, S110
-                # A corrupt row must not break plan storage.
-                pass
+                except Exception:  # noqa: BLE001, S112
+                    # One corrupt row must not drop the rest of the collection.
+                    continue
+                self._plans[plan.id] = plan
 
     def _persist(self, plan: PacedPlan) -> None:
         if self._kv is None:
