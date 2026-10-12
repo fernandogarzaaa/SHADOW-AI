@@ -71,6 +71,8 @@ from .artifacts import (
     AGENT_READ_LIMIT,
     RevisionConflictError,
 )
+from .panels import build_panels
+
 from . import voice as voice_mod
 from . import media as media_mod
 from .ambient_tasks import (
@@ -1653,6 +1655,18 @@ def check_reminders():
             )
         )
     return {"fired": [r.model_dump() for r in fired], "held": [], "quiet": False}
+# --- Panels (Hark item 2: glanceable data panels) ---
+@app.get("/panels")
+def list_panels():
+    """Glanceable data panels for the client's PanelCard: pending approvals,
+    goals progress, and memory inventory as panel JSON (title, headline,
+    stat tiles, rows). Node-state only; cheap to compute."""
+    pending = [
+        r
+        for r in core.approvals.requests.values()
+        if r.status == ApprovalStatus.PENDING
+    ]
+    return [p.model_dump() for p in build_panels(pending, goal_store.briefing(), memory.export())]
 
 
 # --- Artifacts (assistant parity: durable documents) ---
