@@ -75,6 +75,12 @@ from .panels import build_panels
 
 from . import voice as voice_mod
 from . import media as media_mod
+from .continuity import (
+    HandoffStore,
+    build_session_snapshot,
+    list_presence,
+    note_presence,
+)
 from .ambient_tasks import (
     morning_brief as _amb_morning_brief,
     memory_digest as _amb_memory_digest,
@@ -504,6 +510,9 @@ session_store = SessionStore(
     event_sink=bus.publish,
     audit=sentinel_audit,
 )
+# Cross-device continuity (Hark backlog item 11): explicit conversation
+# handoffs between registered clients, KV-backed like sessions.
+handoff_store = HandoffStore(kv=_ambient_kv)
 sentinel_audit.record(
     "ambient",
     "compression_backend_selected",
@@ -1895,19 +1904,23 @@ def delete_media(item_id: str):
 
 
 @app.post("/agent/ask")
-def ask(req: AskRequest):
+def ask(req: AskRequest, request: Request):
     result = _run_ask_pipeline(req)
-    result["session_id"] = _record_ask_session(req, result)
+    result["session_id"] = _record_ask_session(
+        req, result, device_id=request.headers.get("x-shadow-device-id")
+    )
     _note_message_wake(req, result)
     return result
 
 
-def _record_ask_session(req: AskRequest, result: dict):
+def _record_ask_session(req: AskRequest, result: dict, device_id: str | None = None):
     """Append this ask turn to a durable session when the caller named one.
 
     Returns the session id (or None). Sessions persist across restarts;
     appends auto-compact past the context budget, with folded summaries
-    ingested into user-owned memory.
+    ingested into user-owned memory. When the calling device is known, it is
+    recorded on the session so any client can see where a conversation was
+    last active (cross-device continuity).
     """
     sid = req.session_id
     if sid is None:
@@ -1915,6 +1928,8 @@ def _record_ask_session(req: AskRequest, result: dict):
     try:
         session_store.append(sid, "user", req.prompt)
         session_store.append(sid, "assistant", result.get("answer") or "")
+        if device_id:
+            session_store.note_device(sid, device_id)
     except KeyError:
         raise HTTPException(404, "unknown session")
     except ValueError as e:
@@ -2478,6 +2493,227 @@ def close_session(session_id: str):
         return session_store.close(session_id).model_dump(mode="json")
     except KeyError:
         raise HTTPException(404, "unknown session")
+
+
+# ---------------------------------------------------------------------------
+# Cross-device continuity (Hark backlog item 11): one assistant identity
+# across iOS, desktop, and web. Conversations and memory already live on the
+# node; these routes add device presence and explicit conversation handoff.
+# ---------------------------------------------------------------------------
+
+
+class HandoffCreateRequest(BaseModel):
+    target_device_id: str | None = None
+    note: str = ""
+
+
+class PresenceHeartbeat(BaseModel):
+    display_name: str | None = None
+    platform: str | None = None
+
+
+def _caller_device(request: Request):
+    device_id = request.headers.get("x-shadow-device-id")
+    dev = sessions.devices.get(device_id) if device_id else None
+    return device_id, dev
+
+
+def _device_display_name(device_id: str | None) -> str | None:
+    if not device_id:
+        return None
+    dev = sessions.devices.get(device_id)
+    return dev.name if dev else None
+
+
+def _iso(dt):
+    return dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+
+
+@app.post("/agent/sessions/{session_id}/handoff")
+def create_handoff(session_id: str, req: HandoffCreateRequest, request: Request):
+    """Start an explicit handoff of a conversation to another device.
+
+    Freezes the message snapshot now; pending approvals and active plans are
+    node-global and resolve live when the handoff is claimed. Never automatic:
+    only this explicit call creates a handoff.
+    """
+    device_id, _dev = _caller_device(request)
+    try:
+        session = session_store.get(session_id)
+    except KeyError:
+        raise HTTPException(404, "unknown session")
+    if session.closed:
+        raise HTTPException(400, "session is closed")
+    target_name = None
+    if req.target_device_id:
+        target = sessions.devices.get(req.target_device_id)
+        if target is None or target.revoked:
+            raise HTTPException(404, "unknown target device")
+        target_name = target.name
+    pending = [
+        r
+        for r in core.approvals.requests.values()
+        if r.status == ApprovalStatus.PENDING
+    ]
+    active_plans = shadow_act_runner.list_plans(active_only=True)
+    record = handoff_store.create(
+        session_id=session_id,
+        from_device_id=device_id,
+        from_device_name=_device_display_name(device_id),
+        target_device_id=req.target_device_id,
+        target_device_name=target_name,
+        note=req.note,
+        snapshot=build_session_snapshot(session),
+        pending_approval_count=len(pending),
+        active_plan_count=len(active_plans),
+    )
+    if device_id:
+        note_presence(
+            _ambient_kv, device_id, display_name=_device_display_name(device_id)
+        )
+    sentinel_audit.record(
+        "user",
+        "continuity.handoff_created",
+        {
+            "handoff_id": record.id,
+            "session_id": session_id,
+            "from_device_id": device_id,
+            "target_device_id": req.target_device_id,
+        },
+    )
+    return record.model_dump(mode="json")
+
+
+@app.get("/continuity/handoffs")
+def list_handoffs(request: Request):
+    """Pending handoffs visible to the caller: open ones, ones targeted at
+    this device, and ones this device created."""
+    device_id, _dev = _caller_device(request)
+    visible = [
+        h.model_dump(mode="json")
+        for h in handoff_store.list_pending()
+        if h.target_device_id is None
+        or h.target_device_id == device_id
+        or h.from_device_id == device_id
+    ]
+    return _page(visible)
+
+
+@app.post("/continuity/handoffs/{handoff_id}/claim")
+def claim_handoff(handoff_id: str, request: Request):
+    """Claim a pending handoff and receive the full resume package: the
+    frozen conversation snapshot plus live pending approvals and active
+    plans. A handoff targeted at another device is indistinguishable from a
+    missing one."""
+    device_id, _dev = _caller_device(request)
+    try:
+        record = handoff_store.claim(handoff_id, device_id)
+    except KeyError:
+        raise HTTPException(404, "unknown handoff")
+    except ValueError as e:
+        if "expired" in str(e):
+            raise HTTPException(410, str(e))
+        raise HTTPException(409, str(e))
+    try:
+        session = session_store.get(record.session_id)
+    except KeyError:
+        raise HTTPException(404, "handoff session no longer exists")
+    if device_id:
+        session_store.note_device(record.session_id, device_id)
+        note_presence(
+            _ambient_kv, device_id, display_name=_device_display_name(device_id)
+        )
+    sentinel_audit.record(
+        "user",
+        "continuity.handoff_claimed",
+        {"handoff_id": record.id, "claimed_by_device_id": device_id},
+    )
+    return {
+        "handoff": record.model_dump(mode="json"),
+        "session": session.model_dump(mode="json"),
+        "pending_approvals": [
+            r.card
+            for r in core.approvals.requests.values()
+            if r.status == ApprovalStatus.PENDING
+        ],
+        "active_plans": [
+            p.to_dict() for p in shadow_act_runner.list_plans(active_only=True)
+        ],
+    }
+
+
+@app.post("/continuity/handoffs/{handoff_id}/cancel")
+def cancel_handoff(handoff_id: str, request: Request):
+    """Cancel a pending handoff. Only the device that created it may cancel."""
+    device_id, _dev = _caller_device(request)
+    try:
+        record = handoff_store.cancel(handoff_id, device_id)
+    except KeyError:
+        raise HTTPException(404, "unknown handoff")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    sentinel_audit.record(
+        "user",
+        "continuity.handoff_cancelled",
+        {"handoff_id": record.id, "cancelled_by_device_id": device_id},
+    )
+    return record.model_dump(mode="json")
+
+
+@app.post("/continuity/presence")
+def heartbeat_presence(req: PresenceHeartbeat, request: Request):
+    """Heartbeat: tell the node this client is active. Powers the active
+    device list in the continuity overview."""
+    device_id, dev = _caller_device(request)
+    if not device_id:
+        raise HTTPException(400, "x-shadow-device-id header required")
+    record = note_presence(
+        _ambient_kv,
+        device_id,
+        display_name=req.display_name or (dev.name if dev else None),
+        platform=req.platform,
+    )
+    return record.model_dump(mode="json")
+
+
+@app.get("/continuity/overview")
+def continuity_overview():
+    """One screen's worth of continuity state: registered devices with
+    presence, open sessions with last-active device, pending handoff count."""
+    presence = {p.device_id: p for p in list_presence(_ambient_kv)}
+    devices = []
+    for d in sessions.devices.values():
+        if d.revoked:
+            continue
+        p = presence.get(d.id)
+        devices.append(
+            {
+                "device_id": d.id,
+                "display_name": d.name,
+                "platform": p.platform if p else None,
+                "trusted": d.trusted,
+                "is_owner": d.is_owner,
+                "last_seen_at": _iso(p.last_seen_at) if p else None,
+            }
+        )
+    open_sessions = []
+    for s in session_store.list(open_only=True):
+        last_dev = s.metadata.get("last_device_id")
+        open_sessions.append(
+            {
+                "session_id": s.id,
+                "title": s.title,
+                "message_count": len(s.messages),
+                "updated_at": _iso(s.updated_at),
+                "last_device_id": last_dev,
+                "last_device_name": _device_display_name(last_dev),
+            }
+        )
+    return {
+        "devices": devices,
+        "open_sessions": open_sessions,
+        "pending_handoffs": len(handoff_store.list_pending()),
+    }
 
 
 @app.post("/ambient/config")
