@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, Request, UploadFile, File
 from starlette.websockets import WebSocketDisconnect
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from agent_core import *
 from agent_core import (
     RunJournal,
@@ -86,6 +86,15 @@ from .artifacts import (
     RevisionConflictError,
 )
 from .panels import build_panels
+from .schedule_parse import parse_schedule
+from .scheduled_tasks import (
+    ScheduledTaskUpdate,
+    ambient_task_to_task,
+    is_valid_recurrence,
+    list_scheduled_tasks,
+    reminder_to_task,
+    split_task_id,
+)
 
 from . import voice as voice_mod
 from . import media as media_mod
@@ -1807,6 +1816,163 @@ def render_custom_panel(panel_id: str):
     except KeyError:
         raise HTTPException(404, "unknown panel")
     return render_panel(defn, _custom_panel_inputs()).model_dump(mode="json")
+
+
+class ScheduleParseRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+@app.post("/reminders/parse")
+def parse_reminder_request(req: ScheduleParseRequest):
+    """Parse a natural-language scheduling request ("remind me every weekday
+    at 7am") into a structured reminder proposal, or a clarifying question.
+    Deterministic; ambiguous input is never guessed."""
+    return parse_schedule(req.text).as_dict()
+
+
+# --- Scheduled tasks (Hark item 4: unified reminders + ambient tasks) ---
+@app.get("/scheduled-tasks")
+def list_scheduled_tasks_route():
+    """Every scheduled thing in one shape: reminders plus builtin ambient
+    tasks, soonest next run first. No hidden schedules."""
+    return [
+        t.model_dump()
+        for t in list_scheduled_tasks(
+            reminder_store, ambient_scheduler, ambient_checkpoints
+        )
+    ]
+
+
+@app.get("/scheduled-tasks/{task_id}")
+def get_scheduled_task(task_id: str):
+    split = split_task_id(task_id)
+    if split is None:
+        raise HTTPException(404, "scheduled task not found")
+    kind, ident = split
+    if kind == "reminder":
+        r = reminder_store.get(ident)
+        if r is None:
+            raise HTTPException(404, "scheduled task not found")
+        return reminder_to_task(r).model_dump()
+    from .ambient_tasks import BUILTIN_TASKS
+
+    if ident not in BUILTIN_TASKS and ident not in (
+        ambient_scheduler.get_config().tasks or []
+    ):
+        raise HTTPException(404, "scheduled task not found")
+    return ambient_task_to_task(
+        ident, ambient_scheduler, ambient_checkpoints
+    ).model_dump()
+
+
+@app.post("/scheduled-tasks", status_code=201)
+def create_scheduled_task(data: ReminderCreate):
+    """Create a reminder through the unified surface. Ambient tasks are
+    builtin: they can only be enabled/disabled, not created."""
+    if not is_valid_recurrence(data.recurrence):
+        raise HTTPException(422, f"recurrence must be one of {REMINDER_RECURRENCES}")
+    r = reminder_store.create(data)
+    audit.append(
+        AuditEvent(
+            actor="user",
+            event_type="reminder_created",
+            status="stored",
+            metadata={"reminder_id": r.id, "via": "scheduled-tasks"},
+        )
+    )
+    return reminder_to_task(r).model_dump()
+
+
+@app.patch("/scheduled-tasks/{task_id}")
+def update_scheduled_task(task_id: str, patch: ScheduledTaskUpdate):
+    split = split_task_id(task_id)
+    if split is None:
+        raise HTTPException(404, "scheduled task not found")
+    kind, ident = split
+    if kind == "ambient":
+        others = {
+            k: v
+            for k, v in patch.model_dump().items()
+            if k != "enabled" and v is not None
+        }
+        if others:
+            raise HTTPException(
+                422, f"ambient tasks only support 'enabled'; got {sorted(others)}"
+            )
+        if patch.enabled is None:
+            raise HTTPException(422, "nothing to update: 'enabled' required")
+        from .ambient_tasks import BUILTIN_TASKS
+
+        if ident not in BUILTIN_TASKS:
+            raise HTTPException(404, "scheduled task not found")
+        cfg = ambient_scheduler.get_config()
+        tasks = list(cfg.tasks or [])
+        if patch.enabled and ident not in tasks:
+            tasks.append(ident)
+        elif not patch.enabled and ident in tasks:
+            tasks.remove(ident)
+        ambient_scheduler.configure(tasks=tasks)
+        audit.append(
+            AuditEvent(
+                actor="user",
+                event_type="scheduled_task_toggled",
+                status="ok",
+                metadata={"task_id": task_id, "enabled": patch.enabled},
+            )
+        )
+        return ambient_task_to_task(
+            ident, ambient_scheduler, ambient_checkpoints
+        ).model_dump()
+    if patch.recurrence is not None and not is_valid_recurrence(patch.recurrence):
+        raise HTTPException(422, f"recurrence must be one of {REMINDER_RECURRENCES}")
+    if patch.status is not None and patch.status not in REMINDER_STATUSES:
+        raise HTTPException(422, f"status must be one of {REMINDER_STATUSES}")
+    upd = ReminderUpdate(
+        title=patch.title,
+        note=patch.note,
+        due_at=patch.due_at,
+        recurrence=patch.recurrence,
+        status=patch.status,
+        enabled=patch.enabled,
+    )
+    try:
+        r = reminder_store.update(ident, upd)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if r is None:
+        raise HTTPException(404, "scheduled task not found")
+    audit.append(
+        AuditEvent(
+            actor="user",
+            event_type="reminder_updated",
+            status="ok",
+            metadata={"reminder_id": ident, "via": "scheduled-tasks"},
+        )
+    )
+    return reminder_to_task(r).model_dump()
+
+
+@app.delete("/scheduled-tasks/{task_id}")
+def delete_scheduled_task(task_id: str):
+    split = split_task_id(task_id)
+    if split is None:
+        raise HTTPException(404, "scheduled task not found")
+    kind, ident = split
+    if kind == "ambient":
+        raise HTTPException(
+            422, "builtin ambient tasks cannot be deleted; disable them instead"
+        )
+    if not reminder_store.delete(ident):
+        raise HTTPException(404, "scheduled task not found")
+    audit.append(
+        AuditEvent(
+            actor="user",
+            event_type="reminder_deleted",
+            status="revoked",
+            metadata={"reminder_id": ident, "via": "scheduled-tasks"},
+        )
+    )
+    return {"deleted_task": task_id}
 
 
 # --- Artifacts (assistant parity: durable documents) ---

@@ -10,6 +10,7 @@ due reminders wait for the first tick after quiet hours end.
 Reminders persist encrypted in the runtime store's "reminders" collection
 when configured, in-memory otherwise.
 """
+
 from __future__ import annotations
 
 import time
@@ -20,8 +21,18 @@ from pydantic import BaseModel, Field, field_validator
 MAX_TITLE_LEN = 140
 MAX_NOTE_LEN = 500
 
-RECURRENCES = ("none", "daily", "weekly")
+RECURRENCES = ("none", "hourly", "daily", "weekdays", "weekly")
 STATUSES = ("pending", "fired", "dismissed")
+
+
+def _advance_weekday(ts: float) -> float:
+    """Next weekday (Mon-Fri) at the same wall-clock time, node-local."""
+    import datetime as _dt
+
+    dt = _dt.datetime.fromtimestamp(ts) + _dt.timedelta(days=1)
+    while dt.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+        dt += _dt.timedelta(days=1)
+    return dt.timestamp()
 
 
 class Reminder(BaseModel):
@@ -31,6 +42,9 @@ class Reminder(BaseModel):
     due_at: float
     recurrence: str = "none"
     status: str = "pending"
+    # Disabled reminders never fire and never appear as due, but stay
+    # visible and editable so no schedule is hidden.
+    enabled: bool = True
     last_fired_at: float | None = None
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
@@ -73,6 +87,7 @@ class ReminderCreate(BaseModel):
     note: str = ""
     due_at: float
     recurrence: str = "none"
+    enabled: bool = True
 
     @field_validator("title")
     @classmethod
@@ -84,6 +99,13 @@ class ReminderCreate(BaseModel):
             raise ValueError(f"title must be at most {MAX_TITLE_LEN} chars")
         return v
 
+    @field_validator("recurrence")
+    @classmethod
+    def _recurrence(cls, v: str) -> str:
+        if v not in RECURRENCES:
+            raise ValueError(f"recurrence must be one of {RECURRENCES}")
+        return v
+
 
 class ReminderUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=MAX_TITLE_LEN)
@@ -91,6 +113,7 @@ class ReminderUpdate(BaseModel):
     due_at: float | None = None
     recurrence: str | None = None
     status: str | None = None
+    enabled: bool | None = None
 
 
 class ReminderStore:
@@ -110,8 +133,13 @@ class ReminderStore:
             self._store.delete("reminders", reminder_id)
 
     def create(self, data: ReminderCreate) -> Reminder:
-        r = Reminder(title=data.title, note=data.note or "",
-                     due_at=data.due_at, recurrence=data.recurrence)
+        r = Reminder(
+            title=data.title,
+            note=data.note or "",
+            due_at=data.due_at,
+            recurrence=data.recurrence,
+            enabled=data.enabled,
+        )
         self.reminders[r.id] = r
         self._save(r)
         return r
@@ -128,14 +156,14 @@ class ReminderStore:
 
     def due(self, now: float | None = None) -> list[Reminder]:
         now = now if now is not None else time.time()
-        return [r for r in self.list("pending") if r.due_at <= now]
+        return [r for r in self.list("pending") if r.enabled and r.due_at <= now]
 
     def update(self, reminder_id: str, patch: ReminderUpdate) -> Reminder | None:
         r = self.reminders.get(reminder_id)
         if r is None:
             return None
         data = r.model_dump()
-        for field in ("title", "note", "due_at", "recurrence", "status"):
+        for field in ("title", "note", "due_at", "recurrence", "status", "enabled"):
             v = getattr(patch, field)
             if v is not None:
                 data[field] = v
@@ -154,18 +182,27 @@ class ReminderStore:
 
     def fire(self, reminder_id: str, now: float | None = None) -> Reminder | None:
         """Fire one due reminder. Recurring reminders advance to their next
-        occurrence and stay pending; one-shots become fired."""
+        occurrence and stay pending; one-shots become fired. Disabled
+        reminders never fire."""
         now = now if now is not None else time.time()
         r = self.reminders.get(reminder_id)
-        if r is None or r.status != "pending":
+        if r is None or r.status != "pending" or not r.enabled:
             return None
-        if r.recurrence == "daily":
+        if r.recurrence == "hourly":
+            step = 3600
+        elif r.recurrence == "daily":
             step = 86400
         elif r.recurrence == "weekly":
             step = 7 * 86400
+        elif r.recurrence == "weekdays":
+            step = 0  # handled by _advance_weekday below
         else:
             step = 0
-        if step:
+        if r.recurrence == "weekdays":
+            r.due_at = _advance_weekday(r.due_at)
+            while r.due_at <= now:
+                r.due_at = _advance_weekday(r.due_at)
+        elif step:
             r.due_at += step
             # If the next occurrence is already past (node was down a while),
             # keep pushing forward so we do not fire a burst of catch-ups.
@@ -179,8 +216,9 @@ class ReminderStore:
         return r
 
 
-def fire_due(store: "ReminderStore", now: float, is_quiet, notify, publish,
-             feed_store) -> list[Reminder]:
+def fire_due(
+    store: "ReminderStore", now: float, is_quiet, notify, publish, feed_store
+) -> list[Reminder]:
     """Fire every due reminder: mark it (advancing recurrences), then notify.
 
     `is_quiet()` gates the whole pass: during quiet hours nothing fires and
@@ -198,12 +236,22 @@ def fire_due(store: "ReminderStore", now: float, is_quiet, notify, publish,
         if updated is None:
             continue
         body = updated.note or f"Reminder: {updated.title}"
-        notify("Reminder", updated.title,
-               {"type": "reminder.fired", "reminder_id": updated.id})
-        publish("reminder.fired", {"reminder_id": updated.id, "title": updated.title,
-                                   "fired_at": updated.last_fired_at,
-                                   "recurrence": updated.recurrence})
-        feed_store.add(FeedUnit(kind="reminder", title=updated.title,
-                                body=body[:MAX_BODY_LEN]))
+        notify(
+            "Reminder",
+            updated.title,
+            {"type": "reminder.fired", "reminder_id": updated.id},
+        )
+        publish(
+            "reminder.fired",
+            {
+                "reminder_id": updated.id,
+                "title": updated.title,
+                "fired_at": updated.last_fired_at,
+                "recurrence": updated.recurrence,
+            },
+        )
+        feed_store.add(
+            FeedUnit(kind="reminder", title=updated.title, body=body[:MAX_BODY_LEN])
+        )
         fired.append(updated)
     return fired
