@@ -18,9 +18,14 @@ from .verification import (
     workspace_root,
 )
 class ApprovalWorkflow:
-    def __init__(self, store=None, event_sink=None, audit_chain=None):
+    def __init__(self, store=None, event_sink=None, audit_chain=None, policy=None):
         self.requests: dict[str, ApprovalRequest]={}
         self._store=store
+        # Optional PolicyEngine reference. When present, create() derives
+        # destructiveness, double-confirmation, and the consequence text
+        # server-side from the single policy source of truth, so the card
+        # always matches what decide() will enforce at execution.
+        self._policy=policy
         # Serializes claim() so check-and-consume is atomic: two concurrent
         # executes racing on the same approval cannot both win.
         self._claim_lock=threading.Lock()
@@ -64,7 +69,18 @@ class ApprovalWorkflow:
                 existing=self.requests.get(existing_id)
                 if existing is not None and existing.status==ApprovalStatus.PENDING:
                     return existing
-        req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=action.destructive, thread_id=thread_id, tool_call_id=tool_call_id)
+        # Sentinel gate: derive the card's safety fields server-side from the
+        # policy so the card always matches what decide() enforces. Without
+        # a policy reference (bare unit-test construction), fall back to the
+        # historical behavior: double confirmation for destructive actions.
+        if self._policy is not None:
+            action.destructive=self._policy.is_destructive(action)
+            requires_double=self._policy.requires_double_confirmation(action)
+            consequence=self._policy.consequence_for(action)
+        else:
+            requires_double=bool(action.destructive)
+            consequence=None
+        req=ApprovalRequest(action=action, reason=reason, action_preview=action.description, data_used_preview=action.data_used, model_used_preview=action.model_used, destination_preview=action.destination, risk_label=action.risk, requires_double_confirmation=requires_double, consequence=consequence, thread_id=thread_id, tool_call_id=tool_call_id)
         req.binding_hash=envelope_hash(action)
         self._persist(req)
         self.requests[req.id]=req
@@ -102,6 +118,11 @@ class ApprovalWorkflow:
         self.requests[approval_id]=req
         self._emit("approval.updated", req)
         self._record("approval.decided", {"approval_id": approval_id, "decision": req.status.value, "deny_reason": deny_reason})
+        # Sentinel gate: an explicit approval of an irreversible action is
+        # audit-logged with its consequence, so the confirmation is
+        # attributable after the fact.
+        if approve and self._policy is not None and self._policy.is_irreversible(req.action):
+            self._record("approval.irreversible_confirmed", {"approval_id": approval_id, "tool_name": req.action.tool_name, "irreversible_class": self._policy.irreversible_class(req.action), "consequence": req.consequence})
         return req
 
     def _check(self, approval_id: str, action: AgentAction) -> ApprovalRequest:
@@ -223,7 +244,7 @@ class AgentCore:
         self.persona=persona_from_dict(persona)
         self.audit_chain=audit_chain
         self.vault=vault
-        self.approvals=ApprovalWorkflow(store=approval_store, event_sink=event_sink, audit_chain=audit_chain)
+        self.approvals=ApprovalWorkflow(store=approval_store, event_sink=event_sink, audit_chain=audit_chain, policy=self.policy)
         self.tools=ToolRegistry(mock_mode=mock_tools)
         self.audit=[]
         self._audit_cursor=0
