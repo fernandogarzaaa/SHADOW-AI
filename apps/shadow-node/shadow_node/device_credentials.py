@@ -112,9 +112,21 @@ def load_master_secret() -> bytes:
         data = key_file.read_bytes().strip()
         if not data:
             raise RuntimeError(f"master secret file {key_file} is empty")
+        # Files written by this function are 64 hex chars (32 bytes). Older
+        # files hold raw bytes; those keep the historical strip() behaviour
+        # so devices paired against an existing node keep working.
+        if len(data) == 64:
+            try:
+                return bytes.fromhex(data.decode("ascii"))
+            except (UnicodeDecodeError, ValueError):
+                pass
         return data
     secret = secrets.token_bytes(32)
-    key_file.write_bytes(secret)
+    # Persist as hex: raw random bytes can begin/end with whitespace bytes,
+    # which strip() on the next boot would remove, silently changing the
+    # master secret and invalidating every derived device token (~4.6% of
+    # fresh nodes).
+    key_file.write_bytes(secret.hex().encode("ascii"))
     try:
         key_file.chmod(0o600)
     except OSError:

@@ -89,24 +89,26 @@
   @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 18px;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,.4);opacity:0;transition:.25s;pointer-events:none}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  @media(max-width:720px){.app{grid-template-columns:1fr}aside{display:none}main{padding:24px 18px}}
+  @media(max-width:720px){.app{grid-template-columns:1fr}aside{position:static;height:auto;padding:12px 14px;gap:10px;border-right:0;border-bottom:1px solid var(--line)}aside .brand{display:none}nav{display:flex;flex-direction:row;overflow-x:auto;gap:4px}nav a{flex:none;white-space:nowrap}.side-foot{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;margin-top:0}main{padding:24px 18px}}
+  nav a:focus-visible,.switch:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
 </head>
 <body>
 <div class="app">
   <aside>
     <div class="brand"><div class="glyph"></div><div><b>Shadow</b><span id="ver">local node</span></div></div>
-    <nav id="nav">
-      <a data-view="ask" class="active"><span class="dot"></span>Ask</a>
-      <a data-view="memory"><span class="dot"></span>Memory</a>
-      <a data-view="actions"><span class="dot"></span>Actions</a>
-      <a data-view="models"><span class="dot"></span>Models</a>
-      <a data-view="approvals"><span class="dot"></span>Approvals</a>
-      <a data-view="audit"><span class="dot"></span>Audit</a>
+    <nav id="nav" aria-label="Sections">
+      <a href="#ask" data-view="ask" class="active" aria-current="page"><span class="dot"></span>Ask</a>
+      <a href="#memory" data-view="memory"><span class="dot"></span>Memory</a>
+      <a href="#actions" data-view="actions"><span class="dot"></span>Actions</a>
+      <a href="#models" data-view="models"><span class="dot"></span>Models</a>
+      <a href="#approvals" data-view="approvals"><span class="dot"></span>Approvals</a>
+      <a href="#audit" data-view="audit"><span class="dot"></span>Audit</a>
     </nav>
     <div class="side-foot">
-      <div class="pause"><span>Emergency pause</span><div id="pauseSw" class="switch"><i></i></div></div>
-      <button class="theme-btn" id="themeBtn">Toggle theme</button>
+      <div class="pause"><span id="pauseLbl">Emergency pause</span><div id="pauseSw" class="switch" role="switch" tabindex="0" aria-checked="false" aria-labelledby="pauseLbl"><i></i></div></div>
+      <button type="button" class="theme-btn" id="themeBtn">Toggle theme</button>
     </div>
   </aside>
 
@@ -116,7 +118,7 @@
         <h1 id="title">Ask Shadow</h1>
         <div class="sub" id="subtitle">Question your private memory, locally.</div>
       </div>
-      <div class="status"><span class="live" id="liveDot"></span><span id="statusTxt">connecting…</span></div>
+      <div class="status"><span class="live" id="liveDot" aria-hidden="true"></span><span id="statusTxt" role="status">connecting…</span></div>
     </div>
 
     <!-- ASK -->
@@ -124,12 +126,12 @@
       <div class="card">
         <h3>Ask</h3>
         <div class="hint">Answers are grounded in your local memory. Retrieved context is treated as untrusted.</div>
-        <textarea id="askInput" placeholder="What did I note about the Aurora project?"></textarea>
+        <textarea id="askInput" aria-label="Question" placeholder="What did I note about the Aurora project?"></textarea>
         <div class="row" style="align-items:center">
           <label style="display:flex;align-items:center;gap:8px;margin:0;flex:none"><input type="checkbox" id="askCloud" style="width:auto;margin:0"> use cloud model (if approved)</label>
           <div style="text-align:right"><button class="go" id="askBtn">Ask</button></div>
         </div>
-        <div id="askOut"></div>
+        <div id="askOut" aria-live="polite"></div>
       </div>
     </section>
 
@@ -138,14 +140,14 @@
       <div class="card">
         <h3>Ingest memory</h3>
         <div class="hint">Stored encrypted on this device. Sensitive content is auto-flagged.</div>
-        <input id="memTitle" placeholder="Source title — e.g. Project notes" />
-        <textarea id="memText" placeholder="Paste text to remember…"></textarea>
+        <input id="memTitle" aria-label="Source title" placeholder="Source title — e.g. Project notes" />
+        <textarea id="memText" aria-label="Text to remember" placeholder="Paste text to remember…"></textarea>
         <div style="text-align:right"><button class="go" id="memBtn">Store</button></div>
       </div>
       <div class="card">
         <h3>Search</h3>
-        <input id="memQuery" placeholder="Search your memory…" />
-        <div id="memOut"><div class="empty">Results appear here.</div></div>
+        <input id="memQuery" type="search" aria-label="Search memory" placeholder="Search your memory…" />
+        <div id="memOut" aria-live="polite"><div class="empty">Results appear here.</div></div>
       </div>
     </section>
 
@@ -154,7 +156,7 @@
       <div class="card">
         <h3>Run an action</h3>
         <div class="hint">Real, sandboxed actions — file notes, reminders, calendar events, email drafts, public web fetch. Every action passes the policy + approval gate. Tools marked 🔒 require explicit per-tool consent.</div>
-        <label>Tool</label>
+        <label for="actTool">Tool</label>
         <select id="actTool">
           <option value="note.create">note.create — save a note</option>
           <option value="note.append">note.append — add to a note</option>
@@ -165,7 +167,7 @@
         </select>
         <div id="actFields"></div>
         <div style="text-align:right"><button class="go" id="actBtn">Execute</button></div>
-        <div id="actOut"></div>
+        <div id="actOut" aria-live="polite"></div>
       </div>
       <div class="card">
         <h3>Tool catalog</h3>
@@ -193,7 +195,7 @@
       <div class="card">
         <h3>Pending approvals</h3>
         <div class="hint">High-impact actions wait here for your explicit decision.</div>
-        <div id="apprOut"><div class="empty">Nothing waiting.</div></div>
+        <div id="apprOut" aria-live="polite"><div class="empty">Nothing waiting.</div></div>
       </div>
     </section>
 
@@ -202,23 +204,24 @@
       <div class="card">
         <h3>Audit log</h3>
         <div class="hint">Every decision the node makes is recorded here.</div>
-        <div id="auditOut"><div class="empty">No events yet.</div></div>
+        <div id="auditOut" aria-live="polite"><div class="empty">No events yet.</div></div>
       </div>
     </section>
   </main>
 </div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const api=async(p,opt={})=>{const r=await fetch(p,{headers:{'Content-Type':'application/json'},...opt});const t=await r.text();let j;try{j=t?JSON.parse(t):{}}catch{j={raw:t}}if(!r.ok)throw (j.error?.message||j.detail||r.status);return j;};
-const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const api=async(p,opt={})=>{const r=await fetch(p,{headers:{'Content-Type':'application/json'},...opt});const t=await r.text();let j;try{j=t?JSON.parse(t):{}}catch{j={raw:t}}if(!r.ok){let m=j.error?.message??j.detail??('HTTP '+r.status);if(typeof m!=='string')m=Array.isArray(m)?m.map(x=>x.msg||JSON.stringify(x)).join('; '):JSON.stringify(m);throw m;}return j;};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('show'),2200);};
 const titles={ask:['Ask Shadow','Question your private memory, locally.'],memory:['Memory','Everything Shadow knows, encrypted on-device.'],actions:['Actions','Real actions, behind the approval gate.'],models:['Models','Hybrid local + frontier. Connect a provider to escalate hard questions.'],approvals:['Approvals','Your explicit yes or no.'],audit:['Audit','A complete, honest record.']};
 
 // nav
-$$('#nav a').forEach(a=>a.onclick=()=>{
-  $$('#nav a').forEach(x=>x.classList.remove('active'));a.classList.add('active');
+$$('#nav a').forEach(a=>a.onclick=(ev)=>{
+  ev.preventDefault();
+  $$('#nav a').forEach(x=>{x.classList.remove('active');x.removeAttribute('aria-current');});a.classList.add('active');a.setAttribute('aria-current','page');
   const v=a.dataset.view;$$('.view').forEach(s=>s.classList.remove('on'));$('#view-'+v).classList.add('on');
   $('#title').textContent=titles[v][0];$('#subtitle').textContent=titles[v][1];
   if(v==='approvals')loadApprovals();if(v==='audit')loadAudit();if(v==='models')loadModels();if(v==='actions')loadToolCatalog();
@@ -231,9 +234,10 @@ if(localStorage.theme)document.documentElement.dataset.theme=localStorage.theme;
 // status + pause
 async function refreshStatus(){
   try{const h=await api('/health');$('#statusTxt').textContent='node '+h.version+(h.auth_required?' · auth on':'');$('#ver').textContent=h.version;
-    $('#pauseSw').classList.toggle('on',h.emergency_paused);$('#liveDot').style.background=h.emergency_paused?'var(--bad)':'var(--ok)';
+    $('#pauseSw').classList.toggle('on',h.emergency_paused);$('#pauseSw').setAttribute('aria-checked',String(!!h.emergency_paused));$('#liveDot').style.background=h.emergency_paused?'var(--bad)':'var(--ok)';
   }catch{$('#statusTxt').textContent='offline';$('#liveDot').style.background='var(--bad)';}
 }
+$('#pauseSw').onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();$('#pauseSw').click();}};
 $('#pauseSw').onclick=async()=>{const on=!$('#pauseSw').classList.contains('on');
   try{await api('/emergency_pause',{method:'POST',body:JSON.stringify({paused:on,reason:'toggled from dashboard'})});toast(on?'Paused':'Resumed');refreshStatus();}catch(e){toast(e);}};
 
@@ -268,10 +272,10 @@ async function searchMem(){const q=$('#memQuery').value.trim();if(!q){$('#memOut
 const fields={'note.create':[['title','Title'],['body','Body','area']],'note.append':[['title','Title'],['body','Text to append','area']],'reminder.create':[['text','Reminder'],['when','When (optional)']],'calendar.create':[['title','Event Title'],['start','Start time (e.g. 2026-07-10T09:00)'],['end','End time (optional)'],['description','Description (optional)','area']],'email.draft':[['to','Recipient email'],['subject','Subject'],['body','Email body','area']],'http.get':[['url','https://example.com']]};
 async function loadToolCatalog(){
   try{const r=await api('/tools');
-    $('#toolCatalogOut').innerHTML=r.tool_metadata.map(t=>`<div class="item"><div class="t">${esc(t.name)} ${t.needs_explicit_consent?'<span class="pill high">🔒 consent required</span>':'<span class="pill low">auto-approved</span>'}</span></div><div class="d">${esc(t.description||'')}</div></div>`).join('');
+    $('#toolCatalogOut').innerHTML=r.tool_metadata.map(t=>`<div class="item"><div class="t">${esc(t.name)} ${t.needs_explicit_consent?'<span class="pill high">🔒 consent required</span>':'<span class="pill low">auto-approved</span>'}</div><div class="d">${esc(t.description||'')}</div></div>`).join('');
   }catch(e){$('#toolCatalogOut').innerHTML='<div class="empty">Could not load tool catalog.</div>';}
 }
-function renderFields(){const t=$('#actTool').value;$('#actFields').innerHTML=fields[t].map(([k,ph,ty])=>ty==='area'?`<label>${ph}</label><textarea data-k="${k}" placeholder="${ph}"></textarea>`:`<label>${ph}</label><input data-k="${k}" placeholder="${ph}">`).join('');}
+function renderFields(){const t=$('#actTool').value;$('#actFields').innerHTML=fields[t].map(([k,ph,ty])=>ty==='area'?`<label for="f-${k}">${ph}</label><textarea id="f-${k}" data-k="${k}" placeholder="${ph}"></textarea>`:`<label for="f-${k}">${ph}</label><input id="f-${k}" data-k="${k}" placeholder="${ph}">`).join('');}
 $('#actTool').onchange=renderFields;renderFields();
 $('#actBtn').onclick=async()=>{
   const tool=$('#actTool').value,params={};$$('#actFields [data-k]').forEach(el=>params[el.dataset.k]=el.value);
@@ -284,7 +288,7 @@ $('#actBtn').onclick=async()=>{
 // approvals
 async function loadApprovals(){
   try{const r=await api('/approvals');const pend=r.filter(a=>a.status==='pending');
-    $('#apprOut').innerHTML=pend.length?pend.map(a=>`<div class="item"><div class="t">${esc(a.action.tool_name)} <span class="pill ${a.risk_label}">${a.risk_label}</span></div><div class="d">${esc(a.action.description)}</div><div class="acts"><button class="go sm" onclick="decide('${a.id}',true)">Approve</button><button class="ghost danger" onclick="decide('${a.id}',false)">Deny</button></div></div>`).join(''):'<div class="empty">Nothing waiting.</div>';
+    $('#apprOut').innerHTML=pend.length?pend.map(a=>`<div class="item"><div class="t">${esc(a.action.tool_name)} <span class="pill ${esc(a.risk_label)}">${esc(a.risk_label)}</span></div><div class="d">${esc(a.action.description)}</div><div class="acts"><button class="go sm" onclick="decide('${esc(a.id)}',true)">Approve</button><button class="ghost danger" onclick="decide('${esc(a.id)}',false)">Deny</button></div></div>`).join(''):'<div class="empty">Nothing waiting.</div>';
   }catch(e){toast(e);}
 }
 window.decide=async(id,ok)=>{try{await api(`/approvals/${id}/${ok?'approve':'deny'}`,{method:'POST',body:JSON.stringify({reason:'from dashboard'})});toast(ok?'Approved':'Denied');loadApprovals();loadAudit();}catch(e){toast(e);}};
@@ -298,7 +302,7 @@ async function loadModels(){
       const oauth=p.oauth_supported?`<button class="ghost sm" onclick="oauthStart('${p.provider}')">Sign in with OAuth</button>`:'';
       const dis=p.connected?`<button class="ghost danger" onclick="providerDisconnect('${p.provider}')">Disconnect</button>`:'';
       return `<div class="item"><div class="t">${esc(p.label)} ${badge} ${active}</div><div class="d">${esc(p.note)}</div>
-        <div class="row" style="margin-top:10px"><input id="key-${p.provider}" placeholder="Paste API key" type="password"><button class="go sm" onclick="providerConnect('${p.provider}')">Connect</button></div>
+        <div class="row" style="margin-top:10px"><input id="key-${p.provider}" aria-label="API key for ${esc(p.provider)}" placeholder="Paste API key" type="password" autocomplete="off"><button class="go sm" onclick="providerConnect('${p.provider}')">Connect</button></div>
         <div class="acts">${oauth}${dis}</div></div>`;
     }).join('');
   }catch(e){toast(e);}
