@@ -74,10 +74,20 @@ def test_destructiveness_derived_from_tool_name_not_client_flag():
 
 def test_sensitive_tool_requires_approval():
     engine = PolicyEngine()
+    # External sends need double confirmation first (Sentinel gate): the
+    # first attempt is denied, the double-confirmed attempt suspends for
+    # approval with the consequence named.
     d = engine.decide(_action("send_email", description="send the report"), _profile())
-    assert d.outcome == PolicyOutcome.REQUIRE_APPROVAL
-    assert d.rule_id == "approval_required"
-    assert "Approval required" in d.reason
+    assert d.outcome == PolicyOutcome.DENY
+    assert d.rule_id == "irreversible_needs_double_confirm"
+    d2 = engine.decide(
+        _action("send_email", description="send the report"),
+        _profile(),
+        double_confirmed=True,
+    )
+    assert d2.outcome == PolicyOutcome.REQUIRE_APPROVAL
+    assert d2.rule_id == "irreversible_needs_approval"
+    assert "cannot be recalled" in d2.reason
 
 
 def test_sensitive_tool_allowed_after_approval_and_double_confirm():
@@ -113,8 +123,12 @@ def test_suggest_only_requires_approval_for_low_risk():
 def test_can_execute_compatibility():
     engine = PolicyEngine()
     ok, reason = engine.can_execute(_action("send_email"), _profile())
-    assert ok is False and "Approval required" in reason
+    assert ok is False and "double confirmation" in reason
     ok, reason = engine.can_execute(_action("send_email"), _profile(), approved=True)
+    assert ok is False and "double confirmation" in reason
+    ok, reason = engine.can_execute(
+        _action("send_email"), _profile(), approved=True, double_confirmed=True
+    )
     assert ok is True and reason == "Allowed."
     ok, reason = engine.can_execute(_action("keylogger"), _profile(), approved=True)
     assert ok is False
@@ -418,8 +432,16 @@ def test_auto_approve_waives_routine_low_risk_tool():
 def test_auto_approve_does_not_waive_high_risk_tool():
     engine = _tiered_engine({"send_email": "auto_approve"})
     d = engine.decide(_action("send_email", description="send the report"), _profile())
-    assert d.outcome == PolicyOutcome.REQUIRE_APPROVAL
-    assert d.rule_id == "approval_required"
+    assert d.outcome == PolicyOutcome.DENY
+    assert d.rule_id == "irreversible_needs_double_confirm"
+    # Even double-confirmed, the tier cannot waive the Sentinel gate.
+    d2 = engine.decide(
+        _action("send_email", description="send the report"),
+        _profile(),
+        double_confirmed=True,
+    )
+    assert d2.outcome == PolicyOutcome.REQUIRE_APPROVAL
+    assert d2.rule_id == "irreversible_needs_approval"
 
 
 def test_auto_approve_does_not_waive_sensitive_tool():

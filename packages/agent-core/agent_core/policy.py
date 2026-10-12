@@ -46,6 +46,18 @@ DEFAULT_POLICY: dict = {
         "reveal secret",
     ],
     "destructive_tools": ["delete_file", "overwrite_file", "shell_rm"],
+    # Irreversible action classes (Sentinel gate). Maps tool name -> class.
+    # Every irreversible action ALWAYS requires an explicit recorded
+    # approval: no tier, autonomy mode, or persona can waive it. Classes
+    # in DOUBLE_CONFIRM_CLASSES additionally require double confirmation.
+    # Operators extend this via policy.yaml for new publish/financial tools.
+    "irreversible_tools": {
+        "delete_file": "destructive",
+        "overwrite_file": "destructive",
+        "shell_rm": "destructive",
+        "send_email": "external_send",
+        "send_message": "external_send",
+    },
     "sensitive_tools": [
         "send_email",
         "send_message",
@@ -82,6 +94,37 @@ class PolicyOutcome(str, Enum):
 #: `always_allow` is a configuration error. All three still lose to the hard
 #: gates (emergency pause, blocked tools, destructive double confirmation).
 TOOL_TIERS = ("always_ask", "auto_approve", "always_allow")
+
+
+#: Irreversible action classes (Sentinel gate). The single source of truth
+#: for "this action cannot be taken back": destructive (delete/overwrite),
+#: external_send (a message leaves the node), publish (content goes public),
+#: financial (money moves or an obligation is created).
+IRREVERSIBLE_CLASSES = ("destructive", "external_send", "publish", "financial")
+
+#: Irreversible classes that require two explicit confirmations, not one.
+#: Destructive tools keep their historical double-confirmation; external
+#: sends and financial actions join them per the Sentinel spec.
+DOUBLE_CONFIRM_CLASSES = ("destructive", "external_send", "financial")
+
+#: Consequence text per irreversible class. Shown on the approval card so
+#: the confirmation names the concrete consequence, never a bare
+#: "Are you sure?". {destination} is filled from the action.
+IRREVERSIBLE_CONSEQUENCES = {
+    "destructive": "This will permanently delete or overwrite data. It cannot be undone.",
+    "external_send": (
+        "This will send content to {destination}. The recipient can read it "
+        "immediately, and it cannot be recalled."
+    ),
+    "publish": (
+        "This will publish content where others can see it. "
+        "It may be impossible to fully retract."
+    ),
+    "financial": (
+        "This will move real money or create a financial obligation. "
+        "It cannot be reversed automatically."
+    ),
+}
 
 
 class PolicyDecision(BaseModel):
@@ -136,6 +179,22 @@ def _parse_tool_tiers(raw: dict | None) -> dict[str, str]:
     return tiers
 
 
+def _parse_irreversible_tools(raw: dict | None) -> dict[str, str]:
+    """Validate the `irreversible_tools` mapping. Unknown class names are a
+    hard error: silently running a misclassified irreversible tool would
+    hide an operator mistake behind a weaker gate."""
+    mapping: dict[str, str] = {}
+    for tool, cls in (raw or {}).items():
+        name = str(cls).lower()
+        if name not in IRREVERSIBLE_CLASSES:
+            raise ValueError(
+                f"unknown irreversible class {cls!r} for tool {tool!r}; "
+                f"expected one of {list(IRREVERSIBLE_CLASSES)}"
+            )
+        mapping[str(tool).lower()] = name
+    return mapping
+
+
 class PolicyEngine:
     """Single policy authority. Every agent action flows through decide()."""
 
@@ -147,6 +206,9 @@ class PolicyEngine:
         self.sensitive_tools = {t.lower() for t in self.document.get("sensitive_tools", [])}
         self.approval_required_risks = set(self.document.get("approval_required_risks", []))
         self.tool_tiers = _parse_tool_tiers(self.document.get("tool_tiers", {}))
+        self.irreversible_tools = _parse_irreversible_tools(
+            self.document.get("irreversible_tools", {})
+        )
         # Fail loud: `always_allow` on a sensitive tool would silently waive
         # approval for outbound messages, writes, and other sensitive
         # actions. That is never a valid configuration.
@@ -166,12 +228,51 @@ class PolicyEngine:
         client claims (audit P0-4)."""
         return bool(action.destructive) or action.tool_name.lower() in self.destructive_tools
 
+    # -- Sentinel irreversible-action gate -----------------------------------
+    def irreversible_class(self, action: AgentAction) -> str | None:
+        """The single source of truth for irreversibility. Returns the
+        irreversible class ("destructive", "external_send", "publish",
+        "financial") or None. A tool listed as destructive is always
+        irreversible even if the operator mapping omits it."""
+        cls = self.irreversible_tools.get(action.tool_name.lower())
+        if cls is not None:
+            return cls
+        if self.is_destructive(action):
+            return "destructive"
+        return None
+
+    def is_irreversible(self, action: AgentAction) -> bool:
+        """True when the action cannot be taken back. Such actions ALWAYS
+        require an explicit recorded approval: no tier, autonomy mode, or
+        persona can waive the gate (enforced in decide())."""
+        return self.irreversible_class(action) is not None
+
+    def requires_double_confirmation(self, action: AgentAction) -> bool:
+        """Two explicit confirmations instead of one. Destructive tools
+        keep their historical requirement; external sends and financial
+        actions require it per the Sentinel spec."""
+        return self.irreversible_class(action) in DOUBLE_CONFIRM_CLASSES
+
+    def consequence_for(self, action: AgentAction) -> str | None:
+        """Human-readable consequence for the approval card. Names the
+        concrete consequence so the confirmation is never a bare
+        "Are you sure?". None for reversible actions."""
+        cls = self.irreversible_class(action)
+        if cls is None:
+            return None
+        destination = action.destination or "the recipient"
+        return IRREVERSIBLE_CONSEQUENCES[cls].format(destination=destination)
+
     def classify_action(self, action: AgentAction) -> RiskClass:
         n = action.tool_name.lower()
         d = action.description.lower()
         if n in self.blocked_tools or any(x in d for x in self.blocked_patterns):
             return RiskClass.BLOCKED
         if self.is_destructive(action):
+            return RiskClass.HIGH
+        if self.irreversible_class(action) is not None:
+            # Any irreversible tool (including future publish/financial
+            # tools an operator adds) is HIGH risk by default.
             return RiskClass.HIGH
         if n in {"send_email", "send_message"}:
             return RiskClass.HIGH
@@ -188,6 +289,11 @@ class PolicyEngine:
             AutonomyMode.SUGGEST_ONLY,
             AutonomyMode.DRAFT_ONLY,
         ]:
+            return True
+        if self.is_irreversible(action):
+            # Sentinel gate: irreversibility always needs a recorded
+            # approval, even in TRUSTED_WORKFLOW mode. (decide() enforces
+            # this again ahead of the tiers so no tier can waive it.)
             return True
         if action.tool_name.lower() in self.sensitive_tools:
             return True
@@ -225,6 +331,35 @@ class PolicyEngine:
                 outcome=PolicyOutcome.DENY,
                 reason="Destructive action requires double confirmation.",
                 rule_id="destructive_needs_double_confirm",
+                risk=risk,
+            )
+        # Sentinel gate, part 1: external sends and financial actions need
+        # two explicit confirmations, mirroring the destructive pattern.
+        # Runs before persona/tiers so nothing can waive it.
+        irrev = self.irreversible_class(action)
+        if irrev in ("external_send", "financial") and not double_confirmed:
+            return PolicyDecision(
+                outcome=PolicyOutcome.DENY,
+                reason=(
+                    f"Irreversible {irrev.replace('_', ' ')} action requires "
+                    "double confirmation."
+                ),
+                rule_id="irreversible_needs_double_confirm",
+                risk=risk,
+            )
+        # Sentinel gate, part 2: no irreversible action is ever ALLOWed
+        # without a recorded explicit approval. Runs before persona/tiers
+        # so no tier or autonomy mode can waive the gate. The reason names
+        # the concrete consequence for the approval card.
+        if irrev is not None and not approved:
+            return PolicyDecision(
+                outcome=PolicyOutcome.REQUIRE_APPROVAL,
+                reason=(
+                    f"Irreversible action ({irrev.replace('_', ' ')}): "
+                    f"{self.consequence_for(action)} "
+                    "Nothing runs until you approve."
+                ),
+                rule_id="irreversible_needs_approval",
                 risk=risk,
             )
         # Persona capability envelope. Runs after the hard gates above, so a
@@ -446,6 +581,7 @@ class PolicyEngine:
             "version": self.document.get("version"),
             "blocked_tools": sorted(self.blocked_tools),
             "destructive_tools": sorted(self.destructive_tools),
+            "irreversible_tools": dict(sorted(self.irreversible_tools.items())),
             "sensitive_tools": sorted(self.sensitive_tools),
             "approval_required_risks": sorted(self.approval_required_risks),
             "tool_tiers": dict(sorted(self.tool_tiers.items())),

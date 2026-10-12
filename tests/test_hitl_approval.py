@@ -30,7 +30,7 @@ def email_action():
 
 def test_execute_suspends_on_approval_required():
     core = AgentCore(mock_tools=True)
-    out = core.execute(email_action(), thread_id="thr_1", tool_call_id="tc_1")
+    out = core.execute(email_action(), double_confirmed=True, thread_id="thr_1", tool_call_id="tc_1")
     assert out["ok"] is False
     assert out["status"] == "approval_pending"
     assert out["approval_id"].startswith("apr_")
@@ -44,15 +44,15 @@ def test_execute_suspends_on_approval_required():
 
 def test_receipt_idempotency_no_duplicate_card():
     core = AgentCore(mock_tools=True)
-    first = core.execute(email_action(), thread_id="thr_2", tool_call_id="tc_2")
-    second = core.execute(email_action(), thread_id="thr_2", tool_call_id="tc_2")
+    first = core.execute(email_action(), double_confirmed=True, thread_id="thr_2", tool_call_id="tc_2")
+    second = core.execute(email_action(), double_confirmed=True, thread_id="thr_2", tool_call_id="tc_2")
     assert first["approval_id"] == second["approval_id"]
     assert len(core.approvals.requests) == 1
 
 
 def test_receipt_lookup_returns_pending_approval():
     core = AgentCore(mock_tools=True)
-    out = core.execute(email_action(), thread_id="thr_3", tool_call_id="tc_3")
+    out = core.execute(email_action(), double_confirmed=True, thread_id="thr_3", tool_call_id="tc_3")
     req = core.approvals.receipt("thr_3", "tc_3")
     assert req is not None and req.id == out["approval_id"]
     assert core.approvals.receipt("thr_3", "nope") is None
@@ -60,25 +60,25 @@ def test_receipt_lookup_returns_pending_approval():
 
 def test_new_receipt_after_decision():
     core = AgentCore(mock_tools=True)
-    first = core.execute(email_action(), thread_id="thr_4", tool_call_id="tc_4")
+    first = core.execute(email_action(), double_confirmed=True, thread_id="thr_4", tool_call_id="tc_4")
     core.approvals.decide(first["approval_id"], False, "nope")
-    second = core.execute(email_action(), thread_id="thr_4", tool_call_id="tc_4")
+    second = core.execute(email_action(), double_confirmed=True, thread_id="thr_4", tool_call_id="tc_4")
     assert second["approval_id"] != first["approval_id"]
 
 
 def test_resume_after_approval_runs_tool():
     core = AgentCore(mock_tools=True)
-    suspended = core.execute(email_action(), thread_id="thr_5", tool_call_id="tc_5")
+    suspended = core.execute(email_action(), double_confirmed=True, thread_id="thr_5", tool_call_id="tc_5")
     core.approvals.decide(suspended["approval_id"], True)
-    resumed = core.execute(email_action(), approved=True, approval_id=suspended["approval_id"])
+    resumed = core.execute(email_action(), approved=True, double_confirmed=True, approval_id=suspended["approval_id"])
     assert resumed["ok"] is True
 
 
 def test_denied_approval_stays_denied_on_resume():
     core = AgentCore(mock_tools=True)
-    suspended = core.execute(email_action(), thread_id="thr_6", tool_call_id="tc_6")
+    suspended = core.execute(email_action(), double_confirmed=True, thread_id="thr_6", tool_call_id="tc_6")
     core.approvals.decide(suspended["approval_id"], False, "declined by owner")
-    resumed = core.execute(email_action(), approved=True, approval_id=suspended["approval_id"])
+    resumed = core.execute(email_action(), approved=True, double_confirmed=True, approval_id=suspended["approval_id"])
     assert resumed["ok"] is False
 
 

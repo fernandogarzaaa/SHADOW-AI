@@ -103,7 +103,11 @@ def test_ghost_run_with_valid_approval_executes():
     core, calls = _make_core()
     sess = _session(core, approval_resolver=_binding_resolver(core))
     approval_id = _grant(core, "send_email", {"to": "ops@example.com"}, "send email to ops")
-    run_id = sess.start("notify ops", [_email_step(approval_id=approval_id)])
+    # External sends require double confirmation (Sentinel gate): the run
+    # carries it on the checkpoint, mirroring the client's second tap.
+    run_id = sess.start(
+        "notify ops", [_email_step(approval_id=approval_id)], double_confirmed=True
+    )
     out = sess.run_all(run_id)
     assert out["status"] == "completed"
     assert calls == [{"to": "ops@example.com"}]
@@ -151,7 +155,9 @@ def test_ghost_run_level_approval_still_binds_per_step():
     core, calls = _make_core()
     sess = _session(core, approval_resolver=_binding_resolver(core))
     approval_id = _grant(core, "send_email", {"to": "ops@example.com"}, "send email to ops")
-    run_id = sess.start("notify ops", [_email_step()], approval_id=approval_id)
+    run_id = sess.start(
+        "notify ops", [_email_step()], approval_id=approval_id, double_confirmed=True
+    )
     out = sess.run_all(run_id)
     assert out["status"] == "completed"
     assert calls == [{"to": "ops@example.com"}]
@@ -170,7 +176,9 @@ def test_ghost_run_one_approval_does_not_bless_other_steps():
         {"tool": "send_email", "description": "send email to attacker",
          "params": {"to": "attacker@example.com"}},
     ]
-    run_id = sess.start("two notifications", steps, approval_id=approval_id)
+    run_id = sess.start(
+        "two notifications", steps, approval_id=approval_id, double_confirmed=True
+    )
     with pytest.raises(PermissionError):
         sess.run_all(run_id)
     assert calls == [{"to": "ops@example.com"}]
