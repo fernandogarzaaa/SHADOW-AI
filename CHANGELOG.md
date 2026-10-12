@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Device credentials could break on restart.** A freshly generated node master secret was written as raw bytes and read back with `strip()`; when the random bytes began or ended with a whitespace byte (~4.6% of new nodes) the secret changed on the next boot and every derived device token stopped verifying. New key files are written as hex; existing raw files load as before. This was also the intermittent `test_paired_device_persists_across_restart` CI failure on main (af335c8, b96c582).
 - Web dashboard on small screens (<720px): the sidebar was `display:none`, which removed all navigation and the emergency-pause switch on phones. It is now a top bar with scrollable section tabs and the pause switch.
 - Web dashboard keyboard/screen-reader access: section links are real links (`href`, `aria-current`), the emergency pause is a `role="switch"` operable with Space/Enter, inputs have labels, result areas and the toast are live regions, visible focus outlines.
 - Dashboard API errors from FastAPI validation (array `detail`) were shown as `[object Object]`; they now render the messages. `esc()` also escapes quotes, and server values placed in attributes/onclick are escaped.
