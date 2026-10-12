@@ -24,3 +24,16 @@ def test_dashboard_exempt_from_auth_when_enabled():
         assert c.get("/audit").status_code == 401      # protected route still gated
     finally:
         m.AUTH_REQUIRED = False
+
+
+def test_dashboard_accessibility_basics():
+    body = client.get("/").text
+    # nav entries are real links (keyboard-focusable), not bare <a> tags
+    for view in ["ask", "memory", "actions", "models", "approvals", "audit"]:
+        assert f'<a href="#{view}" data-view="{view}"' in body
+    # emergency pause is an operable switch, not a mouse-only div
+    assert 'id="pauseSw" class="switch" role="switch" tabindex="0"' in body
+    # small screens keep navigation + emergency pause instead of hiding the sidebar
+    assert "aside{display:none}" not in body
+    for field in ["askInput", "memTitle", "memText", "memQuery"]:
+        assert f'id="{field}" aria-label=' in body or f'id="{field}" type="search" aria-label=' in body

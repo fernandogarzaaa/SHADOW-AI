@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Web dashboard on small screens (<720px): the sidebar was `display:none`, which removed all navigation and the emergency-pause switch on phones. It is now a top bar with scrollable section tabs and the pause switch.
+- Web dashboard keyboard/screen-reader access: section links are real links (`href`, `aria-current`), the emergency pause is a `role="switch"` operable with Space/Enter, inputs have labels, result areas and the toast are live regions, visible focus outlines.
+- Dashboard API errors from FastAPI validation (array `detail`) were shown as `[object Object]`; they now render the messages. `esc()` also escapes quotes, and server values placed in attributes/onclick are escaped.
 - `pip install -e .` (and `pip install .`) from the repo root now works: the root `pyproject.toml`
   declares the project and maps all five packages (`shadow_node`, `agent_core`, `memory_engine`,
   `axiom_adapter`, `ghost_adapter`), and ships `shadow_node/policy.yaml` and the `web/` dashboard
