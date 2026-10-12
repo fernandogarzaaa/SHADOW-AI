@@ -189,14 +189,14 @@ def test_execute_uncertain_for_unregistered_tool(workspace):
     # Explicit mock mode only: an unregistered tool reports mock_executed
     # with an UNCERTAIN verification, never a clean success.
     core = AgentCore(mock_tools=True)
-    res = core.execute(_action("send_email", {"to": "x@y.z"}, description="send mail"), approved=True)
+    res = core.execute(_action("send_email", {"to": "x@y.z"}, description="send mail"), approved=True, double_confirmed=True)
     assert res["ok"] is True
     assert res["verification"] == "uncertain"
 
 
 def test_execute_unknown_tool_fails_closed_by_default(workspace):
     core = AgentCore()
-    res = core.execute(_action("send_email", {"to": "x@y.z"}, description="send mail"), approved=True)
+    res = core.execute(_action("send_email", {"to": "x@y.z"}, description="send mail"), approved=True, double_confirmed=True)
     assert res["ok"] is False
     assert res["verification"] == "failed"
     assert res["result"]["status"] == "unknown_tool"

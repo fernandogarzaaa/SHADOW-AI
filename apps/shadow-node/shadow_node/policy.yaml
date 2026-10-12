@@ -48,6 +48,22 @@ sensitive_tools:
   - calendar.create
   - email.draft
 
+# Irreversible action classes (Sentinel gate, Hark item 12). Maps tool name
+# to one of: destructive, external_send, publish, financial.
+# Every irreversible action ALWAYS requires an explicit recorded approval:
+# no tier, autonomy mode, or persona can waive the gate. The destructive,
+# external_send, and financial classes additionally require double
+# confirmation. The approval card shows the consequence text for the class
+# so the confirmation names what will happen.
+# Extend this when adding publish/financial tools; unknown class names are
+# a hard startup error.
+irreversible_tools:
+  delete_file: destructive
+  overwrite_file: destructive
+  shell_rm: destructive
+  send_email: external_send
+  send_message: external_send
+
 # Risk classes that require explicit user approval.
 approval_required_risks:
   - medium
