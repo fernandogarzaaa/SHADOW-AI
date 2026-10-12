@@ -114,6 +114,11 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/memory/search": frozenset({"GET"}),
     "/memory/source/{source_id}": frozenset({"DELETE"}),
     "/memory/{item_id}": frozenset({"DELETE"}),
+    # accounts
+    "/accounts": frozenset({"GET"}),
+    "/accounts/{service_id}": frozenset({"GET"}),
+    "/accounts/{service_id}/connect": frozenset({"POST"}),
+    "/accounts/{service_id}/disconnect": frozenset({"POST"}),
     # providers
     "/providers": frozenset({"GET"}),
     "/providers/{name}": frozenset({"DELETE"}),

@@ -80,6 +80,7 @@ from .ambient_tasks import (
     memory_digest as _amb_memory_digest,
 )
 from . import provider_auth
+from . import accounts
 from .events import EventBus
 from pathlib import Path
 import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
@@ -2799,6 +2800,63 @@ def provider_oauth_exchange(name: str, req: OAuthExchangeRequest, request: Reque
         )
     )
     return {"connected": True, "provider": name, "type": "oauth"}
+
+
+# --- Accounts hub (Hark item 5): uniform directory of services the node can
+# act through. Delegates to the same encrypted CredentialStore as /providers;
+# rows never carry secret values. Disconnect is irreversible and requires
+# explicit confirm=true.
+
+
+@app.get("/accounts")
+def accounts_list():
+    return {
+        "accounts": [row.model_dump() for row in accounts.list_accounts(credentials)]
+    }
+
+
+@app.get("/accounts/{service_id}")
+def account_detail(service_id: str):
+    row = accounts.get_account(credentials, service_id)
+    if row is None:
+        raise HTTPException(404, "unknown service")
+    return row.model_dump()
+
+
+@app.post("/accounts/{service_id}/connect")
+def account_connect(service_id: str, req: ProviderConnectRequest):
+    if service_id not in accounts.service_ids():
+        raise HTTPException(404, "unknown service")
+    if not req.api_key:
+        raise HTTPException(400, "api_key required")
+    accounts.connect_account(credentials, service_id, req.api_key)
+    audit.append(
+        AuditEvent(
+            actor="user",
+            event_type="account_connected",
+            data_used=[service_id],
+            status="connected",
+        )
+    )
+    return {"connected": True, "service": service_id}
+
+
+@app.post("/accounts/{service_id}/disconnect")
+def account_disconnect(service_id: str, confirm: bool = False):
+    if service_id not in accounts.service_ids():
+        raise HTTPException(404, "unknown service")
+    if not confirm:
+        raise HTTPException(409, "disconnect requires confirm=true")
+    accounts.disconnect_account(credentials, service_id)
+    audit.append(
+        AuditEvent(
+            actor="user",
+            event_type="account_disconnected",
+            data_used=[service_id],
+            status="disconnected",
+        )
+    )
+    return {"connected": False, "service": service_id}
 
 
 @app.get("/tools")
