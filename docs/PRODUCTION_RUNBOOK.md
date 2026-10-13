@@ -26,8 +26,9 @@ consent grant **and** explicit `cloud_approval`. Without those the node stays lo
 ## 2. Run
 
 ```bash
-docker compose up --build        # or:
-uvicorn shadow_node.main:app --app-dir apps/shadow-node --host 0.0.0.0 --port 8787
+docker compose up --build        # or, from a checkout:
+pip install .
+uvicorn shadow_node.main:app --host 0.0.0.0 --port 8787
 ```
 
 Mount a persistent volume for `SHADOW_MEMORY_DB` and the key file so memory and

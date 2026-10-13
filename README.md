@@ -18,8 +18,8 @@ See `docs/PRODUCTION_RUNBOOK.md` to deploy and `docs/PROJECT_AUDIT_2026-06.md` f
 ## Run
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-uvicorn shadow_node.main:app --app-dir apps/shadow-node --reload --port 8787
+pip install -e ".[dev]"   # installs the 5 local packages (agent_core, memory_engine, ...)
+uvicorn shadow_node.main:app --reload --port 8787
 ```
 
 ## Test

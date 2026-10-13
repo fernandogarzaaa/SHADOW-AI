@@ -28,6 +28,14 @@ jobs:
               assert os.path.isfile(os.path.join(d, f)), f"missing package data: {f}"
           print("package install OK")
           PY
+      - name: Server boot smoke (README quickstart)
+        run: |
+          python -m venv /tmp/qs
+          /tmp/qs/bin/pip install --quiet -e .
+          cd /tmp && /tmp/qs/bin/uvicorn shadow_node.main:app --port 8787 > /tmp/qs.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8787/health && break; sleep 1; done
+          curl -sf http://127.0.0.1:8787/health || { cat /tmp/qs.log; exit 1; }
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/memory)" = 401
       - name: Secret scan
         run: |
           if grep -rEn "sk-[A-Za-z0-9]{20,}|(api[_-]?key|secret|password)[[:space:]]*=[[:space:]]*['\"][^'\"]{8,}" \
