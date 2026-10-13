@@ -1,6 +1,6 @@
 .PHONY: setup test run demo compile mcp
 setup:
-	python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+	python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && pip install -e .
 test:
 	pytest -q
 compile:
@@ -8,6 +8,6 @@ compile:
 demo:
 	PYTHONPATH=apps/shadow-node:packages/agent-core:packages/memory-engine:packages/axiom-adapter:packages/ghost-adapter python scripts/demo.py
 run:
-	uvicorn shadow_node.main:app --app-dir apps/shadow-node --reload --port 8787
+	PYTHONPATH=apps/shadow-node:packages/agent-core:packages/memory-engine:packages/axiom-adapter:packages/ghost-adapter uvicorn shadow_node.main:app --app-dir apps/shadow-node --reload --port 8787
 mcp:
 	PYTHONPATH=apps/shadow-node:packages/agent-core:packages/memory-engine:packages/axiom-adapter:packages/ghost-adapter python -m shadow_node.mcp_server
