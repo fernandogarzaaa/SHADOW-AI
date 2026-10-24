@@ -1,2 +1,30 @@
 import SwiftUI
-struct PairDeviceView: View { @EnvironmentObject var state: AppState; var body: some View { List { Section("Local Node") { TextField("Base URL", text: $state.baseURLText).textInputAutocapitalization(.never); Toggle("Mock mode", isOn: $state.mockMode); Button("Pair with node") { Task { await state.pair() } }; Button("Reset / Unpair", role: .destructive) { state.unpair() } } Section("Status") { Text(state.pairedIdentity?.deviceId ?? "Not paired"); Text(state.statusMessage).font(.footnote) } Section("Errors handled") { Text("Node unreachable, invalid/expired pairing, signature failure, revoked device, and expired session are shown as request errors.") } }.navigationTitle("Pair Device") } }
+
+struct PairDeviceView: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        List {
+            Section("Local Node") {
+                TextField("Base URL", text: $state.baseURLText)
+                    .textInputAutocapitalization(.never)
+                Toggle("Mock mode", isOn: $state.mockMode)
+                Button("Pair with node") {
+                    Task { await state.pair() }
+                }
+                Button("Reset / Unpair", role: .destructive) {
+                    state.unpair()
+                }
+            }
+            Section("Status") {
+                Text(state.pairedIdentity?.deviceId ?? "Not paired")
+                Text(state.statusMessage)
+                    .font(.footnote)
+            }
+            Section("Errors handled") {
+                Text("Node unreachable, invalid/expired pairing, signature failure, revoked device, and expired session are shown as request errors.")
+            }
+        }
+        .navigationTitle("Pair Device")
+    }
+}
