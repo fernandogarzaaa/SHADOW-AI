@@ -43,7 +43,7 @@
     "expo": "~58.0.5",
     "expo-av": "~16.0.8",
     "expo-blur": "^15.0.8",
-    "expo-camera": "~17.0.10",
+    "expo-camera": "~58.0.9",
     "expo-clipboard": "^8.0.8",
     "expo-constants": "~18.0.12",
     "expo-dev-client": "~6.0.20",
