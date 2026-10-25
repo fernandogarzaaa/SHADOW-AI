@@ -12,6 +12,7 @@ The router reports an estimated token saving for every request so the UI can
 show the user what the hybrid approach saved.
 """
 from __future__ import annotations
+import os
 import re
 from dataclasses import dataclass
 from axiom_adapter import AxiomAdapter, TokenBudgetEstimator
@@ -82,6 +83,20 @@ class HybridRouter:
         self.verifier = verifier or GroundingVerifier()
         self.estimator = TokenBudgetEstimator()
 
+    @property
+    def local_shortcircuit(self) -> bool:
+        """Answer simple prompts on-device instead of the approved cloud model.
+
+        Only sensible with a real local model. The built-in local_mock returns
+        a fixed placeholder string, so short-circuiting to it would hand the
+        user a canned non-answer whenever a question looked "simple". Opt in
+        with SHADOW_LOCAL_SHORTCIRCUIT=true once a real local model is wired.
+        """
+        env = os.getenv("SHADOW_LOCAL_SHORTCIRCUIT")
+        if env is not None:
+            return env.lower() == "true"
+        return getattr(self.local, "name", "") != "local_mock"
+
     def run(self, prompt: str, raw_context: str, frontier=None, threshold: float = 0.5,
             verify: bool = False, grounding_threshold: float = 0.3,
             cloud_context: str | None = None) -> dict:
@@ -103,6 +118,11 @@ class HybridRouter:
         # Routing keys off RAW context size (how much information there is);
         # compression affects cost/savings, not complexity.
         decision = self.router.decide(prompt, raw_tokens, frontier is not None, threshold)
+        if (decision.route == "local" and frontier is not None
+                and isinstance(self.router, ComplexityRouter) and not self.local_shortcircuit):
+            decision = RouteDecision(
+                "frontier", f"cloud approved; no capable on-device model ({decision.complexity:.2f})",
+                decision.complexity)
         regrounded = False
         context_package = packaged
 
@@ -128,8 +148,11 @@ class HybridRouter:
             # retry once against the full uncompressed context (AXIOM-style expansion).
             # The retry uses the AUTHORIZED egress context, never the raw context.
             if verify and egress_context and self.verifier.score(answer, raw_context) < grounding_threshold:
-                answer = frontier.complete(prompt, egress_context)
-                frontier_tokens = self.estimator.estimate(egress_context)
+                # Uncompressed, but still redacted: expansion must never
+                # undo the PII/secret redaction applied on the first pass.
+                expanded = self.axiom.redactor.redact(egress_context)
+                answer = frontier.complete(prompt, expanded)
+                frontier_tokens = self.estimator.estimate(expanded)
                 tokens_saved = 0
                 regrounded = True
 

@@ -75,7 +75,7 @@ def test_unknown_tool_raises(engine):
 
 
 def test_mcp_server_builds_and_registers_tools():
-    mcp = pytest.importorskip("mcp")
+    pytest.importorskip("mcp")
     from shadow_node.mcp_server import build_server
     server = build_server()
     assert server.name == "shadow-router"

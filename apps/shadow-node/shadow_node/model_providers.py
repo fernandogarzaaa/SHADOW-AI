@@ -1,5 +1,8 @@
 from __future__ import annotations
 import os
+import random
+import time
+
 import httpx
 
 from .persona import get_system_prompt
@@ -42,6 +45,14 @@ class LocalMockModel:
         return "Local mock answer based on approved local context."
 
 
+DEFAULT_ANTHROPIC_MODEL = "claude-opus-5-5"
+
+
+class ModelResponseError(RuntimeError):
+    """A cloud model call failed or returned something unusable. Callers
+    surface this to the user instead of substituting a fabricated answer."""
+
+
 class AnthropicProvider:
     """Real Claude model provider.
 
@@ -53,12 +64,44 @@ class AnthropicProvider:
     cloud = True
     DEFAULT_ENDPOINT = "https://api.anthropic.com/v1/messages"
     API_VERSION = "2023-06-01"
+    # Server-side refusal fallback: on a safety decline the API re-runs the
+    # request on a fallback model inside the same call.
+    FALLBACK_BETA = "server-side-fallback-2026-07-01"
+    RETRY_STATUSES = {429, 500, 502, 503, 529}
 
-    def __init__(self, api_key: str, model_name: str, endpoint: str = "", timeout: float = 60.0):
+    # Bounded so one ask can't hold a request worker for long during an
+    # outage: ~2 attempts x 120s worst case plus at most 2 short waits.
+    def __init__(self, api_key: str, model_name: str, endpoint: str = "", timeout: float = 120.0,
+                 max_tokens: int | None = None, max_retries: int = 2):
         self.api_key = api_key
-        self.model_name = model_name
+        self.model_name = model_name or DEFAULT_ANTHROPIC_MODEL
         self.endpoint = endpoint or self.DEFAULT_ENDPOINT
         self.timeout = timeout
+        self.max_tokens = max_tokens or int(os.getenv("SHADOW_MODEL_MAX_TOKENS", "16000"))
+        self.max_retries = max_retries
+
+    def _post(self, headers: dict, payload: dict) -> httpx.Response:
+        delay = 1.0
+        for attempt in range(self.max_retries + 1):
+            try:
+                resp = httpx.post(self.endpoint, headers=headers, json=payload, timeout=self.timeout)
+            except httpx.TransportError as e:
+                if attempt == self.max_retries:
+                    raise ModelResponseError(f"anthropic: network error: {e}") from e
+                time.sleep(delay)
+                delay = min(delay * 2, 10.0)
+                continue
+            if resp.status_code not in self.RETRY_STATUSES or attempt == self.max_retries:
+                return resp
+            # 429 (rate limit) / 529 (overloaded) / transient 5xx: honour
+            # retry-after when present, else exponential backoff with jitter.
+            try:
+                wait = float(resp.headers.get("retry-after", ""))
+            except ValueError:
+                wait = delay + random.uniform(0, 0.5)
+            time.sleep(min(wait, 10.0))
+            delay = min(delay * 2, 10.0)
+        return resp  # pragma: no cover - loop always returns
 
     def complete(self, prompt: str, context: str = "") -> str:
         # Persona-aware system prompt (Phase 1): the user's vibe text is
@@ -67,7 +110,7 @@ class AnthropicProvider:
         user_content = f"<untrusted_context>\n{context}\n</untrusted_context>\n\nUser request: {prompt}"
         payload = {
             "model": self.model_name,
-            "max_tokens": 1024,
+            "max_tokens": self.max_tokens,
             "system": system,
             "messages": [{"role": "user", "content": user_content}],
         }
@@ -76,11 +119,31 @@ class AnthropicProvider:
             "anthropic-version": self.API_VERSION,
             "content-type": "application/json",
         }
-        resp = httpx.post(self.endpoint, headers=headers, json=payload, timeout=self.timeout)
-        resp.raise_for_status()
+        if self.endpoint == self.DEFAULT_ENDPOINT:
+            # Only on the first-party API: custom endpoints may be proxies or
+            # gateways that reject the beta parameter.
+            headers["anthropic-beta"] = self.FALLBACK_BETA
+            payload["fallbacks"] = "default"
+        resp = self._post(headers, payload)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("error", {}).get("message", "")
+            except ValueError:
+                detail = resp.text[:200]
+            raise ModelResponseError(f"anthropic: HTTP {resp.status_code}: {detail}")
         data = resp.json()
+        stop = data.get("stop_reason")
         parts = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
-        return "".join(parts).strip() or "(empty response)"
+        text = "".join(parts).strip()
+        if stop == "refusal":
+            category = (data.get("stop_details") or {}).get("category")
+            raise ModelResponseError(f"anthropic: request declined ({category or 'policy'})")
+        if stop == "max_tokens":
+            # Return what we have, but never silently: mark the truncation.
+            return (text + "\n\n[response truncated: max_tokens reached]").strip()
+        if not text:
+            raise ModelResponseError("anthropic: empty response")
+        return text
 
 
 class ModelProviderConfig:
@@ -98,7 +161,7 @@ class ModelProviderConfig:
         self.provider = os.getenv("SHADOW_MODEL_PROVIDER", "local_mock")
         self.endpoint = os.getenv("SHADOW_MODEL_ENDPOINT", "")
         self.api_key_env = os.getenv("SHADOW_MODEL_API_KEY_ENV", "ANTHROPIC_API_KEY")
-        self.model_name = os.getenv("SHADOW_MODEL_NAME", "claude-sonnet-4-6")
+        self.model_name = os.getenv("SHADOW_MODEL_NAME", DEFAULT_ANTHROPIC_MODEL)
 
     @property
     def api_key(self) -> str:

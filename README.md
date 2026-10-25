@@ -3,28 +3,38 @@
 Local-first personal AI agent foundation for iOS, desktop Shadow Node, encrypted memory, consent-ledger policy, AXIOM-AETHER context routing adapters, and GHOST-Chimera action adapters.
 
 ## What works now
-- **Minimalist web dashboard** served at `/` (Ask, Memory, Actions, Approvals, Audit, emergency pause) — no build step.
-- FastAPI Shadow Node with health, pairing, memory, agent, approvals, devices, audit, tools, and WebSocket task endpoints.
-- Encrypted SQLite/FTS5 memory engine with chunking, attribution, confidence scoring, deletion/revocation — **persists across restarts** with a stable key.
-- **Real model**: local mock by default; a real Claude (`AnthropicProvider`) is used when cloud consent + explicit approval + an API key are all present.
-- **Real, sandboxed actions** behind the approval gate: `note.create/append/list`, `reminder.create`, and SSRF-guarded `http.get` (file actions confined to the workspace).
-- **Persistent encrypted runtime state** (audit, consents, devices) via `SHADOW_RUNTIME_DB`.
-- Agent Core with autonomy modes, risk classification, approval gates, cloud-escalation policy, prompt-injection defenses, audit events, and a tool registry.
-- AXIOM adapter for redaction, compression, semantic skeletons, fingerprinting, token budgets.
-- SwiftUI iOS command-center app (validate the simulator build locally — Xcode isn't available in CI).
+- **Web dashboard** at `/`, no build step: Overview, Ask, Approvals, Actions, Memory, Goals, Schedule, Feed, custom Panels, Devices, Models, Audit, and the emergency pause. The browser pairs as a device and signs every request.
+- FastAPI Shadow Node: pairing, memory, agent, approvals, devices, goals, reminders, scheduled tasks, feed, panels, audit, tools, SSE and WebSocket endpoints (reference in `docs/API.md`).
+- Encrypted SQLite/FTS5 memory with attribution, confidence, sensitivity flags and deletion. It persists across restarts.
+- **Models**: an on-device placeholder by default. With a provider connected (Anthropic `claude-opus-5-5` by default, OpenAI or Gemini) plus cloud consent and per-request approval, questions go to the cloud model with redacted, compressed context.
+- **Real, sandboxed actions** behind the approval gate: notes, reminders, calendar events and email drafts (written to the workspace), SSRF-guarded `http.get`, and web search.
+- Signed requests (signature v2), first-owner bootstrap code, sliding 30-day sessions, and persistent encrypted runtime state (`SHADOW_RUNTIME_DB`).
+- Clients: the SwiftUI iOS app (`apps/ios-shadow`) and the Expo app (`apps/mobile`).
 
-See `docs/PRODUCTION_RUNBOOK.md` to deploy and `docs/PROJECT_AUDIT_2026-06.md` for the verified state of every component.
+See `docs/PRODUCTION_RUNBOOK.md` to deploy, `docs/THREAT_MODEL.md` for the security model, and `docs/AUTHENTICATED_TRANSPORT.md` for pairing and signing.
 
 ## Run
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"   # installs the 5 local packages (agent_core, memory_engine, ...)
-uvicorn shadow_node.main:app --reload --port 8787
+make setup     # venv + dev dependencies + the 5 local packages
+make run       # http://127.0.0.1:8787, state kept in ./data
 ```
+On first start the terminal prints a one-time setup code:
+```
+SHADOW BOOTSTRAP CODE: 1A2B-3C4D  (single use; pair your first device with it)
+```
+Open http://127.0.0.1:8787, enter the code, and that browser becomes the node's owner. Approve further devices (phones, other browsers) from **Devices**.
+
+To reach the node from a phone on your network: `SHADOW_HOST=0.0.0.0 python apps/shadow-node/run.py`. Plain-http LAN addresses can't use WebCrypto, so the dashboard warns that its key is stored less securely. Use localhost or put HTTPS in front for browsers.
+
+For real answers, connect a provider in **Models** (or set `ANTHROPIC_API_KEY`, `SHADOW_CLOUD_ENABLED=true`, `SHADOW_MODEL_PROVIDER=anthropic`), add a cloud consent grant, then tick "Use the cloud model" when asking.
+
+Docker: `docker compose up --build`. The setup code appears in `docker compose logs shadow-node`.
 
 ## Test
 ```bash
-pytest
+make test                           # Python suite
+node tests/js/sig_v2_vectors.test.mjs   # dashboard signer vs shared vectors
+(cd apps/ios-shadow && swift test)  # iOS signer vs shared vectors (macOS)
 ```
 
 ## Repository tree
@@ -40,12 +50,7 @@ pytest
 ```bash
 make demo
 ```
-The demo grants local-only consent, ingests `examples/sample_project_context.md`, asks a memory-backed question, creates approvals as needed, and prints audit counts.
+The demo grants local-only consent, ingests `examples/sample_project_context.md`, asks a memory-backed question, and prints approval and audit counts.
 
-## Secure pairing/auth testing
-Pair with `POST /pair/start` then `POST /pair/confirm`. Authenticated mode validates `x-shadow-device-id`, `x-shadow-signature`, `x-shadow-nonce`, and `x-shadow-timestamp` using per-device session secrets, timestamp skew checks, replay protection, revocation, and audit logging.
-
-## Phase 4 iOS-to-node beta
-A real tester can now run the node, open the iOS app project, pair with the node, store session identity in Keychain, send signed requests, ingest pasted memory, ask questions, review sources/why explanations, approve or deny actions, execute safe mock/GHOST actions, view audit logs, and toggle emergency pause.
-
-Xcode is not available in this container; validate the iOS simulator build locally using `apps/ios-shadow/BUILD_NOTES.md`.
+## iOS app
+Open `apps/ios-shadow/ShadowAgent.xcodeproj`, run the `ShadowAgentApp` scheme on an iOS 17+ simulator, and pair: with the setup code on a fresh node, or by approving the code it shows from the dashboard's Devices view. See `apps/ios-shadow/BUILD_NOTES.md`.

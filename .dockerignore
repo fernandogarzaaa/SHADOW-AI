@@ -1,0 +1,17 @@
+# Never bake local state or secrets into the image: data/ holds the node's
+# key files (master.key, providers.key, ...) and encrypted databases.
+data/
+.env
+.env.*
+.venv/
+.git/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+# Client apps are built separately
+apps/mobile/
+apps/ios-shadow/

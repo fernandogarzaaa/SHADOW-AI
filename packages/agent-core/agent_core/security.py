@@ -1,8 +1,13 @@
 from __future__ import annotations
 import hmac, hashlib, time, os, secrets, threading
 from dataclasses import dataclass, field
-from typing import Callable
+from datetime import timedelta
+from typing import TYPE_CHECKING, Callable
+from urllib.parse import parse_qsl, quote
 from .models import Device, AuditEvent, now
+
+if TYPE_CHECKING:
+    from .models import AgentAction
 
 MAX_SKEW_SECONDS = 300
 
@@ -74,6 +79,13 @@ class InMemoryNonceLedger(NonceLedger):
             self.nonces[key] = seen_at
             return True
 SESSION_SECONDS = 30 * 24 * 3600
+SESSION_DAYS = 30
+# Sliding renewal: a device that authenticates with less than this much
+# session left is renewed for a fresh SESSION_DAYS window, so devices in
+# regular use never hit the hard 30-day lockout.
+RENEW_WITHIN_DAYS = 7
+# Set SHADOW_REQUIRE_SIG_V2=true to reject legacy v1 signatures outright.
+REQUIRE_SIG_V2 = os.getenv("SHADOW_REQUIRE_SIG_V2", "false").lower() == "true"
 # Set SHADOW_ED25519_KEYS=true to enable Ed25519 device-key mode.
 ED25519_ENABLED = os.getenv("SHADOW_ED25519_KEYS", "false").lower() == "true"
 
@@ -95,8 +107,41 @@ def _build_signed_message(method: str, path: str, body: str, nonce: str, timesta
     return "\n".join([method.upper(), path, body or "", nonce, str(timestamp)]).encode()
 
 
+def canonical_query(query: str) -> str:
+    """Canonical form of a raw query string for signature v2.
+
+    Pairs are decoded, re-encoded per RFC 3986 (unreserved chars kept),
+    sorted by (key, value) and joined with '&'. Clients in other languages
+    must produce byte-identical output; see tests/fixtures/sig_v2_vectors.json.
+    """
+    if not query:
+        return ""
+    pairs = parse_qsl(query, keep_blank_values=True)
+    enc = sorted((quote(k, safe="-_.~"), quote(v, safe="-_.~")) for k, v in pairs)
+    return "&".join(f"{k}={v}" for k, v in enc)
+
+
+def _build_signed_message_v2(method: str, path: str, query: str, body_sha256: str,
+                             nonce: str, timestamp: int, device_id: str) -> bytes:
+    """v2 canonical string: binds the query string and the device id, and
+    signs a digest of the raw body (so binary and multipart bodies need no
+    special casing). The leading tag keeps v1/v2 messages disjoint."""
+    return "\n".join([
+        "SHADOW-SIG-v2", method.upper(), path, canonical_query(query),
+        body_sha256, nonce, str(timestamp), device_id,
+    ]).encode()
+
+
 def sign_request(secret: str, method: str, path: str, body: str, nonce: str, timestamp: int) -> str:
     msg = _build_signed_message(method, path, body, nonce, timestamp)
+    return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+
+
+def sign_request_v2(secret: str, method: str, path: str, query: str, body: bytes | str,
+                    nonce: str, timestamp: int, device_id: str) -> str:
+    raw = body.encode() if isinstance(body, str) else (body or b"")
+    msg = _build_signed_message_v2(method, path, query, hashlib.sha256(raw).hexdigest(),
+                                   nonce, timestamp, device_id)
     return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
 
 
@@ -235,26 +280,70 @@ class DeviceSessionStore:
         if device_id in self.devices:
             self.devices[device_id].revoked = True
 
-    def _verify_hmac(self, dev: Device, signature: str, nonce: str, timestamp: str, method: str, path: str, body: str) -> tuple[bool, str]:
+    def _persist_device(self, dev: Device) -> None:
+        """Hook for durable stores; in-memory devices need no write."""
+
+    def renew(self, device_id: str, days: int = SESSION_DAYS) -> Device | None:
+        """Start a fresh session window for a device (not for revoked ones)."""
+        dev = self.devices.get(device_id)
+        if dev is None or dev.revoked:
+            return None
+        dev.session_expires_at = now() + timedelta(days=days)
+        self._persist_device(dev)
+        self.audit.append(AuditEvent(actor="transport", event_type="session_renewed", status="ok",
+                                     metadata={"device_id": device_id,
+                                               "expires_at": dev.session_expires_at.isoformat()}))
+        return dev
+
+    def is_active(self, dev: Device) -> bool:
+        return dev.trusted and not dev.revoked and now() <= dev.session_expires_at
+
+    def active_owners(self) -> list[Device]:
+        return [d for d in self.devices.values() if d.is_owner and self.is_active(d)]
+
+    def _verify_hmac(self, dev: Device, signature: str, nonce: str, timestamp: str, method: str, path: str,
+                     body: str, version: int = 1, query: str = "") -> tuple[bool, str]:
         secret = self.device_signing_secret(dev)
         if secret is None:
             # Fail closed: derived-scheme device with no master secret
             # configured, or stored-scheme device with no secret on file.
             return False, "unknown_device_secret"
-        expected = sign_request(secret, method, path, body, nonce, int(timestamp))
+        if version == 2:
+            msg = _build_signed_message_v2(method, path, query, body, nonce, int(timestamp), dev.id)
+            expected = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+        else:
+            expected = sign_request(secret, method, path, body, nonce, int(timestamp))
         if not hmac.compare_digest(signature, expected):
             return False, "invalid_signature"
         return True, "ok"
 
-    def _verify_ed25519(self, dev: Device, signature: str, nonce: str, timestamp: str, method: str, path: str, body: str) -> tuple[bool, str]:
+    def _verify_ed25519(self, dev: Device, signature: str, nonce: str, timestamp: str, method: str, path: str,
+                        body: str, version: int = 1, query: str = "") -> tuple[bool, str]:
         pub = self.ed25519_keys.get(dev.id)
         if pub is None:
             return False, "no_ed25519_key"
-        ok = verify_ed25519(pub, signature, method, path, body, nonce, int(timestamp))
+        if version == 2:
+            try:
+                Ed25519PublicKey.from_public_bytes(pub).verify(
+                    bytes.fromhex(signature),
+                    _build_signed_message_v2(method, path, query, body, nonce, int(timestamp), dev.id))
+                ok = True
+            except Exception:
+                ok = False
+        else:
+            ok = verify_ed25519(pub, signature, method, path, body, nonce, int(timestamp))
         return (True, "ok") if ok else (False, "invalid_ed25519_signature")
 
     def verify(self, device_id: str | None, signature: str | None, nonce: str | None, timestamp: str | None,
-               method: str, path: str, body: str = "") -> tuple[bool, str]:
+               method: str, path: str, body: str = "", query: str = "",
+               version: int = 1) -> tuple[bool, str]:
+        """Verify a signed request.
+
+        version=1 (legacy): ``body`` is the canonical body text; the query
+        string is NOT covered. version=2: ``body`` is the lowercase sha256
+        hex of the raw body and ``query`` the raw query string, both bound
+        into the signature along with the device id.
+        """
         def fail(reason):
             self.audit.append(AuditEvent(actor="transport", event_type="auth_failed", status="blocked", result=reason, metadata={"device_id": device_id}))
             self._sink("auth.decision", {"outcome": "deny", "reason": reason, "device_id": device_id, "path": path})
@@ -273,6 +362,12 @@ class DeviceSessionStore:
             return fail("missing_signature")
         if not nonce:
             return fail("missing_nonce")
+        if version not in (1, 2):
+            return fail("unsupported_signature_version")
+        if version == 1 and (REQUIRE_SIG_V2 or dev.min_sig_version >= 2):
+            # A device that has proven v2 support must not be downgraded to
+            # the weaker v1 scheme (which leaves the query string unsigned).
+            return fail("sig_downgrade")
         now_ts=int(time.time())
         ledger = self.nonce_ledger if self.nonce_ledger is not None else self._memory_ledger
         if ledger.seen(device_id, nonce):
@@ -290,9 +385,9 @@ class DeviceSessionStore:
                 return fail("ed25519_disabled")
             if not _HAS_ED25519:
                 return fail("ed25519_unavailable")
-            ok, reason = self._verify_ed25519(dev, signature, nonce, timestamp, method, path, body)
+            ok, reason = self._verify_ed25519(dev, signature, nonce, timestamp, method, path, body, version, query)
         else:
-            ok, reason = self._verify_hmac(dev, signature, nonce, timestamp, method, path, body)
+            ok, reason = self._verify_hmac(dev, signature, nonce, timestamp, method, path, body, version, query)
 
         if not ok:
             return fail(reason)
@@ -300,6 +395,14 @@ class DeviceSessionStore:
         # here, and the loser is rejected as a replay.
         if not ledger.claim(device_id, nonce, now_ts):
             return fail("replayed_nonce")
+        changed = False
+        if version == 2 and dev.min_sig_version < 2:
+            dev.min_sig_version = 2
+            changed = True
+        if dev.session_expires_at - now() < timedelta(days=RENEW_WITHIN_DAYS):
+            self.renew(dev.id)
+        elif changed:
+            self._persist_device(dev)
         return True, "ok"
 
 

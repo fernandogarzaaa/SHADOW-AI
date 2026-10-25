@@ -1,325 +1,290 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="dark light" />
 <title>Shadow</title>
-<style>
-  :root{
-    --bg:#0b0c0e; --panel:#121317; --panel-2:#16181d; --line:#23262d;
-    --txt:#e7e9ee; --muted:#8b909b; --faint:#5b606b;
-    --accent:#7c7bff; --accent-soft:rgba(124,123,255,.14);
-    --ok:#3ecf8e; --warn:#e6a23c; --bad:#f06464;
-    --radius:14px; --gap:18px;
-    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  }
-  [data-theme="light"]{
-    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#fbfbfc; --line:#e7e9ee;
-    --txt:#15171c; --muted:#6b7280; --faint:#9aa0ac; --accent-soft:rgba(124,123,255,.10);
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
-  body{background:var(--bg);color:var(--txt);font-family:var(--font);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
-  button,input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
-  ::selection{background:var(--accent-soft)}
-
-  .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
-  /* Sidebar */
-  aside{border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
-  .brand{display:flex;align-items:center;gap:11px;padding:4px 8px 22px}
-  .glyph{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,var(--accent),#4f4ed1);box-shadow:0 4px 14px var(--accent-soft)}
-  .brand b{font-weight:600;letter-spacing:.2px}
-  .brand span{color:var(--faint);font-size:11px;display:block;font-weight:500;letter-spacing:.4px}
-  nav a{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:10px;color:var(--muted);text-decoration:none;cursor:pointer;font-weight:500;transition:.15s}
-  nav a:hover{background:var(--panel);color:var(--txt)}
-  nav a.active{background:var(--accent-soft);color:var(--txt)}
-  nav a .dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.5}
-  .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:12px;padding:8px}
-  .pause{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted)}
-  .switch{position:relative;width:38px;height:22px;border-radius:99px;background:var(--line);cursor:pointer;transition:.2s;flex:none}
-  .switch.on{background:var(--bad)}
-  .switch i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
-  .switch.on i{left:18px}
-  .theme-btn{background:none;border:1px solid var(--line);border-radius:9px;padding:7px;color:var(--muted);cursor:pointer}
-  .theme-btn:hover{color:var(--txt)}
-
-  /* Main */
-  main{padding:34px 40px;max-width:920px;width:100%}
-  .head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:26px}
-  h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.2px}
-  .sub{color:var(--muted);font-size:13px;margin-top:3px}
-  .status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}
-  .status .live{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(62,207,142,.16)}
-
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:var(--gap)}
-  .card h3{margin:0 0 4px;font-size:14px;font-weight:600}
-  .card .hint{color:var(--faint);font-size:12.5px;margin-bottom:14px}
-  label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px;font-weight:500}
-  input,textarea,select{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:11px 13px;outline:none;transition:.15s;margin-bottom:13px}
-  input:focus,textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-  textarea{resize:vertical;min-height:84px;line-height:1.5}
-  .row{display:flex;gap:12px}.row>*{flex:1}
-  button.go{background:var(--accent);border:none;color:#fff;font-weight:600;padding:11px 18px;border-radius:10px;cursor:pointer;transition:.15s}
-  button.go:hover{filter:brightness(1.08)}button.go:active{transform:translateY(1px)}
-  button.go.sm{padding:7px 13px;font-size:13px}
-  button.ghost{background:none;border:1px solid var(--line);color:var(--muted);padding:7px 13px;border-radius:9px;cursor:pointer;font-weight:500}
-  button.ghost:hover{color:var(--txt);border-color:var(--faint)}
-  button.danger{color:var(--bad);border-color:rgba(240,100,100,.35)}
-
-  .answer{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-left:2px solid var(--accent);border-radius:10px;padding:15px;margin-top:4px}
-  .meta{font-size:12px;color:var(--faint);margin-top:10px;display:flex;gap:14px;flex-wrap:wrap}
-  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 9px;border-radius:99px;background:var(--panel-2);border:1px solid var(--line);color:var(--muted)}
-  .pill.low{color:var(--ok)}.pill.medium{color:var(--warn)}.pill.high,.pill.blocked{color:var(--bad)}
-
-  .item{border:1px solid var(--line);border-radius:11px;padding:13px 15px;margin-bottom:10px;background:var(--panel-2)}
-  .item .t{font-weight:500}
-  .item .d{color:var(--muted);font-size:13px;margin-top:2px}
-  .item .acts{display:flex;gap:8px;margin-top:11px}
-  .src{font-size:12.5px;color:var(--muted);padding:8px 0;border-top:1px solid var(--line)}
-  .src b{color:var(--txt);font-weight:500}
-  .empty{color:var(--faint);font-size:13px;text-align:center;padding:26px 0}
-  pre.json{font-family:var(--mono);font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:13px;overflow:auto;color:var(--muted);max-height:280px;white-space:pre-wrap}
-  .audit-row{display:flex;gap:12px;align-items:center;font-size:13px;padding:9px 0;border-bottom:1px solid var(--line)}
-  .audit-row:last-child{border:none}
-  .audit-row time{color:var(--faint);font-size:11px;font-family:var(--mono);flex:none;width:64px}
-  .audit-row .ev{font-weight:500;flex:none;width:190px}
-  .audit-row .st{margin-left:auto;font-size:11px}
-  .view{display:none}.view.on{display:block;animation:fade .25s ease}
-  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 18px;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,.4);opacity:0;transition:.25s;pointer-events:none}
-  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  @media(max-width:720px){.app{grid-template-columns:1fr}aside{position:static;height:auto;padding:12px 14px;gap:10px;border-right:0;border-bottom:1px solid var(--line)}aside .brand{display:none}nav{display:flex;flex-direction:row;overflow-x:auto;gap:4px}nav a{flex:none;white-space:nowrap}.side-foot{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;margin-top:0}main{padding:24px 18px}}
-  nav a:focus-visible,.switch:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-</style>
+<link rel="icon" href="/web/favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/web/styles.css" />
+<script type="module" src="/web/app.js"></script>
 </head>
 <body>
-<div class="app">
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- Connect / pairing screen (shown when this browser has no credential) -->
+<div class="connect" id="connect" hidden>
+  <div class="card">
+    <div class="brand"><canvas data-orb="breathing" data-size="32" data-color="accent" aria-hidden="true"></canvas><div><b>Shadow</b><small id="connectVer">local node</small></div></div>
+    <h1 tabindex="-1" id="connectTitle">Connect this browser</h1>
+    <p class="sub">Pair this browser with your node once. It gets its own signing key, which never leaves this browser.</p>
+    <div id="insecureNote" class="banner" hidden>This page isn't on HTTPS or localhost, so the browser can't lock away the key. It will be stored in this browser's local storage. To keep it locked away, open the dashboard at <b>http://localhost:8787</b>, or serve it over HTTPS.</div>
+
+    <form id="pairForm" novalidate>
+      <label for="pairName">Name for this browser</label>
+      <input id="pairName" autocomplete="off" maxlength="60" required />
+      <div id="bootstrapField" hidden>
+        <label for="pairBootstrap">Setup code</label>
+        <input id="pairBootstrap" autocomplete="one-time-code" inputmode="text" placeholder="XXXX-XXXX" aria-describedby="bootstrapHelp" />
+        <p class="hint" id="bootstrapHelp">This node has no owner yet. The setup code is printed in the terminal where the node is running (the line starting with SHADOW BOOTSTRAP CODE). This browser becomes the owner.</p>
+      </div>
+      <div class="actions"><button class="btn" type="submit" id="pairBtn">Pair this browser</button></div>
+    </form>
+
+    <div id="pairWaiting" hidden>
+      <p class="sub">Waiting for approval. On a device that's already paired, open <b>Devices</b> and approve this code:</p>
+      <div class="code-wrap">
+        <canvas data-orb="connecting" data-size="64" aria-label="Waiting for approval"></canvas>
+        <div class="code" id="pairCode" aria-live="polite">------</div>
+      </div>
+      <p class="hint" id="pairExpiry">The request expires in 5 minutes.</p>
+      <div class="actions"><button class="ghost" type="button" data-action="pair-cancel">Cancel</button></div>
+    </div>
+    <p id="pairError" class="banner bad" role="alert" hidden></p>
+  </div>
+</div>
+
+<div class="app" id="app" hidden>
   <aside>
-    <div class="brand"><div class="glyph"></div><div><b>Shadow</b><span id="ver">local node</span></div></div>
+    <div class="brand"><canvas id="brandOrb" data-orb="breathing" data-size="32" data-color="accent" aria-label="Shadow is idle"></canvas><div><b>Shadow</b><small id="ver">local node</small></div></div>
     <nav id="nav" aria-label="Sections">
-      <a href="#ask" data-view="ask" class="active" aria-current="page"><span class="dot"></span>Ask</a>
-      <a href="#memory" data-view="memory"><span class="dot"></span>Memory</a>
-      <a href="#actions" data-view="actions"><span class="dot"></span>Actions</a>
-      <a href="#models" data-view="models"><span class="dot"></span>Models</a>
-      <a href="#approvals" data-view="approvals"><span class="dot"></span>Approvals</a>
-      <a href="#audit" data-view="audit"><span class="dot"></span>Audit</a>
+      <div class="nav-group" aria-hidden="true">Today</div>
+      <a href="#/overview" data-view="overview"><span class="dot" aria-hidden="true"></span>Overview</a>
+      <a href="#/ask" data-view="ask"><span class="dot" aria-hidden="true"></span>Ask</a>
+      <a href="#/approvals" data-view="approvals"><span class="dot" aria-hidden="true"></span>Approvals<span class="badge" id="apprBadge" hidden></span></a>
+      <a href="#/actions" data-view="actions"><span class="dot" aria-hidden="true"></span>Actions</a>
+      <div class="nav-group" aria-hidden="true">Knowledge</div>
+      <a href="#/memory" data-view="memory"><span class="dot" aria-hidden="true"></span>Memory</a>
+      <a href="#/goals" data-view="goals"><span class="dot" aria-hidden="true"></span>Goals</a>
+      <a href="#/schedule" data-view="schedule"><span class="dot" aria-hidden="true"></span>Schedule</a>
+      <a href="#/feed" data-view="feed"><span class="dot" aria-hidden="true"></span>Feed</a>
+      <a href="#/panels" data-view="panels"><span class="dot" aria-hidden="true"></span>Panels</a>
+      <div class="nav-group" aria-hidden="true">Node</div>
+      <a href="#/devices" data-view="devices"><span class="dot" aria-hidden="true"></span>Devices<span class="badge" id="pairBadge" hidden></span></a>
+      <a href="#/models" data-view="models"><span class="dot" aria-hidden="true"></span>Models</a>
+      <a href="#/audit" data-view="audit"><span class="dot" aria-hidden="true"></span>Audit</a>
     </nav>
     <div class="side-foot">
-      <div class="pause"><span id="pauseLbl">Emergency pause</span><div id="pauseSw" class="switch" role="switch" tabindex="0" aria-checked="false" aria-labelledby="pauseLbl"><i></i></div></div>
-      <button type="button" class="theme-btn" id="themeBtn">Toggle theme</button>
+      <div class="pause">
+        <span id="pauseLbl">Emergency pause</span>
+        <button type="button" id="pauseSw" class="switch" role="switch" aria-checked="false" aria-labelledby="pauseLbl" aria-describedby="pauseHelp"><i></i></button>
+      </div>
+      <span class="sr-only" id="pauseHelp">Stops the agent from taking any action until you resume it.</span>
+      <div class="foot-row">
+        <button type="button" class="ghost sm" id="themeBtn" aria-live="polite">Theme: system</button>
+        <button type="button" class="ghost sm" data-action="sign-out" id="signOutBtn" hidden>Disconnect</button>
+      </div>
     </div>
   </aside>
 
-  <main>
+  <main id="main">
     <div class="head">
       <div>
-        <h1 id="title">Ask Shadow</h1>
-        <div class="sub" id="subtitle">Question your private memory, locally.</div>
+        <h1 id="title" tabindex="-1">Overview</h1>
+        <div class="sub" id="subtitle"></div>
       </div>
-      <div class="status"><span class="live" id="liveDot" aria-hidden="true"></span><span id="statusTxt" role="status">connecting…</span></div>
+      <div class="status"><span class="live" id="liveDot" aria-hidden="true"></span><span id="statusTxt" role="status">Connecting…</span></div>
     </div>
+    <div id="pausedBanner" class="banner bad" hidden>Emergency pause is on. Shadow won't take any action until you resume it.</div>
+    <div id="insecureBanner" class="banner" hidden>This browser's key is stored in local storage because the page isn't on HTTPS or localhost.</div>
 
-    <!-- ASK -->
-    <section class="view on" id="view-ask">
-      <div class="card">
-        <h3>Ask</h3>
-        <div class="hint">Answers are grounded in your local memory. Retrieved context is treated as untrusted.</div>
-        <textarea id="askInput" aria-label="Question" placeholder="What did I note about the Aurora project?"></textarea>
-        <div class="row" style="align-items:center">
-          <label style="display:flex;align-items:center;gap:8px;margin:0;flex:none"><input type="checkbox" id="askCloud" style="width:auto;margin:0"> use cloud model (if approved)</label>
-          <div style="text-align:right"><button class="go" id="askBtn">Ask</button></div>
+    <!-- OVERVIEW -->
+    <section class="view" id="view-overview" aria-labelledby="title">
+      <form class="card hero" id="heroForm">
+        <canvas id="heroOrb" data-orb="breathing" data-size="64" data-color="accent" aria-hidden="true"></canvas>
+        <div class="hero-body">
+          <h2 id="heroTitle">All quiet.</h2>
+          <p class="hint" id="heroSub">Nothing needs your decision right now.</p>
+          <div class="row">
+            <label for="heroAsk" class="sr-only">Ask Shadow</label>
+            <input id="heroAsk" class="grow" placeholder="Ask Shadow anything…" autocomplete="off" />
+            <button class="btn" type="submit">Ask</button>
+          </div>
         </div>
-        <div id="askOut" aria-live="polite"></div>
-      </div>
+      </form>
+      <div class="grid" id="overviewPanels"></div>
     </section>
 
-    <!-- MEMORY -->
-    <section class="view" id="view-memory">
+    <!-- ASK -->
+    <section class="view" id="view-ask" aria-labelledby="title">
+      <form class="card" id="askForm">
+        <h2>Ask</h2>
+        <p class="hint">Answers draw on your local memory. Retrieved text is treated as untrusted. Press ⌘/Ctrl + Enter to send.</p>
+        <label for="askInput" class="sr-only">Question</label>
+        <textarea id="askInput" placeholder="What did I note about the Aurora project?" required></textarea>
+        <div class="row">
+          <label class="check grow"><input type="checkbox" id="askCloud" /> Use the cloud model (needs a cloud consent grant)</label>
+          <button class="btn" type="submit" id="askBtn">Ask</button>
+        </div>
+        <div id="askOut" aria-live="polite"></div>
+      </form>
+    </section>
+
+    <!-- APPROVALS -->
+    <section class="view" id="view-approvals" aria-labelledby="title">
       <div class="card">
-        <h3>Ingest memory</h3>
-        <div class="hint">Stored encrypted on this device. Sensitive content is auto-flagged.</div>
-        <input id="memTitle" aria-label="Source title" placeholder="Source title — e.g. Project notes" />
-        <textarea id="memText" aria-label="Text to remember" placeholder="Paste text to remember…"></textarea>
-        <div style="text-align:right"><button class="go" id="memBtn">Store</button></div>
+        <div class="card-head"><h2>Waiting for you</h2><button class="ghost sm" type="button" data-action="reload" data-target="approvals">Refresh</button></div>
+        <p class="hint">Nothing runs until you approve it. Approving lets the action run once, exactly as shown.</p>
+        <div id="apprOut" class="list" aria-live="polite"></div>
       </div>
       <div class="card">
-        <h3>Search</h3>
-        <input id="memQuery" type="search" aria-label="Search memory" placeholder="Search your memory…" />
-        <div id="memOut" aria-live="polite"><div class="empty">Results appear here.</div></div>
+        <h2>Approved, not run yet</h2>
+        <p class="hint">Run an approved action now, or leave it to expire.</p>
+        <div id="apprReady" class="list"></div>
       </div>
     </section>
 
     <!-- ACTIONS -->
-    <section class="view" id="view-actions">
-      <div class="card">
-        <h3>Run an action</h3>
-        <div class="hint">Real, sandboxed actions — file notes, reminders, calendar events, email drafts, public web fetch. Every action passes the policy + approval gate. Tools marked 🔒 require explicit per-tool consent.</div>
+    <section class="view" id="view-actions" aria-labelledby="title">
+      <form class="card" id="actForm">
+        <h2>Request an action</h2>
+        <p class="hint">Real, sandboxed actions: notes, reminders, calendar events, email drafts, public web fetches. Each request goes to Approvals first; nothing runs until you approve it.</p>
         <label for="actTool">Tool</label>
-        <select id="actTool">
-          <option value="note.create">note.create — save a note</option>
-          <option value="note.append">note.append — add to a note</option>
-          <option value="reminder.create">reminder.create — set a reminder</option>
-          <option value="calendar.create">🔒 calendar.create — add a calendar event</option>
-          <option value="email.draft">🔒 email.draft — draft an email</option>
-          <option value="http.get">http.get — fetch a public URL</option>
-        </select>
+        <select id="actTool"></select>
         <div id="actFields"></div>
-        <div style="text-align:right"><button class="go" id="actBtn">Execute</button></div>
+        <div class="actions"><button class="btn" type="submit" id="actBtn">Request approval</button></div>
         <div id="actOut" aria-live="polite"></div>
+      </form>
+      <div class="card">
+        <h2>Tool catalog</h2>
+        <p class="hint">Every tool needs your approval to run. Tools marked "extra consent" also need a confirmation step.</p>
+        <div id="toolCatalogOut" class="list"></div>
+      </div>
+    </section>
+
+    <!-- MEMORY -->
+    <section class="view" id="view-memory" aria-labelledby="title">
+      <form class="card" id="memForm">
+        <h2>Add to memory</h2>
+        <p class="hint">Stored encrypted on this node. Sensitive content is flagged automatically and never sent to a cloud model.</p>
+        <label for="memTitle">Source title</label>
+        <input id="memTitle" placeholder="Project notes" maxlength="200" />
+        <label for="memText">Text</label>
+        <textarea id="memText" placeholder="Paste text to remember…" required></textarea>
+        <div class="actions"><button class="btn" type="submit">Save</button></div>
+      </form>
+      <div class="card">
+        <h2>Search</h2>
+        <label for="memQuery" class="sr-only">Search memory</label>
+        <input id="memQuery" type="search" placeholder="Search your memory…" autocomplete="off" />
+        <div id="memOut" class="list" aria-live="polite"></div>
       </div>
       <div class="card">
-        <h3>Tool catalog</h3>
-        <div class="hint">Available tools and their consent requirements.</div>
-        <div id="toolCatalogOut"><div class="empty">Loading…</div></div>
+        <div class="card-head"><h2>Recent</h2><button class="ghost sm" type="button" data-action="reload" data-target="memory">Refresh</button></div>
+        <div id="memRecent" class="list"></div>
+      </div>
+    </section>
+
+    <!-- GOALS -->
+    <section class="view" id="view-goals" aria-labelledby="title">
+      <form class="card" id="goalForm">
+        <h2>New goal</h2>
+        <div class="row">
+          <div class="grow"><label for="goalTitle">Goal</label><input id="goalTitle" maxlength="200" required placeholder="Ship the Aurora beta" /></div>
+          <div><label for="goalDate">Target date</label><input id="goalDate" type="date" /></div>
+        </div>
+        <label for="goalDesc">Details (optional)</label>
+        <textarea id="goalDesc" maxlength="2000"></textarea>
+        <div class="actions"><button class="btn" type="submit">Add goal</button></div>
+      </form>
+      <div class="card">
+        <div class="card-head">
+          <h2>Goals</h2>
+          <label class="sr-only" for="goalFilter">Show</label>
+          <select id="goalFilter" style="width:auto;margin:0"><option value="active">Active</option><option value="completed">Completed</option><option value="">All</option></select>
+        </div>
+        <div id="goalsOut" class="list" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- SCHEDULE -->
+    <section class="view" id="view-schedule" aria-labelledby="title">
+      <form class="card" id="schedForm">
+        <h2>Schedule something</h2>
+        <p class="hint">Say it plainly, e.g. "remind me every weekday at 7am to stretch". You'll see what Shadow understood before anything is saved.</p>
+        <label for="schedText" class="sr-only">What to schedule</label>
+        <div class="row"><input id="schedText" class="grow" maxlength="500" placeholder="remind me tomorrow at 9am to call Dana" required /><button class="btn" type="submit">Preview</button></div>
+        <div id="schedPreview" aria-live="polite"></div>
+      </form>
+      <div class="card">
+        <div class="card-head"><h2>Everything scheduled</h2><button class="ghost sm" type="button" data-action="reload" data-target="schedule">Refresh</button></div>
+        <p class="hint">Reminders and background tasks together. Nothing runs on a hidden schedule.</p>
+        <div id="schedOut" class="list"></div>
+      </div>
+    </section>
+
+    <!-- FEED -->
+    <section class="view" id="view-feed" aria-labelledby="title">
+      <div class="card">
+        <div class="card-head"><h2>Your feed</h2><button class="btn sm" type="button" data-action="feed-generate">Refresh feed</button></div>
+        <p class="hint">Short digests built on this node from your goals, memory and schedule. No cloud model involved.</p>
+        <div id="feedOut" class="list" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- PANELS -->
+    <section class="view" id="view-panels" aria-labelledby="title">
+      <form class="card" id="panelForm">
+        <h2>Make a panel</h2>
+        <p class="hint">Describe it, e.g. "show my top 5 overdue goals" or "latest memory notes".</p>
+        <label for="panelText" class="sr-only">Panel description</label>
+        <div class="row"><input id="panelText" class="grow" maxlength="300" required placeholder="show my 5 newest reminders" /><button class="btn" type="submit">Preview</button></div>
+        <div id="panelPreview" aria-live="polite"></div>
+      </form>
+      <div class="grid" id="panelsOut"></div>
+    </section>
+
+    <!-- DEVICES -->
+    <section class="view" id="view-devices" aria-labelledby="title">
+      <div class="card" id="pendingCard">
+        <div class="card-head"><h2>Waiting to pair</h2><button class="ghost sm" type="button" data-action="reload" data-target="devices">Refresh</button></div>
+        <p class="hint">Approve only codes you recognise: the code on the other device must match.</p>
+        <div id="pendingOut" class="list" aria-live="polite"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Add a phone</h2><button class="btn sm" type="button" data-action="add-phone">Create pairing</button></div>
+        <p class="hint">Creates a pairing that's already approved. In the Shadow app, choose "Enter manually" and type the node address and pairing ID.</p>
+        <div id="addPhoneOut" aria-live="polite"></div>
+      </div>
+      <div class="card">
+        <h2>Paired devices</h2>
+        <div id="devicesOut" class="list"></div>
       </div>
     </section>
 
     <!-- MODELS -->
-    <section class="view" id="view-models">
+    <section class="view" id="view-models" aria-labelledby="title">
       <div class="card">
-        <h3>Hybrid routing</h3>
-        <div class="hint">Simple questions are answered fully on-device (zero frontier tokens). Hard questions send only AXIOM-compressed context to a frontier model — so you pay for far fewer tokens.</div>
-        <div id="savingsBox" class="meta"><span class="pill">ask something to see live savings</span></div>
+        <h2>Routing</h2>
+        <p class="hint">With a cloud model connected and allowed, questions go to it with compressed, redacted context. Without one, answers come from the on-device placeholder model.</p>
+        <div id="savingsBox" class="meta"><span class="pill">Ask something to see routing and token savings.</span></div>
       </div>
       <div class="card">
-        <h3>Providers</h3>
-        <div class="hint">Connect with an API key, or OAuth where the provider supports it. Note: consumer chat subscriptions (ChatGPT Plus, Claude Pro, Gemini Advanced) cannot power third-party API calls — API key or cloud OAuth only.</div>
-        <div id="providersOut"><div class="empty">Loading…</div></div>
-      </div>
-    </section>
-
-    <!-- APPROVALS -->
-    <section class="view" id="view-approvals">
-      <div class="card">
-        <h3>Pending approvals</h3>
-        <div class="hint">High-impact actions wait here for your explicit decision.</div>
-        <div id="apprOut" aria-live="polite"><div class="empty">Nothing waiting.</div></div>
+        <h2>Providers</h2>
+        <p class="hint">Connect with an API key, or with OAuth where the provider supports it. Consumer chat subscriptions (ChatGPT Plus, Claude Pro, Gemini Advanced) can't power third-party apps.</p>
+        <div id="providersOut" class="list"></div>
       </div>
     </section>
 
     <!-- AUDIT -->
-    <section class="view" id="view-audit">
+    <section class="view" id="view-audit" aria-labelledby="title">
       <div class="card">
-        <h3>Audit log</h3>
-        <div class="hint">Every decision the node makes is recorded here.</div>
-        <div id="auditOut" aria-live="polite"><div class="empty">No events yet.</div></div>
+        <div class="card-head">
+          <h2>Audit log</h2>
+          <div class="row">
+            <label class="sr-only" for="auditFilter">Filter by event type</label>
+            <input id="auditFilter" list="auditTypes" placeholder="Filter by event…" style="width:200px" />
+            <datalist id="auditTypes"></datalist>
+            <button class="ghost sm" type="button" data-action="reload" data-target="audit">Refresh</button>
+          </div>
+        </div>
+        <p class="hint">Every decision the node makes, newest first.</p>
+        <div id="auditOut" aria-live="polite"></div>
+        <div class="actions"><button class="ghost sm" type="button" data-action="audit-more" id="auditMore" hidden>Show more</button></div>
       </div>
     </section>
   </main>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-<script>
-const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const api=async(p,opt={})=>{const r=await fetch(p,{headers:{'Content-Type':'application/json'},...opt});const t=await r.text();let j;try{j=t?JSON.parse(t):{}}catch{j={raw:t}}if(!r.ok){let m=j.error?.message??j.detail??('HTTP '+r.status);if(typeof m!=='string')m=Array.isArray(m)?m.map(x=>x.msg||JSON.stringify(x)).join('; '):JSON.stringify(m);throw m;}return j;};
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('show'),2200);};
-const titles={ask:['Ask Shadow','Question your private memory, locally.'],memory:['Memory','Everything Shadow knows, encrypted on-device.'],actions:['Actions','Real actions, behind the approval gate.'],models:['Models','Hybrid local + frontier. Connect a provider to escalate hard questions.'],approvals:['Approvals','Your explicit yes or no.'],audit:['Audit','A complete, honest record.']};
-
-// nav
-$$('#nav a').forEach(a=>a.onclick=(ev)=>{
-  ev.preventDefault();
-  $$('#nav a').forEach(x=>{x.classList.remove('active');x.removeAttribute('aria-current');});a.classList.add('active');a.setAttribute('aria-current','page');
-  const v=a.dataset.view;$$('.view').forEach(s=>s.classList.remove('on'));$('#view-'+v).classList.add('on');
-  $('#title').textContent=titles[v][0];$('#subtitle').textContent=titles[v][1];
-  if(v==='approvals')loadApprovals();if(v==='audit')loadAudit();if(v==='models')loadModels();if(v==='actions')loadToolCatalog();
-});
-
-// theme
-$('#themeBtn').onclick=()=>{const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';localStorage.theme=h.dataset.theme;};
-if(localStorage.theme)document.documentElement.dataset.theme=localStorage.theme;
-
-// status + pause
-async function refreshStatus(){
-  try{const h=await api('/health');$('#statusTxt').textContent='node '+h.version+(h.auth_required?' · auth on':'');$('#ver').textContent=h.version;
-    $('#pauseSw').classList.toggle('on',h.emergency_paused);$('#pauseSw').setAttribute('aria-checked',String(!!h.emergency_paused));$('#liveDot').style.background=h.emergency_paused?'var(--bad)':'var(--ok)';
-  }catch{$('#statusTxt').textContent='offline';$('#liveDot').style.background='var(--bad)';}
-}
-$('#pauseSw').onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();$('#pauseSw').click();}};
-$('#pauseSw').onclick=async()=>{const on=!$('#pauseSw').classList.contains('on');
-  try{await api('/emergency_pause',{method:'POST',body:JSON.stringify({paused:on,reason:'toggled from dashboard'})});toast(on?'Paused':'Resumed');refreshStatus();}catch(e){toast(e);}};
-
-// ask
-$('#askBtn').onclick=async()=>{
-  const prompt=$('#askInput').value.trim();if(!prompt)return;
-  const btn=$('#askBtn');btn.textContent='…';btn.disabled=true;
-  try{const r=await api('/agent/ask',{method:'POST',body:JSON.stringify({prompt,allow_cloud:$('#askCloud').checked,cloud_approval:$('#askCloud').checked})});
-    const sv=r.savings||{};
-    let h=`<div class="answer">${esc(r.answer)}</div><div class="meta"><span class="pill">${r.route==='frontier'?'frontier':'on-device'} · ${esc(r.model_used)}</span><span class="pill">${r.cloud_allowed?'cloud':'local-only'}</span><span class="pill">${(r.sources||[]).length} sources</span>${sv.tokens_saved_estimate!=null?`<span class="pill low">~${sv.tokens_saved_estimate} tokens saved${sv.saved_pct?` (${sv.saved_pct}%)`:''}</span>`:''}</div>`;
-    (r.why||[]).forEach(w=>h+=`<div class="src">${esc(w)}</div>`);
-    $('#askOut').innerHTML=h;
-    if(sv.tokens_saved_estimate!=null)$('#savingsBox').innerHTML=`<span class="pill">route · ${esc(r.route)}</span><span class="pill">raw ctx ${sv.raw_context_tokens}t</span><span class="pill">sent ${sv.frontier_tokens_sent}t</span><span class="pill low">saved ~${sv.tokens_saved_estimate}t (${sv.saved_pct||0}%)</span>`;
-  }catch(e){$('#askOut').innerHTML=`<div class="answer" style="border-color:var(--bad)">${esc(e)}</div>`;}
-  btn.textContent='Ask';btn.disabled=false;
-};
-
-// memory
-$('#memBtn').onclick=async()=>{
-  const text=$('#memText').value.trim();if(!text)return;
-  try{await api('/memory/ingest',{method:'POST',body:JSON.stringify({text,source_title:$('#memTitle').value||'Manual Import'})});
-    toast('Stored to memory');$('#memText').value='';if($('#memQuery').value)searchMem();}catch(e){toast(e);}
-};
-let memT;$('#memQuery').oninput=()=>{clearTimeout(memT);memT=setTimeout(searchMem,250);};
-async function searchMem(){const q=$('#memQuery').value.trim();if(!q){$('#memOut').innerHTML='<div class="empty">Results appear here.</div>';return;}
-  try{const r=await api('/memory/search?q='+encodeURIComponent(q));
-    $('#memOut').innerHTML=r.length?r.map(x=>`<div class="item"><div class="t">${esc(x.item.source.title)}</div><div class="d">${esc(x.item.text)}</div><div class="meta"><span class="pill">conf ${(x.item.confidence||0).toFixed(2)}</span><span class="pill">${esc(x.item.category)}</span></div></div>`).join(''):'<div class="empty">No matches.</div>';
-  }catch(e){toast(e);}
-}
-
-// actions
-const fields={'note.create':[['title','Title'],['body','Body','area']],'note.append':[['title','Title'],['body','Text to append','area']],'reminder.create':[['text','Reminder'],['when','When (optional)']],'calendar.create':[['title','Event Title'],['start','Start time (e.g. 2026-07-10T09:00)'],['end','End time (optional)'],['description','Description (optional)','area']],'email.draft':[['to','Recipient email'],['subject','Subject'],['body','Email body','area']],'http.get':[['url','https://example.com']]};
-async function loadToolCatalog(){
-  try{const r=await api('/tools');
-    $('#toolCatalogOut').innerHTML=r.tool_metadata.map(t=>`<div class="item"><div class="t">${esc(t.name)} ${t.needs_explicit_consent?'<span class="pill high">🔒 consent required</span>':'<span class="pill low">auto-approved</span>'}</div><div class="d">${esc(t.description||'')}</div></div>`).join('');
-  }catch(e){$('#toolCatalogOut').innerHTML='<div class="empty">Could not load tool catalog.</div>';}
-}
-function renderFields(){const t=$('#actTool').value;$('#actFields').innerHTML=fields[t].map(([k,ph,ty])=>ty==='area'?`<label for="f-${k}">${ph}</label><textarea id="f-${k}" data-k="${k}" placeholder="${ph}"></textarea>`:`<label for="f-${k}">${ph}</label><input id="f-${k}" data-k="${k}" placeholder="${ph}">`).join('');}
-$('#actTool').onchange=renderFields;renderFields();
-$('#actBtn').onclick=async()=>{
-  const tool=$('#actTool').value,params={};$$('#actFields [data-k]').forEach(el=>params[el.dataset.k]=el.value);
-  const action={tool_name:tool,description:'Dashboard action: '+tool,params,requires_approval:true};
-  try{const r=await api('/agent/execute',{method:'POST',body:JSON.stringify({action,approved:true,double_confirmed:true})});
-    $('#actOut').innerHTML=`<pre class="json">${esc(JSON.stringify(r,null,2))}</pre>`;toast(r.ok===false?'Blocked by policy':'Executed');loadAudit();
-  }catch(e){$('#actOut').innerHTML=`<pre class="json" style="border-color:var(--bad)">${esc(e)}</pre>`;}
-};
-
-// approvals
-async function loadApprovals(){
-  try{const r=await api('/approvals');const pend=r.filter(a=>a.status==='pending');
-    $('#apprOut').innerHTML=pend.length?pend.map(a=>`<div class="item"><div class="t">${esc(a.action.tool_name)} <span class="pill ${esc(a.risk_label)}">${esc(a.risk_label)}</span></div><div class="d">${esc(a.action.description)}</div><div class="acts"><button class="go sm" onclick="decide('${esc(a.id)}',true)">Approve</button><button class="ghost danger" onclick="decide('${esc(a.id)}',false)">Deny</button></div></div>`).join(''):'<div class="empty">Nothing waiting.</div>';
-  }catch(e){toast(e);}
-}
-window.decide=async(id,ok)=>{try{await api(`/approvals/${id}/${ok?'approve':'deny'}`,{method:'POST',body:JSON.stringify({reason:'from dashboard'})});toast(ok?'Approved':'Denied');loadApprovals();loadAudit();}catch(e){toast(e);}};
-
-// models / providers
-async function loadModels(){
-  try{const d=await api('/providers');
-    $('#providersOut').innerHTML=d.providers.map(p=>{
-      const badge=p.connected?`<span class="pill low">connected${p.credential_source==='env'?' · env':''}</span>`:`<span class="pill">not connected</span>`;
-      const active=p.provider===d.active_provider?'<span class="pill">active</span>':'';
-      const oauth=p.oauth_supported?`<button class="ghost sm" onclick="oauthStart('${p.provider}')">Sign in with OAuth</button>`:'';
-      const dis=p.connected?`<button class="ghost danger" onclick="providerDisconnect('${p.provider}')">Disconnect</button>`:'';
-      return `<div class="item"><div class="t">${esc(p.label)} ${badge} ${active}</div><div class="d">${esc(p.note)}</div>
-        <div class="row" style="margin-top:10px"><input id="key-${p.provider}" aria-label="API key for ${esc(p.provider)}" placeholder="Paste API key" type="password" autocomplete="off"><button class="go sm" onclick="providerConnect('${p.provider}')">Connect</button></div>
-        <div class="acts">${oauth}${dis}</div></div>`;
-    }).join('');
-  }catch(e){toast(e);}
-}
-window.providerConnect=async(name)=>{const k=$('#key-'+name).value.trim();if(!k){toast('Enter an API key');return;}
-  try{await api('/providers/'+name+'/connect',{method:'POST',body:JSON.stringify({api_key:k})});toast(name+' connected');loadModels();}catch(e){toast(e);}};
-window.providerDisconnect=async(name)=>{try{await api('/providers/'+name,{method:'DELETE'});toast(name+' disconnected');loadModels();}catch(e){toast(e);}};
-window.oauthStart=async(name)=>{try{const u=location.origin+'/';const r=await api('/providers/'+name+'/oauth/start?redirect_uri='+encodeURIComponent(u));window.open(r.authorization_url,'_blank');toast('Opened provider sign-in');}catch(e){toast(e);}};
-
-// audit
-async function loadAudit(){
-  try{const r=await api('/audit');const last=r.slice(-40).reverse();
-    $('#auditOut').innerHTML=last.length?last.map(e=>{const c=e.status==='blocked'?'var(--bad)':e.status==='answered'||e.status==='allowed'||e.status==='stored'||e.status==='approved'?'var(--ok)':'var(--muted)';const tm=(e.timestamp||'').slice(11,19);return `<div class="audit-row"><time>${tm}</time><span class="ev">${esc(e.event_type)}</span><span class="d">${esc(e.proposed_action||e.result||'')}</span><span class="st" style="color:${c}">${esc(e.status)}</span></div>`;}).join(''):'<div class="empty">No events yet.</div>';
-  }catch(e){toast(e);}
-}
-
-refreshStatus();setInterval(refreshStatus,8000);
-</script>
 </body>
 </html>

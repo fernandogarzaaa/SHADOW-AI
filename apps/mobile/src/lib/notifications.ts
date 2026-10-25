@@ -5,7 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 
 import { useConnectionStore } from "@/stores/useConnectionStore";
-import { authHeaders } from "@/lib/shadowSigner";
+import { authHeadersV2 } from "@/lib/shadowSigner";
 
 /**
  * Push notification wiring between the SHADOW mobile app and the Shadow Node.
@@ -127,7 +127,7 @@ export async function registerPushTokenForDevice(): Promise<boolean> {
 		const deviceId = state.deviceId;
 		const path = `/devices/${encodeURIComponent(deviceId)}/push-token`;
 		const body = JSON.stringify({ push_token: token });
-		const headers = await authHeaders({
+		const headers = await authHeadersV2({
 			deviceId,
 			secret,
 			method: "POST",

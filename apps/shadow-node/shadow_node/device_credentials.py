@@ -63,7 +63,7 @@ DEVICE_TOKEN_VERSION = 1
 
 _MASTER_ENV = "SHADOW_MASTER_SECRET"
 _MASTER_FILE_ENV = "SHADOW_MASTER_SECRET_FILE"
-_MASTER_DEFAULT_PATH = "data/keys/master.key"
+_MASTER_DEFAULT_NAME = "master.key"
 
 
 def token_scheme_for_version(version: int) -> str:
@@ -106,7 +106,8 @@ def load_master_secret() -> bytes:
             except ValueError:
                 pass
         return text.encode("utf-8")
-    key_file = Path(os.getenv(_MASTER_FILE_ENV, _MASTER_DEFAULT_PATH))
+    from .crypto_config import key_path, write_secret_file
+    key_file = Path(os.getenv(_MASTER_FILE_ENV) or key_path(_MASTER_DEFAULT_NAME))
     key_file.parent.mkdir(parents=True, exist_ok=True)
     if key_file.exists():
         data = key_file.read_bytes().strip()
@@ -126,11 +127,7 @@ def load_master_secret() -> bytes:
     # which strip() on the next boot would remove, silently changing the
     # master secret and invalidating every derived device token (~4.6% of
     # fresh nodes).
-    key_file.write_bytes(secret.hex().encode("ascii"))
-    try:
-        key_file.chmod(0o600)
-    except OSError:
-        pass
+    write_secret_file(key_file, secret.hex().encode("ascii"))
     return secret
 
 

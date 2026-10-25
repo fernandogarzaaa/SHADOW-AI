@@ -7,19 +7,25 @@ behaves exactly as before — these classes are drop-in and transparent.
 """
 from __future__ import annotations
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from agent_core import AuditEvent, ConsentGrant, Device, DeviceSessionStore
-from .crypto_config import load_fernet_key
+from .crypto_config import key_path, load_fernet_key
 
 
 class EncryptedRuntimeStore:
     def __init__(self, db_path: str, key: bytes | None = None):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.key = key or load_fernet_key("SHADOW_RUNTIME_KEY", "SHADOW_RUNTIME_KEY_FILE", "data/keys/runtime.key")
+        self.key = key or load_fernet_key("SHADOW_RUNTIME_KEY", "SHADOW_RUNTIME_KEY_FILE", key_path("runtime.key"))
         self.cipher = Fernet(self.key)
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+        # One connection is shared by every request thread; sqlite3
+        # connections are not safe for concurrent use, and an implicit
+        # transaction left open by put() would collide with claim()'s
+        # BEGIN IMMEDIATE. All access goes through this re-entrant lock.
+        self.lock = threading.RLock()
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS runtime(collection TEXT, id TEXT, ciphertext BLOB, seq INTEGER PRIMARY KEY AUTOINCREMENT)"
         )
@@ -28,15 +34,17 @@ class EncryptedRuntimeStore:
 
     def put(self, collection: str, id: str, obj) -> None:
         blob = self.cipher.encrypt(obj.model_dump_json().encode())
-        # Replace by (collection, id) so updates (e.g. device revoke) don't duplicate.
-        self.conn.execute("DELETE FROM runtime WHERE collection=? AND id=?", (collection, id))
-        self.conn.execute("INSERT INTO runtime(collection, id, ciphertext) VALUES(?,?,?)", (collection, id, blob))
-        self.conn.commit()
+        with self.lock:
+            # Replace by (collection, id) so updates (e.g. device revoke) don't duplicate.
+            self.conn.execute("DELETE FROM runtime WHERE collection=? AND id=?", (collection, id))
+            self.conn.execute("INSERT INTO runtime(collection, id, ciphertext) VALUES(?,?,?)", (collection, id, blob))
+            self.conn.commit()
 
     def all(self, collection: str, model) -> list:
-        rows = self.conn.execute(
-            "SELECT ciphertext FROM runtime WHERE collection=? ORDER BY seq", (collection,)
-        ).fetchall()
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT ciphertext FROM runtime WHERE collection=? ORDER BY seq", (collection,)
+            ).fetchall()
         out = []
         for (blob,) in rows:
             try:
@@ -47,10 +55,11 @@ class EncryptedRuntimeStore:
 
     def delete(self, collection: str, id: str) -> None:
         """Remove one persisted object (used by goal deletion)."""
-        self.conn.execute(
-            "DELETE FROM runtime WHERE collection=? AND id=?", (collection, id)
-        )
-        self.conn.commit()
+        with self.lock:
+            self.conn.execute(
+                "DELETE FROM runtime WHERE collection=? AND id=?", (collection, id)
+            )
+            self.conn.commit()
 
 
 class PersistentList(list):
@@ -97,6 +106,9 @@ class PersistentDeviceSessionStore(DeviceSessionStore):
         if device_id in self.devices:
             self._store.put("devices", device_id, self.devices[device_id])
 
+    def _persist_device(self, dev: Device) -> None:
+        self._store.put("devices", dev.id, dev)
+
 
 # Minimal model so device secrets ride the same encrypted store.
 from pydantic import BaseModel
@@ -117,9 +129,10 @@ def load_pause_flag(store: EncryptedRuntimeStore) -> bool:
     """Conservative load: no row means never paused (False); a row that
     cannot be decrypted means tampering or corruption -> True (fail
     closed: a broken kill switch must not silently disarm)."""
-    rows = store.conn.execute(
-        "SELECT ciphertext FROM runtime WHERE collection='safety' AND id='emergency_pause' ORDER BY seq"
-    ).fetchall()
+    with store.lock:
+        rows = store.conn.execute(
+            "SELECT ciphertext FROM runtime WHERE collection='safety' AND id='emergency_pause' ORDER BY seq"
+        ).fetchall()
     if not rows:
         return False
     try:
@@ -177,10 +190,11 @@ class PersistentNonceLedger:
         return f"{device_id}:{nonce}"
 
     def seen(self, device_id: str, nonce: str) -> bool:
-        rows = self._store.conn.execute(
-            "SELECT ciphertext FROM runtime WHERE collection='nonces' AND id=?",
-            (self._key(device_id, nonce),),
-        ).fetchall()
+        with self._store.lock:
+            rows = self._store.conn.execute(
+                "SELECT ciphertext FROM runtime WHERE collection='nonces' AND id=?",
+                (self._key(device_id, nonce),),
+            ).fetchall()
         return len(rows) > 0
 
     def record(self, device_id: str, nonce: str, seen_at: float) -> None:
@@ -196,8 +210,13 @@ class PersistentNonceLedger:
         from agent_core import MAX_SKEW_SECONDS
         expired = [row.id for row in self._store.all("nonces", _NonceRow)
                    if now - row.seen_at > MAX_SKEW_SECONDS]
-        for row_id in expired:
-            self._store.delete("nonces", row_id)
+        if not expired:
+            return
+        with self._store.lock:
+            self._store.conn.executemany(
+                "DELETE FROM runtime WHERE collection='nonces' AND id=?",
+                [(row_id,) for row_id in expired])
+            self._store.conn.commit()
 
     def claim(self, device_id: str, nonce: str, seen_at: float) -> bool:
         """Atomic compare-and-set across workers sharing one DB file.
@@ -209,7 +228,24 @@ class PersistentNonceLedger:
         """
         from agent_core import MAX_SKEW_SECONDS
         key = self._key(device_id, nonce)
+        with self._store.lock:
+            fresh = self._claim_locked(key, device_id, nonce, seen_at, MAX_SKEW_SECONDS)
+        # claim() is the only write on the verify path (record() is not
+        # called there), so it owns pruning too; otherwise the nonce table
+        # grows by one row per authenticated request forever.
+        if fresh and seen_at - self._last_prune >= self._PRUNE_INTERVAL:
+            self._last_prune = seen_at
+            # Pruning decrypts every nonce row; run it off the request path
+            # (verify runs inside the async auth middleware).
+            self._prune_thread = threading.Thread(target=self._prune, args=(seen_at,),
+                                                  daemon=True, name="nonce-prune")
+            self._prune_thread.start()
+        return fresh
+
+    def _claim_locked(self, key, device_id, nonce, seen_at, MAX_SKEW_SECONDS) -> bool:
         conn = self._store.conn
+        if conn.in_transaction:
+            conn.commit()
         conn.execute("BEGIN IMMEDIATE")
         try:
             rows = conn.execute(

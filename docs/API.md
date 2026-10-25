@@ -94,3 +94,296 @@ Generated PNGs are stored encrypted, 200 images retained.
 
 Unconfigured provider endpoints return 503 with the exact environment
 variables to set; provider failures return 502. Nothing pretends to work.
+
+<!-- BEGIN GENERATED ENDPOINTS (scripts/gen_api_docs.py) -->
+
+## Endpoint reference
+
+Generated from the route table. "signed" routes need the `x-shadow-*` request-signature headers (see AUTHENTICATED_TRANSPORT.md).
+
+### accounts
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/accounts/{service_id}/connect` | signed |  |
+| `POST` | `/accounts/{service_id}/disconnect` | signed |  |
+| `GET` | `/accounts/{service_id}` | signed |  |
+| `GET` | `/accounts` | signed |  |
+
+### agent
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/agent/ask_stream` | signed | Run the ask pipeline, then stream the answer as agent.message.delta chunks followed by agent.message.done. |
+| `POST` | `/agent/ask` | signed |  |
+| `POST` | `/agent/execute` | signed |  |
+| `POST` | `/agent/plan` | signed |  |
+| `GET` | `/agent/self` | signed | Runtime-derived self-description: what SHADOW is, where it runs, and what it can do. |
+| `POST` | `/agent/sessions/{session_id}/close` | signed | Close a session. |
+| `POST` | `/agent/sessions/{session_id}/handoff` | signed | Start an explicit handoff of a conversation to another device. |
+| `GET` | `/agent/sessions/{session_id}` | signed | Session detail with full message history. |
+| `GET` | `/agent/sessions` | signed | List sessions, most recently active first. |
+| `POST` | `/agent/sessions` | signed | Create a durable conversation session. |
+| `GET` | `/agent/stream` | signed | Long-lived SSE bus: node.hello on connect, then approval.created / approval.updated as they happen. |
+
+### ambient
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/ambient/acts/run` | signed | Manually run one Shadow Act through the same policy gate the ambient tick uses. |
+| `GET` | `/ambient/acts` | signed | List the registered Shadow Acts with their current policy evaluation. |
+| `POST` | `/ambient/config` | signed | Enable/disable ambient work, set interval and stealth mode, choose tasks, set quiet hours (HH:MM). |
+| `POST` | `/ambient/plans/{plan_id}/cancel` | signed | Cancel a paced plan. |
+| `GET` | `/ambient/plans/{plan_id}` | signed | Inspect one paced plan: steps, scheduled times, delivery status. |
+| `GET` | `/ambient/plans` | signed | List stored paced plans: multi-step proactive deliveries created by shadow acts. |
+| `GET` | `/ambient/runs/{run_id}` | signed | Run detail: checkpoint, full journal, linked claims, linked executions. |
+| `GET` | `/ambient/runs` | signed | Checkpointed runs (ghost agent runs and ambient ticks), newest first. |
+| `GET` | `/ambient/status` | signed | Ambient scheduler state. |
+| `POST` | `/ambient/tick` | signed | Run one ambient iteration now (operator-initiated, not scheduled). |
+| `POST` | `/ambient/wake` | signed | Wake the always-on loop from a local source. |
+
+### approvals
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/approvals/receipt` | signed | Idempotency receipt lookup (OpenDots' restorePageReview analog): returns the approval card for a (thread_id, tool_call_id) pair so a client that lost the sus... |
+| `POST` | `/approvals/sweep` | signed | Expire pending approvals past their expiry threshold. |
+| `POST` | `/approvals/{id}/approve` | signed |  |
+| `POST` | `/approvals/{id}/deny` | signed |  |
+| `GET` | `/approvals` | signed | Uniform page envelope. |
+| `POST` | `/approvals` | signed |  |
+
+### artifacts
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/artifacts/{artifact_id}/versions/{version}` | signed |  |
+| `GET` | `/artifacts/{artifact_id}/versions` | signed |  |
+| `DELETE` | `/artifacts/{artifact_id}` | signed |  |
+| `GET` | `/artifacts/{artifact_id}` | signed |  |
+| `PATCH` | `/artifacts/{artifact_id}` | signed |  |
+| `GET` | `/artifacts` | signed |  |
+| `POST` | `/artifacts` | signed |  |
+
+### audit
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/audit` | signed | Audit trail, oldest first, as the uniform page envelope. |
+
+### claims
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/claims/{claim_id}/confirm` | signed |  |
+| `POST` | `/claims/{claim_id}/refute` | signed |  |
+| `GET` | `/claims` | signed | World-state claims. |
+| `POST` | `/claims` | signed |  |
+
+### consent
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/consent` | signed |  |
+
+### continuity
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/continuity/handoffs/{handoff_id}/cancel` | signed | Cancel a pending handoff. |
+| `POST` | `/continuity/handoffs/{handoff_id}/claim` | signed | Claim a pending handoff and receive the full resume package: the frozen conversation snapshot plus live pending approvals and active plans. |
+| `GET` | `/continuity/handoffs` | signed | Pending handoffs visible to the caller: open ones, ones targeted at this device, and ones this device created. |
+| `GET` | `/continuity/overview` | signed | One screen's worth of continuity state: registered devices with presence, open sessions with last-active device, pending handoff count. |
+| `POST` | `/continuity/presence` | signed | Heartbeat: tell the node this client is active. |
+
+### custom-panels
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/custom-panels/parse` | signed | Parse "make a panel showing my top 5 overdue goals" into a panel proposal, or return a clarifying question. |
+| `GET` | `/custom-panels/{panel_id}/render` | signed | Render a custom panel as panel JSON (same shape as built-in panels). |
+| `DELETE` | `/custom-panels/{panel_id}` | signed | Delete a custom panel. |
+| `GET` | `/custom-panels/{panel_id}` | signed |  |
+| `PATCH` | `/custom-panels/{panel_id}` | signed |  |
+| `GET` | `/custom-panels` | signed | List custom panel definitions (inspectable: the definition is the panel). |
+| `POST` | `/custom-panels` | signed | Create a custom panel from a definition (or a confirmed parse proposal). |
+
+### devices
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/devices/register` | signed | Owner-initiated enrollment. |
+| `POST` | `/devices/{device_id}/push-token` | signed |  |
+| `POST` | `/devices/{device_id}/renew` | signed | Start a fresh 30-day session window. |
+| `POST` | `/devices/{device_id}/revoke` | signed | Revoke a device. |
+| `GET` | `/devices` | signed |  |
+
+### emergency_pause
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/emergency_pause` | signed |  |
+| `POST` | `/emergency_pause` | signed | Kill-switch capability: any HMAC-authenticated trusted device may pause/resume the node. |
+
+### executions
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/executions/{execution_id}` | signed | Full execution detail: intent, policy decision, tool observation, evidence, world-state diff, verdict. |
+| `GET` | `/executions` | signed | Execution records, newest first. |
+
+### feed
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/feed/generate` | signed | Render editorial feed units from live node state (offline, no cloud model). |
+| `GET` | `/feed` | signed | Feed units newest-first, paginated. |
+
+### ghost
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/ghost/runs/{run_id}/interrupt` | signed | Stop a run mid-flight. |
+| `POST` | `/ghost/runs/{run_id}/resume` | signed | Resume an interrupted run from its checkpoint. |
+| `POST` | `/ghost/runs` | signed | Start a checkpointed multi-step run. |
+
+### goals
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/goals/briefing` | signed | Goal briefing: stale goals, goals due soon/overdue, completed this week, and recent progress entries. |
+| `POST` | `/goals/{goal_id}/progress` | signed | Log a progress entry (note + optional 0-100 percent) on a goal. |
+| `DELETE` | `/goals/{goal_id}` | signed |  |
+| `GET` | `/goals/{goal_id}` | signed |  |
+| `PATCH` | `/goals/{goal_id}` | signed | Update title/description/status/target_date. |
+| `GET` | `/goals` | signed | List goals newest-updated first, each with a progress roll-up. |
+| `POST` | `/goals` | signed | Create a user goal: a durable outcome with progress tracking. |
+
+### health
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/health` | public |  |
+
+### ideas
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/ideas/{idea_id}/run` | signed | Turn an idea into a real agent plan via AgentCore.propose. |
+| `DELETE` | `/ideas/{idea_id}` | signed |  |
+| `GET` | `/ideas/{idea_id}` | signed |  |
+| `PATCH` | `/ideas/{idea_id}` | signed |  |
+| `GET` | `/ideas` | signed | List idea cards newest-updated first. |
+| `POST` | `/ideas` | signed | Create an idea card. |
+
+### media
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/media/capabilities` | signed |  |
+| `POST` | `/media/generate` | signed |  |
+| `GET` | `/media/{item_id}/content` | signed |  |
+| `DELETE` | `/media/{item_id}` | signed |  |
+| `GET` | `/media` | signed |  |
+
+### memory
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/memory/export` | signed |  |
+| `POST` | `/memory/ingest_file` | signed |  |
+| `POST` | `/memory/ingest` | signed |  |
+| `GET` | `/memory/recent` | signed | Newest-first memory cards for the mobile Memory screen. |
+| `GET` | `/memory/search` | signed |  |
+| `DELETE` | `/memory/source/{source_id}` | signed |  |
+| `DELETE` | `/memory/{item_id}` | signed | Revoke one memory item (soft delete; the ciphertext stays but is excluded from search, export, and recent). |
+| `GET` | `/memory` | signed |  |
+
+### model
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/model/providers` | signed |  |
+
+### pair
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/pair/approve` | signed | Owner-approved challenge: only a trusted, non-revoked device (HMAC authenticated by the middleware) can approve a pending pairing. |
+| `POST` | `/pair/confirm` | public | The new device collects its credentials. |
+| `GET` | `/pair/pending` | signed | Pending (not yet approved) pairings, for an owner to review and approve. |
+| `POST` | `/pair/start` | public | New device proposes enrollment. |
+
+### panels
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/panels` | signed | Glanceable data panels for the client's PanelCard: pending approvals, goals progress, and memory inventory as panel JSON (title, headline, stat tiles, rows). |
+
+### persona
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/persona` | signed | The assistant's Cookie-style identity: name, avatar emoji, vibe, status. |
+| `PUT` | `/persona` | signed | Update the assistant's identity. |
+
+### providers
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/providers/{name}/connect` | signed |  |
+| `POST` | `/providers/{name}/oauth/exchange` | signed |  |
+| `GET` | `/providers/{name}/oauth/start` | signed |  |
+| `DELETE` | `/providers/{name}` | signed |  |
+| `GET` | `/providers` | signed |  |
+
+### ready
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/ready` | public |  |
+
+### reminders
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `POST` | `/reminders/check` | signed | Fire due reminders now: push + SSE event + feed unit per reminder. |
+| `GET` | `/reminders/due` | signed | Pending reminders whose due time has passed (includes ones held by quiet hours). |
+| `POST` | `/reminders/parse` | signed | Parse a natural-language scheduling request ("remind me every weekday at 7am") into a structured reminder proposal, or a clarifying question. |
+| `DELETE` | `/reminders/{reminder_id}` | signed |  |
+| `GET` | `/reminders/{reminder_id}` | signed |  |
+| `PATCH` | `/reminders/{reminder_id}` | signed |  |
+| `GET` | `/reminders` | signed | List reminders, soonest-due first. |
+| `POST` | `/reminders` | signed | Create a reminder. |
+
+### scheduled-tasks
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `DELETE` | `/scheduled-tasks/{task_id}` | signed |  |
+| `GET` | `/scheduled-tasks/{task_id}` | signed |  |
+| `PATCH` | `/scheduled-tasks/{task_id}` | signed |  |
+| `GET` | `/scheduled-tasks` | signed | Every scheduled thing in one shape: reminders plus builtin ambient tasks, soonest next run first. |
+| `POST` | `/scheduled-tasks` | signed | Create a reminder through the unified surface. |
+
+### tools
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/tools` | signed |  |
+
+### voice
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/voice/capabilities` | signed |  |
+| `POST` | `/voice/speak` | signed |  |
+| `POST` | `/voice/transcribe` | signed |  |
+
+### ws
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `WS` | `/ws/tasks` | signed | Signed WebSocket (HMAC headers on the handshake). |
+
+<!-- END GENERATED ENDPOINTS -->

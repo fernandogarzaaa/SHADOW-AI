@@ -10,11 +10,21 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
       - name: Compile
         run: python -m compileall apps/shadow-node packages
-      - name: Test
-        run: pytest -q
+      - name: Lint (bug classes)
+        run: ruff check .
+      - name: Test with coverage
+        # Floor set just under the measured 89% so regressions fail CI.
+        run: pytest -q --cov=apps/shadow-node/shadow_node --cov=packages --cov-fail-under=85
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Dashboard signer matches shared signature vectors
+        run: node tests/js/sig_v2_vectors.test.mjs
+      - name: API docs up to date
+        run: python scripts/gen_api_docs.py --check
       - name: Demo smoke
         run: make demo
       - name: Package install check
@@ -36,6 +46,14 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8787/health && break; sleep 1; done
           curl -sf http://127.0.0.1:8787/health || { cat /tmp/qs.log; exit 1; }
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/memory)" = 401
+      - name: Docker image carries no local secrets
+        run: |
+          mkdir -p data/keys && echo canary > data/keys/master.key && echo canary > .env
+          docker build -q -t shadow-node:ci .
+          docker run --rm --entrypoint sh shadow-node:ci -c \
+            'test ! -e /app/data && test ! -e /app/.env && test "$(id -u)" != 0' \
+            || { echo "image contains local state/secrets or runs as root"; exit 1; }
+          rm -rf data .env
       - name: Secret scan
         run: |
           if grep -rEn "sk-[A-Za-z0-9]{20,}|(api[_-]?key|secret|password)[[:space:]]*=[[:space:]]*['\"][^'\"]{8,}" \

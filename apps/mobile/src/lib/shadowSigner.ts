@@ -1,11 +1,16 @@
 /**
  * SHADOW node request signer (pure TypeScript, no dependencies).
  *
- * Auth scheme (HMAC-SHA256, required on every endpoint except /pair/* and /health):
- *   Signature = lowercase hex of HMAC-SHA256(shared_secret, "METHOD\npath\nbody\nnonce\ntimestamp")
- *   METHOD is uppercase; path is the URL path only (no query string);
- *   body is the raw request body string ("" for GET/empty);
- *   nonce is random hex per request; timestamp is unix seconds (server allows +-300s skew).
+ * Auth scheme (HMAC-SHA256, required on every endpoint except /pair/* and /health).
+ *
+ * Signature v2 (sent with x-shadow-signature-version: 2; used by default):
+ *   HMAC-SHA256(secret, "SHADOW-SIG-v2\nMETHOD\npath\ncanonical_query\nsha256hex(body)\nnonce\ntimestamp\ndevice_id")
+ *   canonical_query: decoded pairs, RFC 3986 re-encoded, sorted by (key, value),
+ *   joined with "&". Binds the query string, which v1 left unsigned.
+ *   Shared vectors: tests/fixtures/sig_v2_vectors.json at the repo root.
+ *
+ * Legacy v1: "METHOD\npath\nbody\nnonce\ntimestamp" (path without query).
+ * Once a device has used v2 the node rejects v1 from it.
  */
 
 const SHA256_K = [
@@ -166,6 +171,70 @@ export function buildSignatureString(
 	timestamp: string,
 ): string {
 	return `${method.toUpperCase()}\n${path}\n${body}\n${nonce}\n${timestamp}`;
+}
+
+// RFC 3986 unreserved set, matching Python's quote(s, safe="-_.~").
+function rfc3986(value: string): string {
+	return encodeURIComponent(value).replace(
+		/[!'()*]/g,
+		(c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+	);
+}
+
+/** Canonical query string for signature v2. */
+export function canonicalQuery(query: string): string {
+	const q = query.startsWith("?") ? query.slice(1) : query;
+	if (!q) return "";
+	const pairs: [string, string][] = [];
+	new URLSearchParams(q).forEach((v, k) => {
+		pairs.push([rfc3986(k), rfc3986(v)]);
+	});
+	pairs.sort((a, b) =>
+		a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0,
+	);
+	return pairs.map(([k, v]) => `${k}=${v}`).join("&");
+}
+
+export function sha256Hex(text: string): string {
+	return bytesToHex(sha256Bytes(new TextEncoder().encode(text)));
+}
+
+export function buildSignatureStringV2(
+	method: string,
+	pathWithQuery: string,
+	body: string,
+	nonce: string,
+	timestamp: string,
+	deviceId: string,
+): string {
+	const q = pathWithQuery.indexOf("?");
+	const path = q === -1 ? pathWithQuery : pathWithQuery.slice(0, q);
+	const query = q === -1 ? "" : pathWithQuery.slice(q + 1);
+	return [
+		"SHADOW-SIG-v2",
+		method.toUpperCase(),
+		path,
+		canonicalQuery(query),
+		sha256Hex(body),
+		nonce,
+		timestamp,
+		deviceId,
+	].join("\n");
+}
+
+export function signV2Hex(
+	secret: string,
+	method: string,
+	pathWithQuery: string,
+	body: string,
+	nonce: string,
+	timestamp: string,
+	deviceId: string,
+): string {
+	return hmacSha256Hex(
+		secret,
+		buildSignatureStringV2(method, pathWithQuery, body, nonce, timestamp, deviceId),
+	);
 }
 
 export interface SignRequestArgs {

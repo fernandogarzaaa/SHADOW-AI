@@ -302,3 +302,51 @@ def test_response_body_is_capped():
     client = _FakeClient([_ok(big)])
     body, _, _, _ = _ssrf_fetch(f"http://{PUBLIC_IP}/big", client=client)
     assert len(body.encode("utf-8")) <= SSRF_MAX_BODY_BYTES
+
+
+# -- special ranges and thread-safe pinning ------------------------------------------
+
+@pytest.mark.parametrize("ip", [
+    "100.64.0.1",        # CGNAT shared address space (not is_private)
+    "192.0.0.8",         # IETF protocol assignments
+    "198.18.0.1",        # benchmarking
+    "fd00::1",           # IPv6 ULA
+    "::ffff:10.0.0.1",   # IPv4-mapped private
+    "::ffff:127.0.0.1",  # IPv4-mapped loopback
+    "2002:0a00:0001::1", # 6to4 wrapping 10.0.0.1
+    "fe80::1%en0",       # link-local with zone id
+])
+def test_special_ranges_blocked(ip):
+    from ghost_adapter import _is_public_ip
+    assert _is_public_ip(ip) is False
+
+
+def test_public_addresses_allowed():
+    from ghost_adapter import _is_public_ip
+    assert _is_public_ip("93.184.216.34")
+    assert _is_public_ip("2606:2800:220:1:248:1893:25c8:1946")
+
+
+def test_concurrent_pins_do_not_leak_between_threads():
+    import threading
+    from ghost_adapter import _pinned_dns, _pinning_getaddrinfo, _dns_pins
+    errors = []
+    barrier = threading.Barrier(8)
+
+    def worker(i):
+        try:
+            with _pinned_dns(f"host{i}.example", [f"203.0.113.{i}"]):
+                barrier.wait(timeout=5)
+                pins = _dns_pins.map
+                assert set(pins) == {f"host{i}.example"}
+        except Exception as e:  # pragma: no cover - the race this guards
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    assert socket.getaddrinfo is _pinning_getaddrinfo
+    assert getattr(_dns_pins, "map", None) is None

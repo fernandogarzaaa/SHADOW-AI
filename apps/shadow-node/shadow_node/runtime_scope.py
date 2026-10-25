@@ -94,9 +94,11 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/devices/register": frozenset({"POST"}),
     "/devices/{device_id}/push-token": frozenset({"POST"}),
     "/devices/{device_id}/revoke": frozenset({"POST"}),
+    "/devices/{device_id}/renew": frozenset({"POST"}),
     "/pair/start": frozenset({"POST"}),
     "/pair/confirm": frozenset({"POST"}),
     "/pair/approve": frozenset({"POST"}),
+    "/pair/pending": frozenset({"GET"}),
     # goals
     "/goals": frozenset({"GET", "POST"}),
     "/goals/briefing": frozenset({"GET"}),

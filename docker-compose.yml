@@ -6,6 +6,10 @@ services:
     environment:
       # Production posture: persistent encrypted state + real actions.
       SHADOW_AUTH_REQUIRED: "true"
+      SHADOW_DATA_DIR: /data  # all key files land on the volume
+      # First-owner pairing: the node prints a one-time bootstrap code in
+      # `docker compose logs shadow-node`; or pin one here for headless setup.
+      # SHADOW_BOOTSTRAP_CODE: "pick-a-long-random-code"
       SHADOW_MEMORY_DB: /data/shadow_memory.db
       SHADOW_MEMORY_KEY_FILE: /data/keys/memory.key
       SHADOW_RUNTIME_DB: /data/shadow_runtime.db

@@ -1,4 +1,14 @@
 # Roadmap
+
+## Next
+- Move every client to signature v2, then turn on `SHADOW_REQUIRE_SIG_V2` by default.
+- Device-held asymmetric keys (Ed25519 / Secure Enclave) instead of returned shared secrets.
+- A real on-device model (e.g. Ollama) so "simple" questions can stay local.
+- Hard delete for memory (compaction of revoked ciphertext).
+- QR code for "Add a phone" in the dashboard; Share Extension and App Intents on iOS.
+- Real calendar/email connectors (today they write files in the workspace).
+
+## Milestones
 - v0.1 Shadow Inbox + Memory
 - v0.2 Shadow Learns Me
 - v0.3 Shadow Acts
@@ -32,7 +42,7 @@ Each phase ships as its own PR, one at a time, green CI before merge.
   runtime DB when configured. (shipped)
 - Phase 4: Feed + Ideas. Scheduled editorial feed and idea cards. (shipped)
 - Phase 5: Scheduling + proactive. Reminders with recurrence, proactive push on firing, quiet hours, reminder feed units. (shipped)
-- Phase 6: Artifacts, voice, media. Documents, TTS/voice notes, image generation.
+- Phase 6: Artifacts, voice, media. Documents, TTS/voice notes, image generation. (shipped; voice and image generation need a configured provider)
 
 Spine across all phases: local-first, encrypted at rest, user-owned data,
 Sentinel-audited, offline-capable. More robust than the reference: no vendor

@@ -1,5 +1,7 @@
 # Shadow Agent — Project Audit (June 2026)
 
+> **Superseded.** This is a historical snapshot. Several statements no longer hold: auth is on by default, approvals and devices persist, and pairing uses a bootstrap code and signature v2. See `THREAT_MODEL.md`, `AUTHENTICATED_TRANSPORT.md` and the CHANGELOG for the current state.
+
 This is a verified, evidence-based snapshot of the repository state. Every "✅"
 below was confirmed by running the code, not by reading documentation.
 

@@ -101,3 +101,61 @@ def check_request_hygiene(method: str, path: str, headers, cors_origins) -> None
     check_body_limit(headers.get("content-length"))
     check_content_type(method, path, headers)
     check_fetch_site(headers.get("sec-fetch-site"), headers.get("origin"), cors_origins)
+
+
+class BodyLimitMiddleware:
+    """Pure-ASGI streaming body cap.
+
+    check_body_limit only sees Content-Length; a chunked request has none,
+    so its size is unknown until read. This reads the body up front,
+    counting bytes, and answers 413 as soon as MAX_BODY_BYTES is exceeded;
+    otherwise it replays the (bounded) buffered body to the app. No handler,
+    and not the auth middleware that reads the body to verify signatures,
+    can be made to buffer an unbounded upload.
+    """
+
+    def __init__(self, app, max_bytes: int | None = None):
+        self.app = app
+        self.max_bytes = max_bytes if max_bytes is not None else MAX_BODY_BYTES
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"].upper() in BODYLESS_METHODS:
+            return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers") or [])
+        if b"content-length" in headers:
+            # Declared length: check_body_limit already rejects oversize
+            # bodies from the header, and auth rejects unknown devices
+            # before reading the body, so don't buffer here.
+            return await self.app(scope, receive, send)
+        chunks, total = [], 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body = message.get("body", b"")
+            total += len(body)
+            if total > self.max_bytes:
+                payload = (
+                    '{"error":{"code":"body_too_large","message":"Request body exceeds the '
+                    f'{self.max_bytes}-byte limit."}}}}'
+                ).encode()
+                await send({"type": "http.response.start", "status": 413,
+                            "headers": [(b"content-type", b"application/json"),
+                                        (b"content-length", str(len(payload)).encode()),
+                                        (b"connection", b"close")]})
+                await send({"type": "http.response.body", "body": payload})
+                return
+            chunks.append(body)
+            if not message.get("more_body", False):
+                break
+        buffered = b"".join(chunks)
+        replayed = False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": buffered, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)

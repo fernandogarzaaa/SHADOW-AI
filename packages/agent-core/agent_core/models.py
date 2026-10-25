@@ -90,5 +90,11 @@ class Device(BaseModel):
     # devices) or "hmac-vN" (derived at verify time from the node master
     # secret via device_credentials; nothing stored per device).
     credential_scheme: str="stored"
+    # Lowest request-signature version this device may use. Raised to 2 the
+    # first time the device authenticates with v2 (or at pairing for clients
+    # that declare v2 support); later v1 requests are rejected as downgrades.
+    min_sig_version: int=1
+    # Client family declared at pairing ("web", "ios", "mobile", ...).
+    client_kind: str|None=None
 class CloudEscalationRequest(BaseModel):
     id: str = Field(default_factory=lambda:new_id("clr")); purpose: str; redacted_context: str; model: str; approved: bool=False

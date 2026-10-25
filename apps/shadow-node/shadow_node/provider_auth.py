@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 import httpx
 from cryptography.fernet import Fernet
-from .crypto_config import load_fernet_key
+from .crypto_config import key_path, load_fernet_key, write_secret_file
 from .providers import CATALOG
 
 
@@ -43,9 +43,9 @@ class CredentialStore:
     """Encrypted at-rest store for per-provider credentials."""
 
     def __init__(self, path: str | None = None, key: bytes | None = None):
-        self.path = Path(path or os.getenv("SHADOW_PROVIDERS_FILE", "data/keys/providers.enc"))
+        self.path = Path(path or os.getenv("SHADOW_PROVIDERS_FILE", key_path("providers.enc")))
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.key = key or load_fernet_key("SHADOW_PROVIDERS_KEY", "SHADOW_PROVIDERS_KEY_FILE", "data/keys/providers.key")
+        self.key = key or load_fernet_key("SHADOW_PROVIDERS_KEY", "SHADOW_PROVIDERS_KEY_FILE", key_path("providers.key"))
         self.cipher = Fernet(self.key)
         self._data: dict = self._load()
 
@@ -58,11 +58,7 @@ class CredentialStore:
         return {}
 
     def _save(self) -> None:
-        self.path.write_bytes(self.cipher.encrypt(json.dumps(self._data).encode()))
-        try:
-            self.path.chmod(0o600)
-        except OSError:
-            pass
+        write_secret_file(self.path, self.cipher.encrypt(json.dumps(self._data).encode()))
 
     def set(self, provider: str, cred: dict) -> None:
         self._data[provider] = cred
@@ -126,9 +122,9 @@ class OAuthTransactionStore:
 
     def __init__(self, path: str | None = None, key: bytes | None = None,
                  ttl: int = OAUTH_TXN_TTL_SECONDS):
-        self.path = Path(path or os.getenv("SHADOW_OAUTH_TXNS_FILE", "data/keys/oauth_txns.enc"))
+        self.path = Path(path or os.getenv("SHADOW_OAUTH_TXNS_FILE", key_path("oauth_txns.enc")))
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.key = key or load_fernet_key("SHADOW_OAUTH_TXNS_KEY", "SHADOW_OAUTH_TXNS_KEY_FILE", "data/keys/oauth_txns.key")
+        self.key = key or load_fernet_key("SHADOW_OAUTH_TXNS_KEY", "SHADOW_OAUTH_TXNS_KEY_FILE", key_path("oauth_txns.key"))
         self.cipher = Fernet(self.key)
         self.ttl = ttl
         self._data: dict = self._load()
@@ -145,11 +141,7 @@ class OAuthTransactionStore:
         return {}
 
     def _save(self) -> None:
-        self.path.write_bytes(self.cipher.encrypt(json.dumps(self._data).encode()))
-        try:
-            self.path.chmod(0o600)
-        except OSError:
-            pass
+        write_secret_file(self.path, self.cipher.encrypt(json.dumps(self._data).encode()))
 
     def record(self, state: str, provider: str, redirect_uri: str,
                device_id: str | None, authorization_url: str,
