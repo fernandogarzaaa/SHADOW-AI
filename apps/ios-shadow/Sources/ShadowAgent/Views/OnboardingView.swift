@@ -1,13 +1,12 @@
 import SwiftUI
+import ThinkingOrbsKit
 
 struct OnboardingView: View {
     var body: some View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
-                    Image(systemName: "shield.lefthalf.filled")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.tint)
+                    ThinkingOrb(state: .breathing, size: .px64)
                         .accessibilityHidden(true)
                     Text("Shadow")
                         .font(.largeTitle.bold())

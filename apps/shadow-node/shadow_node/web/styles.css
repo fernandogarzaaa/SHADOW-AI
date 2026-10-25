@@ -199,7 +199,7 @@ pre.json { font-family: var(--mono); font-size: 12px; background: var(--panel-2)
    gradient masked to the element's 1px border, rotated via @property.
    --------------------------------------------------------------------------- */
 canvas.orb { display: inline-block; vertical-align: middle; flex: none; }
-.brand .orb-32 { margin: -3px; }
+.brand canvas { margin: -5px -2px -5px -5px; }
 .thinking { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; margin-top: 14px; }
 .thinking .orb-20 { margin: -2px 0; }
 .answer-row { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; }

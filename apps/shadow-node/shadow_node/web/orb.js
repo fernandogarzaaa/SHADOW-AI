@@ -43,15 +43,18 @@ function parseTint(color) {
 function configure(canvas) {
   const state = STATES.has(canvas.dataset.orb) ? canvas.dataset.orb : "working";
   const size = [20, 32, 64].includes(Number(canvas.dataset.size)) ? Number(canvas.dataset.size) : 64;
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  // data-display shows a tuned preset at another CSS size (vector dots, so
+  // drawing the 64 design into a smaller box stays crisp and dense).
+  const display = Number(canvas.dataset.display) || size;
+  const dpr = Math.min(2, window.devicePixelRatio || 1) * (display / size);
   canvas.width = Math.round(size * dpr);
   canvas.height = Math.round(size * dpr);
-  canvas.style.width = canvas.style.height = `${size}px`;
+  canvas.style.width = canvas.style.height = `${display}px`;
   if (!canvas.hasAttribute("aria-label")) canvas.setAttribute("aria-label", LABELS[state]);
   canvas.setAttribute("role", "img");
   const { mode, speed, opts } = resolvePreset(state, size);
   return {
-    key: `${state}:${size}`, size, dpr, opts, speed,
+    key: `${state}:${size}:${canvas.dataset.display || ""}`, size, dpr, opts, speed,
     frameFn: MODE_FRAMES[mode], ctx: canvas.getContext("2d"),
     tintSpec: canvas.dataset.color, tint: parseTint(canvas.dataset.color), visible: true,
   };
@@ -91,7 +94,7 @@ function tick() {
       io.unobserve(canvas);
       continue;
     }
-    const key = `${canvas.dataset.orb}:${canvas.dataset.size}`;
+    const key = `${canvas.dataset.orb}:${canvas.dataset.size}:${canvas.dataset.display || ""}`;
     if (key !== o.key) orbs.set(canvas, Object.assign(o, configure(canvas)));
     if (!o.visible || canvas.dataset.paused !== undefined) continue;
     draw(canvas, orbs.get(canvas), t);

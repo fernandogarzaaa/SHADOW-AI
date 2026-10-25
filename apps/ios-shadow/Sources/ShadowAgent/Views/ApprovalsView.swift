@@ -1,4 +1,5 @@
 import SwiftUI
+import ThinkingOrbsKit
 
 struct ApprovalsView: View {
     @EnvironmentObject var state: AppState
@@ -7,7 +8,11 @@ struct ApprovalsView: View {
         List {
             Section("Waiting for you") {
                 if state.approvals.isEmpty {
-                    Text("Nothing waiting.").foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        ThinkingOrb(state: .breathing, size: .px20, paused: true)
+                            .accessibilityHidden(true)
+                        Text("Nothing waiting.").foregroundStyle(.secondary)
+                    }
                 }
                 ForEach(state.approvals) { approval in
                     NavigationLink { ApprovalDetailView(approval: approval) } label: { ApprovalRow(approval: approval) }

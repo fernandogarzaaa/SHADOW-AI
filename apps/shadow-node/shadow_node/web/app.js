@@ -181,7 +181,7 @@ async function refreshStatus() {
   }
 }
 
-// The sidebar orb is Shadow's live mark: it breathes while idle, works while
+// The sidebar orb is Shadow's live mark: it listens while idle, works while
 // a request is in flight, and freezes when paused or offline.
 let brandBusy = 0;
 let brandBase = "idle";
@@ -190,7 +190,7 @@ function setBrandOrb(base) {
   const orb = $("#brandOrb");
   if (!orb) return;
   const busyNow = brandBusy > 0 && brandBase === "idle";
-  orb.dataset.orb = busyNow ? "working" : "breathing";
+  orb.dataset.orb = busyNow ? "working" : "listening";
   if (brandBase === "idle") delete orb.dataset.paused;
   else orb.dataset.paused = "";
   orb.setAttribute("aria-label", busyNow ? "Shadow is working" : brandBase === "paused" ? "Shadow is paused" : brandBase === "offline" ? "Node offline" : "Shadow is idle");

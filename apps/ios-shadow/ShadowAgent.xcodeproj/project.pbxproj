@@ -3,10 +3,11 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7A1B2C3D4E5F60718293A4B1 /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A1B2C3D4E5F60718293A4B2 /* ThinkingOrbsKit */; };
 		005A59250DD52AD04B869FF5 /* Sources/ShadowAgent/Views/AuditLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8430D1945449B721B221B11 /* Sources/ShadowAgent/Views/AuditLogView.swift */; };
 		00E27B9422FE539B0C6EA085 /* Sources/ShadowAgent/Views/ConnectorSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1BA6B6B8E4967D2118FE0F /* Sources/ShadowAgent/Views/ConnectorSettingsView.swift */; };
 		0487FE81B0EFC013FF8D0686 /* Sources/ShadowAgent/State/AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A4823CBE9C9F53664EC754D /* Sources/ShadowAgent/State/AppState.swift */; };
@@ -68,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7A1B2C3D4E5F60718293A4B1 /* ThinkingOrbsKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -130,6 +132,9 @@
 			dependencies = (
 			);
 			name = ShadowAgentApp;
+			packageProductDependencies = (
+				7A1B2C3D4E5F60718293A4B2 /* ThinkingOrbsKit */,
+			);
 			productName = ShadowAgent;
 			productReference = F5BF48AA40CAD7891EB709FC /* ShadowAgent.app */;
 			productType = "com.apple.product-type.application";
@@ -158,6 +163,9 @@
 				Base,
 			);
 			mainGroup = FAD58DE7366495DB4650CFEF;
+			packageReferences = (
+				7A1B2C3D4E5F60718293A4B3 /* XCLocalSwiftPackageReference "Vendor/ThinkingOrbsKit" */,
+			);
 			productRefGroup = 4FA33076EAECEB132DE7726D /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -293,6 +301,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		7A1B2C3D4E5F60718293A4B3 /* XCLocalSwiftPackageReference "Vendor/ThinkingOrbsKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/ThinkingOrbsKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		7A1B2C3D4E5F60718293A4B2 /* ThinkingOrbsKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ThinkingOrbsKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
 }

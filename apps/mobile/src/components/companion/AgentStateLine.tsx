@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { AgentState } from "@/hooks/useProviderChat";
-import { useReduceMotion } from "@/hooks/useReduceMotion";
 import { SemanticSpacing, Spacing, typography, useTheme } from "@/theme";
 import { withOpacity } from "@/utils/colors";
+import { ThinkingOrb } from "./ThinkingOrb";
 
 interface AgentStateLineProps {
 	state: AgentState;
@@ -20,7 +20,7 @@ interface AgentStateLineProps {
 
 /**
  * First-class agent state UI for chat: a calm one-liner with a subtle
- * pulse, always paired with a text label (state is never conveyed by
+ * animated thinking orb, always paired with a text label (state is never conveyed by
  * animation or color alone). Tapping expands a short summary; there are
  * no token counters and no chain-of-thought viewer.
  */
@@ -36,30 +36,14 @@ export function AgentStateLine({
 	onViewApproval,
 }: AgentStateLineProps) {
 	const { colors } = useTheme();
-	const reduceMotion = useReduceMotion();
 	const [expanded, setExpanded] = useState(false);
 	const [now, setNow] = useState(Date.now());
-	const pulse = useRef(new Animated.Value(0.35)).current;
 
 	const active = state === "thinking" || state === "working" || state === "waiting";
 
 	useEffect(() => {
 		setExpanded(false);
 	}, [state]);
-
-	useEffect(() => {
-		// Reduced motion: the dot renders static. State is always paired
-		// with a text label, never conveyed by animation alone.
-		if (!active || reduceMotion) return;
-		const loop = Animated.loop(
-			Animated.sequence([
-				Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
-				Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: true }),
-			]),
-		);
-		loop.start();
-		return () => loop.stop();
-	}, [active, pulse, reduceMotion]);
 
 	useEffect(() => {
 		if (!active) return;
@@ -120,11 +104,12 @@ export function AgentStateLine({
 				style={styles.row}
 			>
 				{active ? (
-					<Animated.View
-						style={[
-							styles.dot,
-							{ backgroundColor: colors.primary, opacity: reduceMotion ? 1 : pulse },
-						]}
+					// The orb shows what the agent is doing; the text label
+					// below always says it too.
+					<ThinkingOrb
+						state={state === "waiting" ? "connecting" : state === "thinking" ? "searching" : "composing"}
+						size={20}
+						accessibilityLabel={headline}
 					/>
 				) : (
 					<View

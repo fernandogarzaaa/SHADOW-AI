@@ -1,4 +1,5 @@
 import SwiftUI
+import ThinkingOrbsKit
 
 struct AskShadowView: View {
     @EnvironmentObject var state: AppState
@@ -19,17 +20,24 @@ struct AskShadowView: View {
                         asking = false
                     }
                 } label: {
-                    HStack {
-                        Text("Ask")
-                        if asking { Spacer(); ProgressView() }
-                    }
+                    Text("Ask")
                 }
                 .disabled(asking || prompt.trimmingCharacters(in: .whitespaces).isEmpty)
             } footer: {
                 Text("The cloud model needs a cloud consent grant on the node. Without it, answers stay on your node.")
             }
 
-            if let answer = state.lastAnswer {
+            if asking {
+                Section {
+                    HStack(spacing: 12) {
+                        ThinkingOrb(state: allowCloud ? .connecting : .searching, size: .px20)
+                            .accessibilityHidden(true)
+                        Text(allowCloud ? "Asking the cloud model…" : "Searching your memory…")
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            } else if let answer = state.lastAnswer {
                 Section("Answer") {
                     Text(answer.answer)
                         .textSelection(.enabled)

@@ -1,4 +1,5 @@
 import SwiftUI
+import ThinkingOrbsKit
 
 struct PairDeviceView: View {
     @EnvironmentObject var state: AppState
@@ -11,7 +12,8 @@ struct PairDeviceView: View {
             case .waitingForApproval(let code):
                 Section {
                     VStack(spacing: 12) {
-                        ProgressView()
+                        ThinkingOrb(state: .connecting, size: .px64)
+                            .accessibilityHidden(true)
                         Text("Waiting for approval")
                             .font(.headline)
                         Text(code)

@@ -267,7 +267,33 @@ export interface AuthHeadersArgs extends SignRequestArgs {
 	deviceId: string;
 }
 
-/** The four x-shadow-* headers for an authenticated node request. */
+/**
+ * The x-shadow-* headers for a signature-v2 request. `path` includes the
+ * query string exactly as it will be sent.
+ */
+export async function authHeadersV2(
+	args: AuthHeadersArgs,
+): Promise<Record<string, string>> {
+	const nonce = randomHexBytes(16);
+	const timestamp = String(Math.floor(Date.now() / 1000));
+	return {
+		"x-shadow-device-id": args.deviceId,
+		"x-shadow-signature-version": "2",
+		"x-shadow-signature": signV2Hex(
+			args.secret,
+			args.method,
+			args.path,
+			args.body,
+			nonce,
+			timestamp,
+			args.deviceId,
+		),
+		"x-shadow-nonce": nonce,
+		"x-shadow-timestamp": timestamp,
+	};
+}
+
+/** Legacy v1 headers (query string unsigned). Prefer authHeadersV2. */
 export async function authHeaders(
 	args: AuthHeadersArgs,
 ): Promise<Record<string, string>> {
