@@ -45,7 +45,9 @@ def test_no_inline_script_or_handlers():
 
 
 @pytest.mark.parametrize("asset,ctype", [
-    ("app.js", "javascript"), ("signer.js", "javascript"),
+    ("app.js", "javascript"), ("signer.js", "javascript"), ("orb.js", "javascript"),
+    ("vendor/thinking-orbs/engine.es.js", "javascript"),
+    ("vendor/thinking-orbs/index-B8WsUNf5.js", "javascript"),
     ("styles.css", "text/css"), ("favicon.svg", "image/svg+xml"),
 ])
 def test_static_assets_served_without_auth(asset, ctype, monkeypatch):
@@ -55,6 +57,8 @@ def test_static_assets_served_without_auth(asset, ctype, monkeypatch):
 
 
 def test_static_assets_allowlisted():
+    assert client.get("/web/vendor/thinking-orbs/README.md").status_code == 404
+    assert client.get("/web/vendor/nope/engine.es.js").status_code == 404
     assert client.get("/web/index.html").status_code == 404
     assert client.get("/web/..%2Fmain.py").status_code == 404
 
@@ -112,3 +116,14 @@ def test_js_signer_matches_python_vectors():
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     assert "vectors OK" in out.stdout
+
+
+def test_vendored_engine_is_framework_free():
+    """The dashboard has no build step: vendored code must not import React
+    (or anything else outside its own folder)."""
+    import re as _re
+    vendor = ROOT / "apps/shadow-node/shadow_node/web/vendor/thinking-orbs"
+    for f in vendor.glob("*.js"):
+        imports = _re.findall(r"""from\s*["']([^"']+)["']""", f.read_text())
+        assert all(i.startswith("./") for i in imports), (f.name, imports)
+    assert (vendor / "LICENSE").read_text().startswith("MIT")

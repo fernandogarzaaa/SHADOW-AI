@@ -5,6 +5,7 @@ import {
   authHeaders, clearCredential, loadCredential, newPublicKey,
   saveCredential, secureContext, updateExpiry,
 } from "./signer.js";
+import { initOrbs, orbHTML } from "./orb.js";
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -101,7 +102,8 @@ const relDays = (iso) => {
   return days <= 0 ? "expired" : days === 1 ? "1 day left" : `${days} days left`;
 };
 const skeleton = (n = 3) => '<div class="skel" aria-hidden="true"></div>'.repeat(n);
-const empty = (title, detail = "") => `<div class="empty"><b>${esc(title)}</b>${esc(detail)}</div>`;
+const empty = (title, detail = "", orb = false) =>
+  `<div class="empty">${orb ? `<canvas data-orb="breathing" data-size="32" data-paused aria-hidden="true"></canvas>` : ""}<b>${esc(title)}</b>${esc(detail)}</div>`;
 const failed = (e) => `<div class="empty"><b>Couldn't load this.</b>${esc(errText(e))}</div>`;
 
 async function busy(btn, fn) {
@@ -171,10 +173,32 @@ async function refreshStatus() {
     $("#liveDot").className = `live ${h.emergency_paused ? "bad" : "ok"}`;
     $("#pauseSw").setAttribute("aria-checked", String(!!h.emergency_paused));
     $("#pausedBanner").hidden = !h.emergency_paused;
+    setBrandOrb(h.emergency_paused ? "paused" : "idle");
   } catch {
     $("#statusTxt").textContent = "Node offline";
     $("#liveDot").className = "live bad";
+    setBrandOrb("offline");
   }
+}
+
+// The sidebar orb is Shadow's live mark: it breathes while idle, works while
+// a request is in flight, and freezes when paused or offline.
+let brandBusy = 0;
+let brandBase = "idle";
+function setBrandOrb(base) {
+  if (base) brandBase = base;
+  const orb = $("#brandOrb");
+  if (!orb) return;
+  const busyNow = brandBusy > 0 && brandBase === "idle";
+  orb.dataset.orb = busyNow ? "working" : "breathing";
+  if (brandBase === "idle") delete orb.dataset.paused;
+  else orb.dataset.paused = "";
+  orb.setAttribute("aria-label", busyNow ? "Shadow is working" : brandBase === "paused" ? "Shadow is paused" : brandBase === "offline" ? "Node offline" : "Shadow is idle");
+}
+function trackBusy(promise) {
+  brandBusy++;
+  setBrandOrb();
+  return promise.finally(() => { brandBusy--; setBrandOrb(); });
 }
 
 async function refreshBadges() {
@@ -363,6 +387,7 @@ const ACTIONS = {
   },
   "feed-generate": async (el) => {
     await busy(el, async () => {
+      el.innerHTML = `${orbHTML("composing", 20)}Writing…`;
       try { const r = await post("/feed/generate", { force: true }); toast(`${r.count} new item${r.count === 1 ? "" : "s"}.`); loadFeed(); } catch (e) { toast(errText(e), true); }
     });
   },
@@ -458,6 +483,12 @@ document.addEventListener("click", (ev) => {
 // --- overview ------------------------------------------------------------------------
 
 async function loadOverview() {
+  get("/approvals?status=pending").then((r) => {
+    const n = r.count;
+    $("#heroTitle").textContent = n ? `${n} approval${n === 1 ? "" : "s"} waiting for you.` : "All quiet.";
+    $("#heroSub").innerHTML = n ? 'Nothing runs until you decide. <a href="#/approvals">Review now</a>' : "Nothing needs your decision right now.";
+    $("#heroOrb").dataset.orb = n ? "listening" : "breathing";
+  }).catch(() => {});
   const out = $("#overviewPanels");
   if (!out.innerHTML) out.innerHTML = skeleton(3);
   try {
@@ -476,14 +507,24 @@ $("#askForm").addEventListener("submit", async (ev) => {
   const prompt = $("#askInput").value.trim();
   if (!prompt) return $("#askInput").focus();
   const cloud = $("#askCloud").checked;
+  const form = $("#askForm");
   await busy($("#askBtn"), async () => {
     $("#askBtn").textContent = "Thinking…";
+    form.classList.add("beam");
+    form.setAttribute("aria-busy", "true");
+    $("#askOut").innerHTML = `<div class="thinking" role="status">${orbHTML("searching", 20)}<span>Searching your memory…</span></div>`;
+    const phase = setTimeout(() => {
+      const t = $("#askOut .thinking");
+      if (!t) return;
+      t.querySelector("canvas").dataset.orb = cloud ? "connecting" : "composing";
+      t.querySelector("span").textContent = cloud ? "Asking the cloud model…" : "Writing the answer…";
+    }, 900);
     try {
-      const r = await post("/agent/ask", { prompt, allow_cloud: cloud, cloud_approval: cloud });
+      const r = await trackBusy(post("/agent/ask", { prompt, allow_cloud: cloud, cloud_approval: cloud }));
       const sv = r.savings || {};
       const where = r.route === "frontier" ? `cloud · ${r.model_used}` : `on-device · ${r.model_used}`;
       const tone = r.degraded ? " bad" : r.model_used === "local_mock" ? " warn" : "";
-      let h = `<div class="answer${tone}">${esc(r.answer)}</div>`;
+      let h = `<div class="answer-row"><canvas data-orb="${r.degraded ? "breathing" : "composing"}" data-size="32" data-color="accent" data-paused aria-hidden="true"></canvas><div class="answer${tone}">${esc(r.answer)}</div></div>`;
       if (r.model_used === "local_mock" && !r.degraded) {
         h += `<p class="hint" style="margin-top:8px">This came from the on-device placeholder model, not a real one. Connect a provider in <a href="#/models">Models</a> and tick "Use the cloud model" for real answers.</p>`;
       }
@@ -497,8 +538,21 @@ $("#askForm").addEventListener("submit", async (ev) => {
       }
     } catch (e) {
       $("#askOut").innerHTML = `<div class="answer bad" role="alert">${esc(errText(e))}</div>`;
+    } finally {
+      clearTimeout(phase);
+      form.classList.remove("beam");
+      form.removeAttribute("aria-busy");
     }
   });
+});
+$("#heroForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const q = $("#heroAsk").value.trim();
+  if (!q) return $("#heroAsk").focus();
+  $("#askInput").value = q;
+  $("#heroAsk").value = "";
+  location.hash = "#/ask";
+  setTimeout(() => $("#askForm").requestSubmit(), 0);
 });
 $("#askInput").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
@@ -518,7 +572,7 @@ function approvalItem(a, mode) {
     ? `<button class="btn sm" type="button" data-action="approval-decide" data-ok="1" data-id="${esc(a.id)}">Approve</button>
        <button class="ghost sm danger" type="button" data-action="approval-decide" data-ok="0" data-id="${esc(a.id)}">Deny</button>`
     : `<button class="btn sm" type="button" data-action="approval-run" data-id="${esc(a.id)}">Run now</button>`;
-  return `<div class="item"><div class="t">${esc(act.tool_name)} <span class="pill ${esc(a.risk_label)}">${esc(a.risk_label)} risk</span>${dbl}${exp}</div>
+  return `<div class="item${mode === "pending" ? " beam-pulse" : ""}"><div class="t">${esc(act.tool_name)} <span class="pill ${esc(a.risk_label)}">${esc(a.risk_label)} risk</span>${dbl}${exp}</div>
     <div class="d">${esc(act.description)}</div>${a.consequence ? `<div class="d">${esc(a.consequence)}</div>` : ""}${params}
     <div class="acts">${buttons}</div></div>`;
 }
@@ -532,7 +586,7 @@ async function loadApprovals() {
   try {
     const [pend, appr] = await Promise.all([get("/approvals?status=pending"), get("/approvals?status=approved")]);
     [...pend.items, ...appr.items].forEach((a) => approvalCache.set(a.id, a));
-    out.innerHTML = pend.items.length ? pend.items.map((a) => approvalItem(a, "pending")).join("") : empty("Nothing waiting.", " New requests will appear here.");
+    out.innerHTML = pend.items.length ? pend.items.map((a) => approvalItem(a, "pending")).join("") : empty("Nothing waiting.", " New requests will appear here.", true);
     ready.innerHTML = appr.items.length ? appr.items.map((a) => approvalItem(a, "approved")).join("") : empty("Nothing approved and waiting to run.");
     refreshBadges();
   } catch (e) {
@@ -785,7 +839,7 @@ async function loadFeed() {
   try {
     const r = await get("/feed?limit=30");
     out.innerHTML = r.items.length ? r.items.map((u) => `<div class="item"><div class="t">${esc(u.title)} <span class="pill">${esc(u.kind)}</span></div><div class="d" style="white-space:pre-wrap">${esc(u.body)}</div><div class="meta"><span class="pill">${esc(fmtTime(u.created_at))}</span></div></div>`).join("")
-      : empty("Your feed is empty.", ' Select "Refresh feed" to build it.');
+      : empty("Your feed is empty.", ' Select "Refresh feed" to build it.', true);
   } catch (e) {
     out.innerHTML = failed(e);
   }
@@ -952,6 +1006,7 @@ function enterApp() {
 }
 
 async function boot() {
+  initOrbs();
   await refreshStatus();
   state.authRequired = state.health ? !!state.health.auth_required : true;
   $("#connectVer").textContent = state.health ? `node ${state.health.version}` : "node offline";

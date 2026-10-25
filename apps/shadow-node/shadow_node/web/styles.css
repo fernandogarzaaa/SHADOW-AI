@@ -109,6 +109,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .ghost:hover:not(:disabled) { color: var(--txt); border-color: var(--faint); }
 .danger { color: var(--bad); border-color: var(--bad-soft); }
 .danger:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
+a.btn, a.ghost { display: inline-block; text-decoration: none; }
+a.btn { color: #fff; }
 .link { background: none; border: 0; padding: 0; color: var(--accent-txt); font-weight: 500; }
 
 /* Content */
@@ -190,3 +192,55 @@ pre.json { font-family: var(--mono); font-size: 12px; background: var(--panel-2)
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* ---------------------------------------------------------------------------
+   Thinking orbs (vendored engine, web/orb.js) and border beams.
+   The beam is a CSS take on libraries.dev's border-beam (MIT): a conic
+   gradient masked to the element's 1px border, rotated via @property.
+   --------------------------------------------------------------------------- */
+canvas.orb { display: inline-block; vertical-align: middle; flex: none; }
+.brand .orb-32 { margin: -3px; }
+.thinking { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; margin-top: 14px; }
+.thinking .orb-20 { margin: -2px 0; }
+.answer-row { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; }
+.answer-row .answer { margin-top: 0; flex: 1; min-width: 0; }
+.answer-row .orb-32 { margin-top: 4px; }
+.empty .orb { display: block; margin: 0 auto 8px; opacity: .9; }
+.btn .orb, .ghost .orb { margin: -4px 6px -4px -4px; }
+.code-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 6px 0 10px; }
+.code-wrap .code { margin: 0; width: 100%; }
+
+@property --beam-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@property --beam-glow { syntax: "<number>"; inherits: false; initial-value: 0; }
+
+.beam, .beam-pulse { position: relative; isolation: isolate; }
+.beam::after, .beam-pulse::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+/* Traveling beam: Shadow is working on something. */
+.beam::after {
+  background: conic-gradient(from var(--beam-angle),
+    transparent 0deg 250deg, var(--accent) 300deg, #c7c6ff 330deg, #8bd3ff 345deg, transparent 360deg);
+  animation: beam-travel 2.6s linear infinite;
+}
+.beam { box-shadow: 0 0 0 1px var(--accent-soft), 0 8px 32px -12px var(--accent-soft); }
+@keyframes beam-travel { to { --beam-angle: 360deg; } }
+/* Breathing border: something is waiting for you. */
+.beam-pulse::after { background: var(--warn); animation: beam-breathe 2.3s ease-in-out infinite; }
+.beam-pulse { animation: beam-halo 2.3s ease-in-out infinite; }
+@keyframes beam-breathe { 0%, 100% { opacity: .15; } 50% { opacity: .85; } }
+@keyframes beam-halo { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 22px -6px var(--warn-soft), 0 0 0 1px var(--warn-soft); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .beam::after { animation: none; --beam-angle: 120deg; }
+  .beam-pulse::after { animation: none; opacity: .6; }
+  .beam-pulse { animation: none; }
+}
+.hero { display: flex; gap: 20px; align-items: center; }
+.hero > canvas { flex: none; }
+.hero-body { flex: 1; min-width: 0; }
+.hero h2 { margin: 0 0 2px; font-size: 18px; font-weight: 600; }
+.hero .hint { margin-bottom: 12px; }
+@media (max-width: 760px) { .hero { flex-direction: column; align-items: flex-start; } }

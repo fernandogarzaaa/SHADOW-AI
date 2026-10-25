@@ -43,7 +43,7 @@ ghost_adapter = "packages/ghost-adapter/ghost_adapter"
 
 [tool.setuptools.package-data]
 # Default policy and the bundled web dashboard are read from the package dir at runtime.
-shadow_node = ["policy.yaml", "policy.yaml.example", "web/*"]
+shadow_node = ["policy.yaml", "policy.yaml.example", "web/*", "web/vendor/*/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/shadow-node", "packages/agent-core", "packages/memory-engine", "packages/axiom-adapter", "packages/ghost-adapter"]

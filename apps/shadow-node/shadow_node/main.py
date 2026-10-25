@@ -938,11 +938,29 @@ def dashboard():
 def dashboard_asset(asset: str):
     """Static dashboard assets (flat directory; no traversal possible since
     the name is matched against an allowlist of files that exist)."""
-    allowed = {"app.js", "signer.js", "styles.css", "favicon.svg"}
+    allowed = {"app.js", "signer.js", "orb.js", "styles.css", "favicon.svg"}
     if asset not in allowed:
         raise HTTPException(404, "not found")
     return FileResponse(
         os.path.join(WEB_DIR, asset),
+        headers={"Content-Security-Policy": DASHBOARD_CSP},
+    )
+
+
+# Third-party dashboard code, vendored and served same-origin (see
+# web/vendor/*/README.md). Explicit allowlist per library.
+DASHBOARD_VENDOR = {
+    "thinking-orbs": {"engine.es.js", "index-B8WsUNf5.js", "LICENSE"},
+}
+
+
+@app.get("/web/vendor/{lib}/{asset}", include_in_schema=False)
+def dashboard_vendor_asset(lib: str, asset: str):
+    if asset not in DASHBOARD_VENDOR.get(lib, set()):
+        raise HTTPException(404, "not found")
+    return FileResponse(
+        os.path.join(WEB_DIR, "vendor", lib, asset),
+        media_type="text/javascript" if asset.endswith(".js") else "text/plain",
         headers={"Content-Security-Policy": DASHBOARD_CSP},
     )
 

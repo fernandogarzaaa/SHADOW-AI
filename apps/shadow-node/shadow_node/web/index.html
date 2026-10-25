@@ -15,7 +15,7 @@
 <!-- Connect / pairing screen (shown when this browser has no credential) -->
 <div class="connect" id="connect" hidden>
   <div class="card">
-    <div class="brand"><div class="glyph" aria-hidden="true"></div><div><b>Shadow</b><small id="connectVer">local node</small></div></div>
+    <div class="brand"><canvas data-orb="breathing" data-size="32" data-color="accent" aria-hidden="true"></canvas><div><b>Shadow</b><small id="connectVer">local node</small></div></div>
     <h1 tabindex="-1" id="connectTitle">Connect this browser</h1>
     <p class="sub">Pair this browser with your node once. It gets its own signing key, which never leaves this browser.</p>
     <div id="insecureNote" class="banner" hidden>This page isn't on HTTPS or localhost, so the browser can't lock away the key. It will be stored in this browser's local storage. To keep it locked away, open the dashboard at <b>http://localhost:8787</b>, or serve it over HTTPS.</div>
@@ -33,7 +33,10 @@
 
     <div id="pairWaiting" hidden>
       <p class="sub">Waiting for approval. On a device that's already paired, open <b>Devices</b> and approve this code:</p>
-      <div class="code" id="pairCode" aria-live="polite">------</div>
+      <div class="code-wrap">
+        <canvas data-orb="connecting" data-size="64" aria-label="Waiting for approval"></canvas>
+        <div class="code" id="pairCode" aria-live="polite">------</div>
+      </div>
       <p class="hint" id="pairExpiry">The request expires in 5 minutes.</p>
       <div class="actions"><button class="ghost" type="button" data-action="pair-cancel">Cancel</button></div>
     </div>
@@ -43,7 +46,7 @@
 
 <div class="app" id="app" hidden>
   <aside>
-    <div class="brand"><div class="glyph" aria-hidden="true"></div><div><b>Shadow</b><small id="ver">local node</small></div></div>
+    <div class="brand"><canvas id="brandOrb" data-orb="breathing" data-size="32" data-color="accent" aria-label="Shadow is idle"></canvas><div><b>Shadow</b><small id="ver">local node</small></div></div>
     <nav id="nav" aria-label="Sections">
       <div class="nav-group" aria-hidden="true">Today</div>
       <a href="#/overview" data-view="overview"><span class="dot" aria-hidden="true"></span>Overview</a>
@@ -87,6 +90,18 @@
 
     <!-- OVERVIEW -->
     <section class="view" id="view-overview" aria-labelledby="title">
+      <form class="card hero" id="heroForm">
+        <canvas id="heroOrb" data-orb="breathing" data-size="64" data-color="accent" aria-hidden="true"></canvas>
+        <div class="hero-body">
+          <h2 id="heroTitle">All quiet.</h2>
+          <p class="hint" id="heroSub">Nothing needs your decision right now.</p>
+          <div class="row">
+            <label for="heroAsk" class="sr-only">Ask Shadow</label>
+            <input id="heroAsk" class="grow" placeholder="Ask Shadow anything…" autocomplete="off" />
+            <button class="btn" type="submit">Ask</button>
+          </div>
+        </div>
+      </form>
       <div class="grid" id="overviewPanels"></div>
     </section>
 
