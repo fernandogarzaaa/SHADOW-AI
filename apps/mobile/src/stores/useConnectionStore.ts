@@ -127,8 +127,16 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
 				randomHexBytes(16),
 			);
 
+			if (result.status === "pending" || !result.device) {
+				throw new Error(
+					"This pairing hasn't been approved yet. Approve it on the node's dashboard (Devices), then try again.",
+				);
+			}
 			const deviceId = result.device.id;
-			const deviceSecret = result.shared_secret;
+			const deviceSecret = result.secret ?? result.shared_secret;
+			if (!deviceSecret) {
+				throw new Error("The node didn't return a device secret.");
+			}
 			const pairedName = result.device.name;
 
 			await Promise.all([

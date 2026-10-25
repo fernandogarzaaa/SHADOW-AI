@@ -3,7 +3,7 @@
  * Auth: HMAC-SHA256 per request (see @/lib/shadowSigner).
  */
 
-import { authHeaders, randomHexBytes } from "@/lib/shadowSigner";
+import { authHeadersV2, randomHexBytes } from "@/lib/shadowSigner";
 import { useConnectionStore } from "@/stores/useConnectionStore";
 import * as FileSystem from "expo-file-system/legacy";
 
@@ -44,7 +44,9 @@ export interface HealthResponse {
 
 export interface PairStartResponse {
 	pairing_id: string;
-	expires_in: number;
+	code: string;
+	expires_in_seconds: number;
+	bootstrap_required?: boolean;
 }
 
 export interface PairedDevice {
@@ -56,7 +58,12 @@ export interface PairedDevice {
 
 export interface PairConfirmResponse {
 	device: PairedDevice;
-	shared_secret: string;
+	/** Current field name; `shared_secret` is kept as an alias by the node. */
+	secret?: string;
+	shared_secret?: string;
+	session_expires_at?: string;
+	/** Present (with status "pending") when the node answered 202. */
+	status?: string;
 }
 
 export interface Page<T> {
@@ -168,9 +175,8 @@ export async function shadowFetch(
 	const { method = "GET", body, auth = true } = init;
 	const base = getBaseUrl();
 	const bodyString = body === undefined ? "" : JSON.stringify(body);
-	// The node signs request.url.path only (no query string); sign the same
-	// canonical path here or requests like /approvals?status=pending get 401.
-	const signPath = path.split("?")[0];
+	// Signature v2 covers the path AND the query string, so a tampered
+	// ?status= or ?include_sensitive= is rejected by the node.
 
 	const headers: Record<string, string> = {
 		Accept: "application/json",
@@ -183,11 +189,11 @@ export async function shadowFetch(
 		if (!deviceId || !deviceSecret) {
 			throw new ShadowApiError("Not paired with a SHADOW node", 0);
 		}
-		const signed = await authHeaders({
+		const signed = await authHeadersV2({
 			deviceId,
 			secret: deviceSecret,
 			method,
-			path: signPath,
+			path,
 			body: bodyString,
 		});
 		Object.assign(headers, signed);
@@ -225,9 +231,16 @@ export async function getHealth(): Promise<HealthResponse> {
 	);
 }
 
-export async function pairStart(): Promise<PairStartResponse> {
+export async function pairStart(
+	deviceName: string,
+	publicKey: string,
+): Promise<PairStartResponse> {
 	return readJson<PairStartResponse>(
-		await shadowFetch("/pair/start", { method: "POST", body: {}, auth: false }),
+		await shadowFetch("/pair/start", {
+			method: "POST",
+			body: { device_name: deviceName, public_key: publicKey, client_kind: "mobile" },
+			auth: false,
+		}),
 	);
 }
 
