@@ -295,5 +295,6 @@ def test_claim_prunes_stale_nonces(tmp_path):
     ledger.claim("dev", "old", old)
     ledger._last_prune = 0
     ledger.claim("dev", "new", time.time())
+    ledger._prune_thread.join(timeout=5)  # pruning runs off the request path
     ids = [r.id for r in store.all("nonces", _NonceRow)]
     assert ids == ["dev:new"]

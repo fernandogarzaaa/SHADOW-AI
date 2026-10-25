@@ -69,8 +69,10 @@ class AnthropicProvider:
     FALLBACK_BETA = "server-side-fallback-2026-07-01"
     RETRY_STATUSES = {429, 500, 502, 503, 529}
 
-    def __init__(self, api_key: str, model_name: str, endpoint: str = "", timeout: float = 300.0,
-                 max_tokens: int | None = None, max_retries: int = 3):
+    # Bounded so one ask can't hold a request worker for long during an
+    # outage: ~2 attempts x 120s worst case plus at most 2 short waits.
+    def __init__(self, api_key: str, model_name: str, endpoint: str = "", timeout: float = 120.0,
+                 max_tokens: int | None = None, max_retries: int = 2):
         self.api_key = api_key
         self.model_name = model_name or DEFAULT_ANTHROPIC_MODEL
         self.endpoint = endpoint or self.DEFAULT_ENDPOINT
@@ -87,7 +89,7 @@ class AnthropicProvider:
                 if attempt == self.max_retries:
                     raise ModelResponseError(f"anthropic: network error: {e}") from e
                 time.sleep(delay)
-                delay = min(delay * 2, 30.0)
+                delay = min(delay * 2, 10.0)
                 continue
             if resp.status_code not in self.RETRY_STATUSES or attempt == self.max_retries:
                 return resp
@@ -97,8 +99,8 @@ class AnthropicProvider:
                 wait = float(resp.headers.get("retry-after", ""))
             except ValueError:
                 wait = delay + random.uniform(0, 0.5)
-            time.sleep(min(wait, 60.0))
-            delay = min(delay * 2, 30.0)
+            time.sleep(min(wait, 10.0))
+            delay = min(delay * 2, 10.0)
         return resp  # pragma: no cover - loop always returns
 
     def complete(self, prompt: str, context: str = "") -> str:

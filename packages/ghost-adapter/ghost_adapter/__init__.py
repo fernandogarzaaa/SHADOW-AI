@@ -47,6 +47,9 @@ def _resolve_public_ips(host: str) -> list[str]:
     return ips
 
 
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
 def _is_public_ip(ip_str: str) -> bool:
     """Globally routable unicast only. ``is_global`` also rejects shared
     address space (CGNAT 100.64/10) and other special ranges that the
@@ -55,6 +58,11 @@ def _is_public_ip(ip_str: str) -> bool:
     ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
     if isinstance(ip, ipaddress.IPv6Address):
         embedded = ip.ipv4_mapped or ip.sixtofour
+        packed = ip.packed
+        if embedded is None and packed[:12] == bytes(12):
+            embedded = ipaddress.IPv4Address(packed[12:])  # IPv4-compatible ::a.b.c.d
+        if embedded is None and ip in _NAT64_PREFIX:
+            embedded = ipaddress.IPv4Address(packed[12:])  # NAT64 64:ff9b::a.b.c.d
         if embedded is not None:
             ip = embedded
     return ip.is_global and not ip.is_multicast

@@ -113,7 +113,7 @@ from . import provider_auth
 from . import accounts
 from .events import EventBus
 from pathlib import Path
-import contextvars, tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
+import contextlib, contextvars, re, tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
 from contextlib import asynccontextmanager
 
 APP_VERSION = "0.1.0"
@@ -335,6 +335,16 @@ _execution_consent: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "execution_consent", default=False
 )
 
+@contextlib.contextmanager
+def _consent_granted(approved: bool):
+    """Grant explicit tool consent for one verified-approval execution."""
+    token = _execution_consent.set(bool(approved))
+    try:
+        yield
+    finally:
+        _execution_consent.reset(token)
+
+
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor = LocalActionExecutor()
 for _tool in action_executor.names():
@@ -498,6 +508,7 @@ ghost_runs = GhostRunSession(
     event_sink=bus.publish,
     audit=sentinel_audit,
     approval_resolver=_resolve_server_approval,
+    consent_scope=lambda approved: _consent_granted(approved),
 )
 ambient_scheduler = AmbientScheduler(
     store=_ambient_kv,
@@ -822,7 +833,12 @@ async def auth_middleware(request: Request, call_next):
             ok, reason = False, "unknown_device"
             sessions.verify(device_id, None, None, None, request.method, request.url.path)
         elif not h.get("x-shadow-signature"):
-            ok, reason = False, "missing_signature"
+            # verify() records the auth_failed audit event without needing
+            # the body (it fails before any signature work).
+            ok, reason = sessions.verify(
+                device_id, None, h.get("x-shadow-nonce"), h.get("x-shadow-timestamp"),
+                request.method, request.url.path,
+            )
         else:
             raw = await request.body()
             if version == 2:
@@ -2518,21 +2534,24 @@ def _run_ask_pipeline(req: AskRequest):
             verify=GROUNDING_VERIFY,
         )
     except Exception as e:
+        if frontier is None:
+            raise  # a local failure is not a cloud error
+        safe_error = _redact_provider_error(e)
         audit.append(
             AuditEvent(
                 actor="agent",
                 event_type="cloud_model_error",
                 model_used=model_config.provider,
                 status="fallback_local",
-                result=str(e)[:200],
+                result=safe_error,
             )
         )
         out = hybrid.run(req.prompt, raw_context, frontier=None)
         # Never pass a placeholder off as an answer: say plainly that the
         # cloud model failed, and flag the response as degraded.
         out["answer"] = (
-            f"The cloud model ({model_config.provider}) could not answer: "
-            f"{str(e)[:160]}. Nothing was generated; try again shortly."
+            f"The cloud model ({model_config.provider}) could not answer ({safe_error}). "
+            "Nothing was generated; try again shortly."
         )
         out["degraded"] = True
         out["error"] = "cloud_model_error"
@@ -2587,6 +2606,20 @@ def _run_ask_pipeline(req: AskRequest):
         "degraded": out.get("degraded", False),
         "error": out.get("error"),
     }
+
+
+def _redact_provider_error(e: Exception) -> str:
+    """Short, secret-free description of a provider failure. Provider
+    exceptions can embed request URLs that carry credentials (Gemini's
+    ?key=...), so only the exception type and HTTP status are surfaced."""
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    msg = str(e)
+    if status is None:
+        m = re.search(r"\bHTTP (\d{3})\b|\b(\d{3}) [A-Z][a-z]", msg)
+        status = (m.group(1) or m.group(2)) if m else None
+    if type(e).__name__ == "ModelResponseError" and "declined" in msg:
+        return "request declined by the provider's safety system"
+    return f"{type(e).__name__}" + (f", HTTP {status}" if status else "")
 
 
 def _sse_data(event_type: str, properties: dict) -> str:
@@ -2711,8 +2744,7 @@ def plan(req: AskRequest):
 @app.post("/agent/execute")
 def execute(req: ExecuteRequest):
     server_approved = _resolve_server_approval(req.approval_id, req.action)
-    token = _execution_consent.set(server_approved)
-    try:
+    with _consent_granted(server_approved):
         res = core.execute(
             req.action,
             server_approved,
@@ -2721,8 +2753,6 @@ def execute(req: ExecuteRequest):
             thread_id=req.thread_id,
             tool_call_id=req.tool_call_id,
         )
-    finally:
-        _execution_consent.reset(token)
     audit.extend(core.drain_audit())
     if req.approval_id:
         try:

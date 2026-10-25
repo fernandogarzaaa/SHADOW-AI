@@ -379,8 +379,14 @@ class GhostRunSession:
         event_sink: Any | None = None,
         audit: Any | None = None,
         approval_resolver: Any | None = None,
+        consent_scope: Any | None = None,
     ):
         self.core = core
+        # Optional callable(approved: bool) -> context manager. The node
+        # uses it to grant explicit per-tool consent (calendar, email) for
+        # the duration of one step that carries a verified approval, the
+        # same way /agent/execute does.
+        self._consent_scope = consent_scope
         self.journal = journal if journal is not None else RunJournal()
         self.checkpoints = checkpoints if checkpoints is not None else CheckpointStore()
         self.claims = claims if claims is not None else ClaimRegistry()
@@ -544,12 +550,15 @@ class GhostRunSession:
             )
 
         try:
-            out = self.core.execute(
-                action,
-                approved=server_approved,
-                double_confirmed=cp.double_confirmed,
-                approval_id=step_approval_id,
-            )
+            import contextlib
+            scope = self._consent_scope(server_approved) if self._consent_scope else contextlib.nullcontext()
+            with scope:
+                out = self.core.execute(
+                    action,
+                    approved=server_approved,
+                    double_confirmed=cp.double_confirmed,
+                    approval_id=step_approval_id,
+                )
         except Exception as e:  # unexpected: checkpoint as interrupted, re-raise
             cp.status = "interrupted"
             cp.error = f"{type(e).__name__}: {e}"

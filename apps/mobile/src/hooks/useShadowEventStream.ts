@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AppState, type AppStateStatus } from "react-native";
-import { authHeaders } from "@/lib/shadowSigner";
+import { authHeadersV2 } from "@/lib/shadowSigner";
 import { parseSseChunk } from "@/lib/sseParse";
 import { useConnectionStore } from "@/stores/useConnectionStore";
 
@@ -160,7 +160,7 @@ export function useShadowEventStream({
 		void (async () => {
 			let headers: Record<string, string>;
 			try {
-				headers = await authHeaders({
+				headers = await authHeadersV2({
 					deviceId,
 					secret: deviceSecret,
 					method: "GET",

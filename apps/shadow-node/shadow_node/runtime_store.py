@@ -210,8 +210,13 @@ class PersistentNonceLedger:
         from agent_core import MAX_SKEW_SECONDS
         expired = [row.id for row in self._store.all("nonces", _NonceRow)
                    if now - row.seen_at > MAX_SKEW_SECONDS]
-        for row_id in expired:
-            self._store.delete("nonces", row_id)
+        if not expired:
+            return
+        with self._store.lock:
+            self._store.conn.executemany(
+                "DELETE FROM runtime WHERE collection='nonces' AND id=?",
+                [(row_id,) for row_id in expired])
+            self._store.conn.commit()
 
     def claim(self, device_id: str, nonce: str, seen_at: float) -> bool:
         """Atomic compare-and-set across workers sharing one DB file.
@@ -230,7 +235,11 @@ class PersistentNonceLedger:
         # grows by one row per authenticated request forever.
         if fresh and seen_at - self._last_prune >= self._PRUNE_INTERVAL:
             self._last_prune = seen_at
-            self._prune(seen_at)
+            # Pruning decrypts every nonce row; run it off the request path
+            # (verify runs inside the async auth middleware).
+            self._prune_thread = threading.Thread(target=self._prune, args=(seen_at,),
+                                                  daemon=True, name="nonce-prune")
+            self._prune_thread.start()
         return fresh
 
     def _claim_locked(self, key, device_id, nonce, seen_at, MAX_SKEW_SECONDS) -> bool:

@@ -219,7 +219,8 @@ def test_cloud_failure_is_reported_not_disguised(monkeypatch):
         name = "anthropic"
 
         def complete(self, prompt, context=""):
-            raise RuntimeError("upstream exploded")
+            # Provider errors can embed credentials (Gemini puts ?key= in the URL).
+            raise RuntimeError("Client error '429' for url 'https://x.test/v1?key=AIzaSECRET'")
 
     monkeypatch.setattr(m, "build_frontier", lambda *a, **k: Boom())
     r = TestClient(m.app).post("/agent/ask", json={"prompt": "summarize everything",
@@ -228,4 +229,58 @@ def test_cloud_failure_is_reported_not_disguised(monkeypatch):
     assert r.status_code == 200 and body["degraded"] is True
     assert body["error"] == "cloud_model_error"
     assert "Local mock answer" not in body["answer"]
-    assert "upstream exploded" in body["answer"]
+    assert "could not answer" in body["answer"] and "RuntimeError" in body["answer"]
+    assert "AIzaSECRET" not in body["answer"]
+    audit = TestClient(m.app).get("/audit?event_type=cloud_model_error&limit=5").json()["items"]
+    assert all("AIzaSECRET" not in (e.get("result") or "") for e in audit)
+
+
+def test_local_failure_is_not_reported_as_cloud_error(monkeypatch):
+    import shadow_node.main as m
+    monkeypatch.setattr(m, "AUTH_REQUIRED", False)
+
+    def boom(*a, **k):
+        raise ValueError("local redaction broke")
+
+    monkeypatch.setattr(m.hybrid, "run", boom)
+    c = TestClient(m.app, raise_server_exceptions=False)
+    r = c.post("/agent/ask", json={"prompt": "summarize everything"})
+    assert r.status_code == 500  # surfaced as a server error, not a fake cloud outage
+
+
+def test_ghost_step_with_approval_gets_consent(monkeypatch):
+    """Ghost runs resolve approvals like /agent/execute, so an approved
+    consent-gated step must receive explicit consent too."""
+    import shadow_node.main as m
+    seen = []
+    monkeypatch.setattr(m.action_executor, "run",
+                        lambda tool, params, explicit_consent=False: seen.append(explicit_consent) or {"ok": True})
+    with m._consent_granted(True):
+        m.core.tools._tools["email.draft"]({"to": "a@b.c"})
+    with m._consent_granted(False):
+        m.core.tools._tools["email.draft"]({"to": "a@b.c"})
+    assert seen == [True, False]
+    assert m.ghost_runs._consent_scope is not None
+
+
+@pytest.mark.parametrize("ip", ["64:ff9b::a00:1", "::a00:1", "64:ff9b::7f00:1"])
+def test_nat64_and_compat_private_blocked(ip):
+    from ghost_adapter import _is_public_ip
+    assert _is_public_ip(ip) is False
+
+
+def test_fixed_bootstrap_code_locks_and_is_single_use():
+    from shadow_node.bootstrap import BootstrapCode, MAX_FAILURES
+    with pytest.raises(ValueError):
+        BootstrapCode(fixed="short")
+    b = BootstrapCode(fixed="LONG-ENOUGH-CODE")
+    b.ensure()
+    for _ in range(MAX_FAILURES):
+        assert b.check("wrong-wrong") is False
+    assert b.check("LONG-ENOUGH-CODE") is False  # locked until restart
+    assert b.ensure() is None
+    b2 = BootstrapCode(fixed="LONG-ENOUGH-CODE")
+    b2.ensure()
+    assert b2.check("LONG-ENOUGH-CODE")
+    b2.consume()
+    assert b2.ensure() != "LONG-ENOUGH-CODE"  # never re-armed; a random code instead

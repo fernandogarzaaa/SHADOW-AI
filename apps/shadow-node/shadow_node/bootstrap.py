@@ -18,6 +18,7 @@ import sys
 import threading
 
 MAX_FAILURES = 5
+MIN_FIXED_LEN = 8
 
 _log = logging.getLogger("shadow_node.bootstrap")
 
@@ -34,9 +35,12 @@ class BootstrapCode:
         self._lock = threading.Lock()
         self._hash: bytes | None = None
         self._failures = 0
-        # Operator-supplied code (headless/Docker deploys). It is never
-        # rotated away, but it is still consumed by a successful bootstrap.
+        # Operator-supplied code (headless/Docker deploys). Must be long
+        # enough to resist guessing; used once, locked after MAX_FAILURES.
+        if fixed is not None and len(fixed.replace("-", "").strip()) < MIN_FIXED_LEN:
+            raise ValueError(f"SHADOW_BOOTSTRAP_CODE must be at least {MIN_FIXED_LEN} characters")
         self._fixed = fixed
+        self._locked = False
 
     @property
     def active(self) -> bool:
@@ -46,7 +50,7 @@ class BootstrapCode:
         """Issue a code if none is active. Returns the new plaintext code
         (also announced on stderr) or None when one was already active."""
         with self._lock:
-            if self._hash is not None:
+            if self._hash is not None or self._locked:
                 return None
             return self._issue_locked()
 
@@ -74,15 +78,25 @@ class BootstrapCode:
             if hmac.compare_digest(self._hash, _digest(code)):
                 return True
             self._failures += 1
-            if self._failures >= MAX_FAILURES and not self._fixed:
+            if self._failures >= MAX_FAILURES:
                 self._hash = None
-                self._issue_locked()
+                if self._fixed:
+                    # An operator-chosen code can't rotate; lock it until
+                    # the node restarts rather than allow unlimited guesses.
+                    self._fixed = None
+                    self._locked = True
+                    _announce("SHADOW BOOTSTRAP CODE locked after repeated wrong attempts; restart the node to re-enable it")
+                else:
+                    self._issue_locked()
             return False
 
     def consume(self) -> None:
         with self._lock:
             self._hash = None
             self._failures = 0
+            # Single use: an operator code never re-arms later (e.g. when
+            # every owner has expired); a fresh random code is printed instead.
+            self._fixed = None
 
     @property
     def failures(self) -> int:

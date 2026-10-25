@@ -121,6 +121,12 @@ class BodyLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"].upper() in BODYLESS_METHODS:
             return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers") or [])
+        if b"content-length" in headers:
+            # Declared length: check_body_limit already rejects oversize
+            # bodies from the header, and auth rejects unknown devices
+            # before reading the body, so don't buffer here.
+            return await self.app(scope, receive, send)
         chunks, total = [], 0
         while True:
             message = await receive()

@@ -350,7 +350,7 @@ export async function askAgentStream(
 		throw new ShadowApiError("Not paired with a SHADOW node", 0);
 	}
 	const bodyString = JSON.stringify({ prompt });
-	const signed = await authHeaders({
+	const signed = await authHeadersV2({
 		deviceId,
 		secret: deviceSecret,
 		method: "POST",
@@ -1176,16 +1176,16 @@ export async function authedDownloadParams(
 	path: string,
 ): Promise<{ url: string; headers: Record<string, string> }> {
 	const base = getBaseUrl();
-	const signPath = path.split("?")[0];
 	const { deviceId, deviceSecret } = useConnectionStore.getState();
 	if (!deviceId || !deviceSecret) {
 		throw new ShadowApiError("Not paired with a SHADOW node", 0);
 	}
-	const headers = await authHeaders({
+	// v2 signs the query string too, so sign the full path as requested.
+	const headers = await authHeadersV2({
 		deviceId,
 		secret: deviceSecret,
 		method: "GET",
-		path: signPath,
+		path,
 		body: "",
 	});
 	return { url: `${base}${path}`, headers };
