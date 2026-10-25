@@ -98,6 +98,7 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/pair/start": frozenset({"POST"}),
     "/pair/confirm": frozenset({"POST"}),
     "/pair/approve": frozenset({"POST"}),
+    "/pair/pending": frozenset({"GET"}),
     # goals
     "/goals": frozenset({"GET", "POST"}),
     "/goals/briefing": frozenset({"GET"}),

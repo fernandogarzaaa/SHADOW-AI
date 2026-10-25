@@ -805,6 +805,7 @@ async def auth_middleware(request: Request, call_next):
         request.method == "OPTIONS"
         or request.url.path
         in {"/", "/health", "/ready", "/pair/start", "/pair/confirm"}
+        or request.url.path.startswith("/web/")
         or request.url.path.startswith("/docs")
         or request.url.path.startswith("/openapi")
     )
@@ -893,12 +894,41 @@ async def hygiene_middleware(request: Request, call_next):
 # buffers them; Content-Length bodies are also rejected early by hygiene.
 app.add_middleware(BodyLimitMiddleware)
 
-WEB_INDEX = os.path.join(os.path.dirname(__file__), "web", "index.html")
+WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
+WEB_INDEX = os.path.join(WEB_DIR, "index.html")
+# The dashboard is static and same-origin only: no inline script, no
+# third-party origins, no framing. Signing keys live in this origin's
+# IndexedDB, so the CSP is the main defence against injected script.
+DASHBOARD_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+    "base-uri 'none'; form-action 'self'; object-src 'none'"
+)
 
 
 @app.get("/", include_in_schema=False)
 def dashboard():
-    return FileResponse(WEB_INDEX)
+    return FileResponse(
+        WEB_INDEX,
+        headers={
+            "Content-Security-Policy": DASHBOARD_CSP,
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
+
+
+@app.get("/web/{asset}", include_in_schema=False)
+def dashboard_asset(asset: str):
+    """Static dashboard assets (flat directory; no traversal possible since
+    the name is matched against an allowlist of files that exist)."""
+    allowed = {"app.js", "signer.js", "styles.css", "favicon.svg"}
+    if asset not in allowed:
+        raise HTTPException(404, "not found")
+    return FileResponse(
+        os.path.join(WEB_DIR, asset),
+        headers={"Content-Security-Policy": DASHBOARD_CSP},
+    )
 
 
 @app.get("/health")
@@ -1042,6 +1072,30 @@ def pair_start(req: PairStart):
         "expires_in_seconds": PAIRING_TTL_SECONDS,
         "bootstrap_required": AUTH_REQUIRED and _bootstrap_open(),
     }
+
+
+@app.get("/pair/pending")
+def pair_pending(request: Request):
+    """Pending (not yet approved) pairings, for an owner to review and
+    approve. Owner-only: the list reveals who is trying to enroll."""
+    _require_owner(request)
+    with _pairing_lock:
+        _pairing_sweep()
+        items = [
+            {
+                "pairing_id": pid,
+                "code": pid[-6:].upper(),
+                "device_name": e["device_name"],
+                "client_kind": e.get("client_kind"),
+                "created_at": e["created_at"],
+                "expires_in_seconds": max(
+                    0, int(PAIRING_TTL_SECONDS - (time.time() - e["created_at"]))
+                ),
+            }
+            for pid, e in pairing.items()
+            if e["status"] == "pending"
+        ]
+    return _page(sorted(items, key=lambda i: i["created_at"], reverse=True))
 
 
 @app.post("/pair/approve")
