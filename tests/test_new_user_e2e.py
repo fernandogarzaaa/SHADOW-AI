@@ -43,6 +43,9 @@ def request(method: str, url: str, headers: dict[str, str] | None = None, body: 
         return Response(exc.code, exc.read())
 
 
+BOOTSTRAP_CODE = "E2E0-B00T"
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -75,6 +78,7 @@ def start_shadow_node(port: int, tmp_path: Path) -> subprocess.Popen:
         {
             "PYTHONPATH": pythonpath,
             "SHADOW_AUTH_REQUIRED": "true",
+            "SHADOW_BOOTSTRAP_CODE": BOOTSTRAP_CODE,
             "SHADOW_MEMORY_DB": str(tmp_path / "memory.db"),
         }
     )
@@ -141,7 +145,8 @@ def pair_device(base_url: str) -> dict[str, str]:
         "POST",
         f"{base_url}/pair/confirm",
         headers={"Content-Type": "application/json"},
-        body=json.dumps({"pairing_id": start.json()["pairing_id"]}, separators=(",", ":")),
+        body=json.dumps({"pairing_id": start.json()["pairing_id"], "bootstrap_code": BOOTSTRAP_CODE},
+                        separators=(",", ":")),
     )
     assert confirm.status_code == 200
     paired = confirm.json()

@@ -171,6 +171,8 @@ def api(monkeypatch):
     monkeypatch.setattr(m, "_MASTER_SECRET", TEST_MASTER)
     monkeypatch.setattr(m.sessions, "master_secret", TEST_MASTER)
     monkeypatch.setattr(m, "AUTH_REQUIRED", True)
+    from shadow_node.bootstrap import BootstrapCode
+    monkeypatch.setattr(m, "bootstrap", BootstrapCode(fixed="TEST-BOOT"))
     dev_snap = dict(m.sessions.devices)
     sec_snap = dict(m.sessions.secrets)
     pair_snap = dict(m.pairing)
@@ -193,11 +195,11 @@ def _signed(device_id, secret, method, path, body="", nonce="n1"):
 
 
 def _pair_bootstrap_device(api):
-    """First-ever device: bootstrap auto-approves, returns (device, secret)."""
+    """First-ever device: the bootstrap code approves it, returns (device, secret)."""
     client, m = api
     pid = client.post("/pair/start",
                       json={"device_name": "Phone", "public_key": "phone-pub"}).json()["pairing_id"]
-    r = client.post("/pair/confirm", json={"pairing_id": pid})
+    r = client.post("/pair/confirm", json={"pairing_id": pid, "bootstrap_code": "TEST-BOOT"})
     assert r.status_code == 200, r.text
     body = r.json()
     return body["device"], body["secret"]

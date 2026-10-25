@@ -25,6 +25,7 @@ from ghost_adapter import GhostAdapter, LocalActionExecutor
 from .connectors import read_local_document
 from .runtime_scope import check_runtime_scope, RuntimeScopeError
 from .request_hygiene import check_request_hygiene, HygieneError
+from .bootstrap import from_env as bootstrap_code_from_env
 from .ambient_tasks import build_task_map, BUILTIN_TASKS
 from .model_providers import ModelProviderConfig, LocalMockModel
 from .crypto_config import load_fernet_key
@@ -115,11 +116,14 @@ from pathlib import Path
 import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
 from contextlib import asynccontextmanager
 
-APP_VERSION = "1.0.0-rc"
+APP_VERSION = "0.1.0"
 
 
 @asynccontextmanager
 async def _lifespan(app):
+    # Fresh node (or all owners expired/revoked): print the single-use
+    # bootstrap code so the operator can pair the first owner device.
+    _ensure_bootstrap_code()
     yield
     # Clean shutdown: stop the always-on loop (join its thread, persist the
     # loop record) instead of letting the process die mid-tick.
@@ -621,6 +625,9 @@ class AskRequest(BaseModel):
 class PairStart(BaseModel):
     device_name: str
     public_key: str
+    # Client family ("web", "ios", "mobile"). Web clients always sign with
+    # v2, so their devices start with min_sig_version=2.
+    client_kind: str | None = None
 
 
 class PairApprove(BaseModel):
@@ -629,6 +636,9 @@ class PairApprove(BaseModel):
 
 class PairConfirm(BaseModel):
     pairing_id: str
+    # Required for first-owner enrollment when auth is on: the single-use
+    # code printed to the node's terminal (see bootstrap.py).
+    bootstrap_code: str | None = None
 
 
 class DeviceRegisterRequest(BaseModel):
@@ -789,18 +799,36 @@ async def auth_middleware(request: Request, call_next):
         or request.url.path.startswith("/openapi")
     )
     if AUTH_REQUIRED and not exempt:
-        body = _canonical_body(
-            await request.body(), request.headers.get("content-type", "")
-        )
-        ok, reason = sessions.verify(
-            request.headers.get("x-shadow-device-id"),
-            request.headers.get("x-shadow-signature"),
-            request.headers.get("x-shadow-nonce"),
-            request.headers.get("x-shadow-timestamp"),
-            request.method,
-            request.url.path,
-            body,
-        )
+        h = request.headers
+        device_id = h.get("x-shadow-device-id")
+        try:
+            version = int(h.get("x-shadow-signature-version") or "1")
+        except ValueError:
+            version = 0
+        # Cheap header checks first: an unauthenticated client must not be
+        # able to make the node buffer a request body it will reject anyway.
+        if not device_id or device_id not in sessions.devices:
+            ok, reason = False, "unknown_device"
+            sessions.verify(device_id, None, None, None, request.method, request.url.path)
+        elif not h.get("x-shadow-signature"):
+            ok, reason = False, "missing_signature"
+        else:
+            raw = await request.body()
+            if version == 2:
+                body = hashlib.sha256(raw).hexdigest()
+            else:
+                body = _canonical_body(raw, h.get("content-type", ""))
+            ok, reason = sessions.verify(
+                device_id,
+                h.get("x-shadow-signature"),
+                h.get("x-shadow-nonce"),
+                h.get("x-shadow-timestamp"),
+                request.method,
+                request.url.path,
+                body,
+                query=request.url.query,
+                version=version,
+            )
         if not ok:
             # This middleware runs outside CORSMiddleware, so auth rejections
             # would otherwise leave browser clients with an opaque
@@ -812,6 +840,17 @@ async def auth_middleware(request: Request, call_next):
                 resp.headers["Access-Control-Allow-Origin"] = origin
                 resp.headers["Vary"] = "Origin"
             return resp
+        request.state.device_id = device_id
+        response = await call_next(request)
+        dev = sessions.devices.get(device_id)
+        if dev is not None:
+            response.headers["X-Shadow-Session-Expires"] = dev.session_expires_at.isoformat()
+        if version == 1 and request.url.query:
+            # v1 does not sign the query string; flag it so operators can
+            # see which clients still need to move to v2.
+            response.headers["Deprecation"] = "true"
+            response.headers["X-Shadow-Signature-Hint"] = "use signature version 2"
+        return response
     return await call_next(request)
 
 
@@ -856,6 +895,9 @@ def health():
         "local_first": True,
         "emergency_paused": profile.emergency_paused,
         "auth_required": AUTH_REQUIRED,
+        # True while no active owner device exists: the next enrollment
+        # needs the bootstrap code from the node's terminal.
+        "bootstrap_open": AUTH_REQUIRED and not sessions.active_owners(),
     }
 
 
@@ -925,7 +967,21 @@ def _require_owner(request: Request):
 _pairing_lock = threading.Lock()
 
 
-def _new_pairing(device_name, public_key, approved_by=None):
+bootstrap = bootstrap_code_from_env()
+
+
+def _bootstrap_open() -> bool:
+    """No active owner device (fresh node, or every owner revoked or
+    expired). A bootstrap code is the only way to mint a new owner."""
+    return not sessions.active_owners()
+
+
+def _ensure_bootstrap_code() -> None:
+    if AUTH_REQUIRED and _bootstrap_open():
+        bootstrap.ensure()
+
+
+def _new_pairing(device_name, public_key, approved_by=None, client_kind=None):
     _pairing_sweep()
     if len(pairing) >= MAX_PENDING_PAIRINGS:
         audit.append(
@@ -945,6 +1001,7 @@ def _new_pairing(device_name, public_key, approved_by=None):
         "created_at": time.time(),
         "approved_by": approved_by,
         "approved_at": time.time() if approved_by else None,
+        "client_kind": client_kind,
     }
     return pid
 
@@ -955,7 +1012,8 @@ def pair_start(req: PairStart):
     owner device must approve via /pair/approve before /pair/confirm mints
     credentials. The proposed identity is bound at start and cannot be
     swapped at confirm."""
-    pid = _new_pairing(req.device_name, req.public_key)
+    pid = _new_pairing(req.device_name, req.public_key, client_kind=req.client_kind)
+    _ensure_bootstrap_code()
     audit.append(
         AuditEvent(
             actor="pairing",
@@ -968,6 +1026,7 @@ def pair_start(req: PairStart):
         "pairing_id": pid,
         "code": pid[-6:].upper(),
         "expires_in_seconds": PAIRING_TTL_SECONDS,
+        "bootstrap_required": AUTH_REQUIRED and _bootstrap_open(),
     }
 
 
@@ -976,25 +1035,13 @@ def pair_approve(req: PairApprove, request: Request):
     """Owner-approved challenge: only a trusted, non-revoked device (HMAC
     authenticated by the middleware) can approve a pending pairing."""
     approver = _require_owner(request)
-    entry = pairing.get(req.pairing_id)
-    if entry is None:
-        raise HTTPException(404, "pairing not found")
-    if time.time() - entry["created_at"] > PAIRING_TTL_SECONDS:
-        del pairing[req.pairing_id]
-        audit.append(
-            AuditEvent(
-                actor="pairing",
-                event_type="pairing_expired",
-                status="blocked",
-                metadata={"pairing_id": req.pairing_id},
-            )
-        )
-        raise HTTPException(410, "pairing expired")
-    if entry["status"] == "approved":
-        return {"pairing_id": req.pairing_id, "status": "approved"}
-    entry["status"] = "approved"
-    entry["approved_by"] = approver
-    entry["approved_at"] = time.time()
+    with _pairing_lock:
+        entry = _live_pairing(req.pairing_id)
+        if entry["status"] == "approved":
+            return {"pairing_id": req.pairing_id, "status": "approved"}
+        entry["status"] = "approved"
+        entry["approved_by"] = approver
+        entry["approved_at"] = time.time()
     audit.append(
         AuditEvent(
             actor="pairing",
@@ -1006,59 +1053,80 @@ def pair_approve(req: PairApprove, request: Request):
     return {"pairing_id": req.pairing_id, "status": "approved"}
 
 
-@app.post("/pair/confirm")
-def pair_confirm(req: PairConfirm):
-    """The new device collects its credentials. Succeeds only after owner
-    approval, except for the bootstrap case where no owner device exists
-    yet (first-ever enrollment)."""
-    entry = pairing.get(req.pairing_id)
+def _live_pairing(pairing_id: str) -> dict:
+    """Fetch a pending pairing, expiring it if past its TTL. Caller holds
+    _pairing_lock."""
+    entry = pairing.get(pairing_id)
     if entry is None:
         raise HTTPException(404, "pairing not found")
     if time.time() - entry["created_at"] > PAIRING_TTL_SECONDS:
-        del pairing[req.pairing_id]
+        del pairing[pairing_id]
         audit.append(
             AuditEvent(
                 actor="pairing",
                 event_type="pairing_expired",
                 status="blocked",
-                metadata={"pairing_id": req.pairing_id},
+                metadata={"pairing_id": pairing_id},
             )
         )
         raise HTTPException(410, "pairing expired")
-    if entry["status"] != "approved":
-        with _pairing_lock:
-            # Re-check inside the lock: the bootstrap condition and the
-            # device minting below are one atomic enrollment.
-            entry = pairing.get(req.pairing_id)
-            if entry is None:
-                raise HTTPException(404, "pairing not found")
-            if entry["status"] == "approved":
-                pass
-            elif not sessions.devices:
-                # Bootstrap only: no device has ever been enrolled on this node.
-                # (Revoked devices still count as enrolled: revoking the last
-                # owner must not reopen self-service enrollment.)
-                entry["status"] = "approved"
-                entry["approved_by"] = "bootstrap"
-                entry["approved_at"] = time.time()
-                audit.append(
-                    AuditEvent(
-                        actor="pairing",
-                        event_type="pairing_approved",
-                        status="approved",
-                        metadata={
-                            "pairing_id": req.pairing_id,
-                            "approved_by": "bootstrap",
-                        },
-                    )
-                )
+    return entry
+
+
+def _approve_bootstrap(entry: dict, pairing_id: str) -> None:
+    entry["status"] = "approved"
+    entry["approved_by"] = "bootstrap"
+    entry["approved_at"] = time.time()
+    audit.append(
+        AuditEvent(
+            actor="pairing",
+            event_type="pairing_approved",
+            status="approved",
+            metadata={"pairing_id": pairing_id, "approved_by": "bootstrap"},
+        )
+    )
+
+
+@app.post("/pair/confirm")
+def pair_confirm(req: PairConfirm):
+    """The new device collects its credentials. Succeeds only after owner
+    approval, or for first-owner enrollment: with auth on, that requires
+    the single-use bootstrap code from the node's terminal; in dev mode
+    (auth off) the first device on an empty node self-completes."""
+    # One critical section: the approval check, the pairing pop, and the
+    # device mint are atomic, so concurrent confirms of the same pairing
+    # mint exactly one device and two bootstrap confirms cannot both win.
+    with _pairing_lock:
+        entry = _live_pairing(req.pairing_id)
+        if entry["status"] != "approved":
+            if req.bootstrap_code and _bootstrap_open() and bootstrap.check(req.bootstrap_code):
+                bootstrap.consume()
+                _approve_bootstrap(entry, req.pairing_id)
+            elif not AUTH_REQUIRED and not sessions.devices:
+                # Dev mode only: no device has ever been enrolled.
+                _approve_bootstrap(entry, req.pairing_id)
             else:
+                if req.bootstrap_code:
+                    audit.append(
+                        AuditEvent(
+                            actor="pairing",
+                            event_type="bootstrap_code_rejected",
+                            status="blocked",
+                            metadata={"pairing_id": req.pairing_id},
+                        )
+                    )
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "invalid_bootstrap_code",
+                                 "pairing_id": req.pairing_id, "status": "pending"},
+                    )
                 return JSONResponse(
                     status_code=202,
-                    content={"pairing_id": req.pairing_id, "status": "pending"},
+                    content={"pairing_id": req.pairing_id, "status": "pending",
+                             "bootstrap_required": AUTH_REQUIRED and _bootstrap_open()},
                 )
-    entry = pairing.pop(req.pairing_id)
-    with _pairing_lock:
+        pairing.pop(req.pairing_id)
+        is_owner = entry.get("approved_by") == "bootstrap"
         if _MASTER_SECRET is not None:
             # HMAC-derived device credential (OpenDots backlog #6): the
             # device's request-signing secret is derived from the node
@@ -1068,7 +1136,7 @@ def pair_confirm(req: PairConfirm):
                 entry["device_name"],
                 entry["public_key"],
                 None,
-                is_owner=(entry.get("approved_by") == "bootstrap"),
+                is_owner=is_owner,
                 credential_scheme=token_scheme_for_version(DEVICE_TOKEN_VERSION),
             )
             secret = derive_device_token(_MASTER_SECRET, dev.id)
@@ -1082,8 +1150,14 @@ def pair_confirm(req: PairConfirm):
                 entry["device_name"],
                 entry["public_key"],
                 secret,
-                is_owner=(entry.get("approved_by") == "bootstrap"),
+                is_owner=is_owner,
             )
+        kind = entry.get("client_kind")
+        if kind:
+            dev.client_kind = kind
+            if kind == "web":
+                dev.min_sig_version = 2
+            sessions._persist_device(dev)
     audit.append(
         AuditEvent(
             actor="pairing",
@@ -1096,7 +1170,14 @@ def pair_confirm(req: PairConfirm):
             },
         )
     )
-    return {"device": dev, "secret": secret}
+    # "shared_secret" is an alias kept for the mobile and iOS clients,
+    # which historically read that key.
+    return {
+        "device": dev,
+        "secret": secret,
+        "shared_secret": secret,
+        "session_expires_at": dev.session_expires_at.isoformat(),
+    }
 
 
 @app.post("/devices/register")
@@ -1145,6 +1226,31 @@ def revoke_device(device_id: str, request: Request):
         )
     )
     return {"revoked": device_id}
+
+
+@app.post("/devices/{device_id}/renew")
+def renew_device(device_id: str, request: Request):
+    """Start a fresh 30-day session window. A device may renew itself (it
+    just authenticated, so it is still valid); renewing any other device,
+    including reviving an expired one, requires owner authority. Revoked
+    devices cannot be renewed."""
+    dev = sessions.devices.get(device_id)
+    if dev is None:
+        raise HTTPException(404, "unknown device")
+    if dev.revoked:
+        raise HTTPException(409, "device is revoked")
+    if AUTH_REQUIRED and request.headers.get("x-shadow-device-id") != device_id:
+        _require_owner(request)
+    sessions.renew(device_id)
+    audit.append(
+        AuditEvent(
+            actor="user",
+            event_type="device_renewed",
+            status="ok",
+            metadata={"device_id": device_id},
+        )
+    )
+    return {"device_id": device_id, "session_expires_at": dev.session_expires_at.isoformat()}
 
 
 def _page(items):
@@ -3435,6 +3541,10 @@ async def ws_tasks(ws: WebSocket):
     # clients can). Rejected before accept with a 4401 close.
     if AUTH_REQUIRED:
         h = ws.headers
+        try:
+            version = int(h.get("x-shadow-signature-version") or "1")
+        except ValueError:
+            version = 0
         ok, reason = sessions.verify(
             h.get("x-shadow-device-id"),
             h.get("x-shadow-signature"),
@@ -3442,7 +3552,9 @@ async def ws_tasks(ws: WebSocket):
             h.get("x-shadow-timestamp"),
             "GET",
             "/ws/tasks",
-            "",
+            hashlib.sha256(b"").hexdigest() if version == 2 else "",
+            query=ws.url.query,
+            version=version,
         )
         if not ok:
             audit.append(
