@@ -76,4 +76,17 @@ struct KeychainSecretStore: SecretStore {
     }
 }
 
-struct ShadowEnvironment { var apiBaseURL: URL = URL(string: ProcessInfo.processInfo.environment["SHADOW_NODE_URL"] ?? "http://127.0.0.1:8787")!; var mockMode: Bool = ProcessInfo.processInfo.environment["SHADOW_MOCK_MODE"] != "false" }
+/// Launch configuration. `SHADOW_NODE_URL` pre-fills the node address.
+/// Mock mode exists only in DEBUG builds and only when explicitly requested
+/// with `SHADOW_MOCK_MODE=true`; release builds always talk to a real node.
+struct ShadowEnvironment {
+    var apiBaseURL: URL = URL(string: ProcessInfo.processInfo.environment["SHADOW_NODE_URL"] ?? "http://127.0.0.1:8787")!
+
+    var mockMode: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["SHADOW_MOCK_MODE"] == "true"
+        #else
+        return false
+        #endif
+    }
+}

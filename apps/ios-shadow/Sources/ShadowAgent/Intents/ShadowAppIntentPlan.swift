@@ -1,4 +1,7 @@
 import Foundation
-// App Intents-ready seam: expose approved Ask Shadow, emergency pause, and memory import intents in the iOS target.
-// Share Extension seam: pass user-selected text/files into the memory approval queue; never silently ingest.
-// BackgroundTasks seam: limited refresh for approval notifications and node heartbeat only.
+
+// Extension points, intentionally not implemented yet:
+// - App Intents: "Ask Shadow", "Pause Shadow" and "Add to memory" Siri/Shortcuts
+//   actions that call AppState, always going through the same approval gate.
+// - Share Extension: pass user-selected text/files to Memory; never ingest silently.
+// - BackgroundTasks: limited refresh for approval notifications and node heartbeat.
