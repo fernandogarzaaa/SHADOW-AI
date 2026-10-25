@@ -4,6 +4,38 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 
 
+def data_dir() -> Path:
+    """Root for node state: ``SHADOW_DATA_DIR`` (``/data`` in the Docker
+    image, so keys live on the volume) or ``data`` relative to the CWD."""
+    return Path(os.getenv("SHADOW_DATA_DIR", "data"))
+
+
+def key_path(name: str) -> str:
+    return str(data_dir() / "keys" / name)
+
+
+def write_secret_file(path: Path | str, data: bytes) -> None:
+    """Write secret material so it is never readable by other users, not
+    even briefly: the file is created 0600 (write-then-chmod left a window
+    where it had umask permissions) and atomically renamed into place."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def load_fernet_key(env_name: str, file_env_name: str, default_path: str) -> bytes:
     """Load or create a stable local Fernet key without logging secret material.
 
@@ -23,9 +55,5 @@ def load_fernet_key(env_name: str, file_env_name: str, default_path: str) -> byt
     if key_file.exists():
         return key_file.read_bytes().strip()
     key = Fernet.generate_key()
-    key_file.write_bytes(key)
-    try:
-        key_file.chmod(0o600)
-    except OSError:
-        pass
+    write_secret_file(key_file, key)
     return key

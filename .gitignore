@@ -14,3 +14,18 @@ apps/ios-shadow/.build/
 build/
 dist/
 *.egg-info/
+
+# Xcode user state
+xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# JS / Expo
+node_modules/
+.expo/
+
+# Tooling
+.ruff_cache/
+.coverage
+coverage.xml
+*.log

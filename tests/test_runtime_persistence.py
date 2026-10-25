@@ -18,12 +18,12 @@ def test_consents_and_audit_persist_across_restart(monkeypatch, tmp_path):
     c1, _ = _fresh_client(monkeypatch, tmp_path)
     c1.post("/consent", json={"data_source": "docs", "scope": "selected", "purpose": "answer", "model_access_level": "cloud_allowed"})
     c1.post("/agent/ask", json={"prompt": "hello there"})  # writes an audit event
-    audit_before = len(c1.get("/audit").json())
+    audit_before = len(c1.get("/audit?limit=1000").json()["items"])
     assert audit_before > 0
 
     # "Restart": reload the module against the same runtime DB.
     c2, _ = _fresh_client(monkeypatch, tmp_path)
-    assert len(c2.get("/audit").json()) >= audit_before          # audit restored
+    assert len(c2.get("/audit?limit=1000").json()["items"]) >= audit_before          # audit restored
     # The previously granted consent is still active and gates cloud the same way.
     r = c2.post("/agent/ask", json={"prompt": "hi", "allow_cloud": True, "cloud_approval": True})
     assert r.status_code == 200  # active persisted consent allows the cloud-approved path

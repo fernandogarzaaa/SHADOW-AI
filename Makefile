@@ -1,6 +1,6 @@
 .PHONY: setup test run demo compile mcp
 setup:
-	python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && pip install -e .
+	python -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt && pip install -e .
 test:
 	pytest -q
 compile:

@@ -12,13 +12,13 @@ import time
 from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from agent_core import AuditEvent, ConsentGrant, Device, DeviceSessionStore
-from .crypto_config import load_fernet_key
+from .crypto_config import key_path, load_fernet_key
 
 
 class EncryptedRuntimeStore:
     def __init__(self, db_path: str, key: bytes | None = None):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.key = key or load_fernet_key("SHADOW_RUNTIME_KEY", "SHADOW_RUNTIME_KEY_FILE", "data/keys/runtime.key")
+        self.key = key or load_fernet_key("SHADOW_RUNTIME_KEY", "SHADOW_RUNTIME_KEY_FILE", key_path("runtime.key"))
         self.cipher = Fernet(self.key)
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         # One connection is shared by every request thread; sqlite3

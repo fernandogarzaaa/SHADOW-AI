@@ -201,7 +201,8 @@ def test_api_delete_source(client):
     r=client.post('/memory/ingest',json={'text':'source delete marker','source_title':'sd'}).json(); sid=r['source']['id']; assert client.delete(f'/memory/source/{sid}').json()['deleted_source']==sid
 
 def test_api_approval_deny_reason(client):
-    client.post('/agent/plan',json={'prompt':'send email'}); reqs=client.get('/approvals').json()["items"]; rid=reqs[-1]['id']; r=client.post(f'/approvals/{rid}/deny',json={'reason':'unsafe'}).json(); assert r['deny_reason']=='unsafe'
+    act={'tool_name':'note.create','description':'Write a note','params':{'title':'t','body':'b'}}
+    rid=client.post('/approvals',json={'action':act,'reason':'test'}).json()['id']; r=client.post(f'/approvals/{rid}/deny',json={'reason':'unsafe'}).json(); assert r['deny_reason']=='unsafe'
 
 def test_api_model_provider_safe(client):
     assert 'api_key_configured' in client.get('/model/providers').json()
@@ -213,3 +214,10 @@ def test_policy_matrix(tool,expected):
 @pytest.mark.parametrize('name', ['sample_notes.md','sample_profile.md','sample_project_context.md'])
 def test_examples_exist(name):
     assert Path('examples',name).exists()
+
+
+def test_plain_question_creates_no_approval(client):
+    before=client.get('/approvals?status=pending').json()['count']
+    client.post('/agent/plan',json={'prompt':'what is on my plate today?'})
+    client.post('/agent/plan',json={'prompt':'send email to bob'})
+    assert client.get('/approvals?status=pending').json()['count']==before

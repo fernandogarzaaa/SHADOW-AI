@@ -280,7 +280,12 @@ class AgentCore:
         plan=AgentPlanner().plan(prompt)
         for a in plan.actions:
             a.data_used=data_used or []; a.model_used=model_used; a.risk=self.policy.classify_action(a); a.requires_approval=self.policy.requires_approval(a,self.profile)
-            if a.requires_approval: self.approvals.create(a,"Policy requires explicit user decision before execution.")
+            # Only actions that could actually run get an approval card. The
+            # beta planner also emits informational intents (answer_question,
+            # send_email, delete_file) that have no handler: queueing those
+            # flooded the approvals inbox (and push) with one card per
+            # question, none of which could ever execute.
+            if a.requires_approval and a.tool_name in self.tools.names(): self.approvals.create(a,"Policy requires explicit user decision before execution.")
         if any(a.risk==RiskClass.BLOCKED for a in plan.actions):
             self.audit.append(AuditEvent(actor="agent_core", event_type="suspicious_request_blocked", proposed_action=prompt, status="blocked"))
             self._record("policy.decision", {"tool_name": "leak_secret", "outcome": PolicyOutcome.DENY.value, "rule_id": "blocked_tool", "reason": "Suspicious request blocked at plan time."})

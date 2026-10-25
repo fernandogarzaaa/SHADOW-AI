@@ -44,7 +44,7 @@ class GeminiProvider:
     cloud = True
     BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash", endpoint: str = "", timeout: float = 60.0,
+    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash", endpoint: str = "", timeout: float = 60.0,
                  oauth_token: str | None = None):
         self.api_key = api_key
         self.oauth_token = oauth_token
@@ -77,7 +77,7 @@ class GeminiProvider:
 CATALOG = {
     "anthropic": {
         "label": "Anthropic — Claude",
-        "default_model": "claude-sonnet-4-6",
+        "default_model": "claude-opus-5-5",
         "auth_methods": ["api_key"],
         "subscription_oauth": False,
         "note": "Programmatic inference uses an API key. Claude Pro/Max subscriptions are not usable for third-party app inference.",
@@ -93,7 +93,7 @@ CATALOG = {
     },
     "gemini": {
         "label": "Google — Gemini",
-        "default_model": "gemini-1.5-flash",
+        "default_model": "gemini-2.5-flash",
         "auth_methods": ["api_key", "oauth"],
         "subscription_oauth": False,
         "note": "API key (AI Studio) or Google OAuth (billed to your Google Cloud / Vertex). Gemini Advanced consumer subscription is not programmatically accessible.",

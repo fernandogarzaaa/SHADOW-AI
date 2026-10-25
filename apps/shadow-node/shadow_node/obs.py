@@ -54,5 +54,11 @@ def configure_logging(name: str = "shadow") -> logging.Logger:
 
 
 def client_key(request) -> str:
-    return (request.headers.get("x-shadow-device-id")
-            or (request.client.host if request.client else "anon"))
+    """Rate-limit bucket. Only a device id the auth middleware VERIFIED
+    counts; the raw x-shadow-device-id header is attacker-controlled, so
+    keying on it let unauthenticated callers (e.g. /pair/start floods)
+    dodge the limiter by rotating the header."""
+    device_id = getattr(getattr(request, "state", None), "device_id", None)
+    if device_id:
+        return f"dev:{device_id}"
+    return "ip:" + (request.client.host if request.client else "anon")

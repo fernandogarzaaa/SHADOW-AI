@@ -62,7 +62,7 @@ def test_ask_non_self_question_uses_normal_pipeline(client):
     assert r["model_used"]!="self_model"
 
 def test_self_ask_is_audited(client):
-    before=len(client.get("/audit").json())
+    before=len(client.get("/audit?limit=1000").json()["items"])
     client.post("/agent/ask",json={"prompt":"what are you?"})
-    events=client.get("/audit").json()[before:]
+    events=client.get("/audit?limit=1000").json()["items"][before:]
     assert any(e["event_type"]=="agent_ask" and e.get("model_used")=="self_model" for e in events)

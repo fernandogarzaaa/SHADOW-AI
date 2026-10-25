@@ -37,7 +37,7 @@ def test_approve_audit_event(client):
     action={'id':'act_ios2','tool_name':'answer_question','description':'Preview','params':{},'risk':'low','requires_approval':True,'destructive':False,'data_used':[]}
     rid=client.post('/approvals',json={'action':action,'reason':'test'}).json()['id']
     client.post(f'/approvals/{rid}/approve')
-    assert any(e['event_type']=='approval_approved' for e in client.get('/audit').json())
+    assert any(e['event_type']=='approval_approved' for e in client.get('/audit?limit=1000').json()['items'])
 
 def test_emergency_pause_endpoint_blocks_execution(client):
     client.post('/emergency_pause',json={'paused':True,'reason':'test'})
@@ -48,11 +48,11 @@ def test_emergency_pause_endpoint_blocks_execution(client):
 
 def test_emergency_pause_audited(client):
     client.post('/emergency_pause',json={'paused':True,'reason':'audit'}); client.post('/emergency_pause',json={'paused':False,'reason':'resume'})
-    assert any(e['event_type']=='emergency_pause' for e in client.get('/audit').json())
+    assert any(e['event_type']=='emergency_pause' for e in client.get('/audit?limit=1000').json()['items'])
 
 def test_agent_ask_audited(client):
     client.post('/agent/ask',json={'prompt':'hello'})
-    assert any(e['event_type']=='agent_ask' for e in client.get('/audit').json())
+    assert any(e['event_type']=='agent_ask' for e in client.get('/audit?limit=1000').json()['items'])
 
 def test_error_envelope_for_missing_pair(client):
     r=client.post('/pair/confirm',json={'pairing_id':'missing','device_name':'ios','public_key':'pk'})

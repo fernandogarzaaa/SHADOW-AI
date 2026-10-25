@@ -24,11 +24,11 @@ from axiom_adapter import AxiomAdapter
 from ghost_adapter import GhostAdapter, LocalActionExecutor
 from .connectors import read_local_document
 from .runtime_scope import check_runtime_scope, RuntimeScopeError
-from .request_hygiene import check_request_hygiene, HygieneError
+from .request_hygiene import BodyLimitMiddleware, check_request_hygiene, HygieneError
 from .bootstrap import from_env as bootstrap_code_from_env
 from .ambient_tasks import build_task_map, BUILTIN_TASKS
 from .model_providers import ModelProviderConfig, LocalMockModel
-from .crypto_config import load_fernet_key
+from .crypto_config import key_path, load_fernet_key
 from .device_credentials import (
     load_master_secret,
     derive_device_token,
@@ -113,7 +113,7 @@ from . import provider_auth
 from . import accounts
 from .events import EventBus
 from pathlib import Path
-import tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
+import contextvars, tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
 from contextlib import asynccontextmanager
 
 APP_VERSION = "0.1.0"
@@ -159,7 +159,7 @@ def _build_memory_store():
     db = os.getenv("SHADOW_MEMORY_DB")
     if db:
         key = load_fernet_key(
-            "SHADOW_MEMORY_KEY", "SHADOW_MEMORY_KEY_FILE", "data/keys/memory.key"
+            "SHADOW_MEMORY_KEY", "SHADOW_MEMORY_KEY_FILE", key_path("memory.key")
         )
         os.makedirs(os.path.dirname(os.path.abspath(db)), exist_ok=True)
         return EncryptedMemoryStore(path=db, key=key)
@@ -327,6 +327,14 @@ ghost = GhostAdapter()
 model_config = ModelProviderConfig()
 model = LocalMockModel()
 pairing = {}
+# Explicit per-tool consent (calendar.create, email.draft, ...) comes ONLY
+# from a server-verified approval bound to this exact action. /agent/execute
+# sets this for the duration of the call; every other path (autonomous
+# execution, ambient runs, tier waivers) runs with consent withheld.
+_execution_consent: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "execution_consent", default=False
+)
+
 # Register real, sandboxed action handlers so approved /agent/execute calls run for real.
 action_executor = LocalActionExecutor()
 for _tool in action_executor.names():
@@ -335,7 +343,7 @@ for _tool in action_executor.names():
         (
             lambda t: (
                 lambda params: action_executor.run(
-                    t, params, explicit_consent=t in action_executor.CONSENT_REQUIRED
+                    t, params, explicit_consent=_execution_consent.get()
                 )
             )
         )(_tool),
@@ -352,7 +360,9 @@ def _ghost_handoff_tool(params):
     desc = params.get("description") or "ghost handoff"
     act = AgentAction(tool_name="ghost_handoff", description=desc, params=params)
     return ghost.execute(
-        ghost.to_ir(AgentPlan(user_intent=desc, actions=[act])), approved=True
+        ghost.to_ir(AgentPlan(user_intent=desc, actions=[act])),
+        approved=True,
+        explicit_consent=_execution_consent.get(),
     )
 
 
@@ -878,6 +888,10 @@ async def hygiene_middleware(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
+
+# Outermost layer: cap streamed (chunked) bodies before any middleware
+# buffers them; Content-Length bodies are also rejected early by hygiene.
+app.add_middleware(BodyLimitMiddleware)
 
 WEB_INDEX = os.path.join(os.path.dirname(__file__), "web", "index.html")
 
@@ -2462,6 +2476,14 @@ def _run_ask_pipeline(req: AskRequest):
             )
         )
         out = hybrid.run(req.prompt, raw_context, frontier=None)
+        # Never pass a placeholder off as an answer: say plainly that the
+        # cloud model failed, and flag the response as degraded.
+        out["answer"] = (
+            f"The cloud model ({model_config.provider}) could not answer: "
+            f"{str(e)[:160]}. Nothing was generated; try again shortly."
+        )
+        out["degraded"] = True
+        out["error"] = "cloud_model_error"
     cloud_used = out["route"] == "frontier"
     if cloud_used:
         # Every cloud egress carries its authorization manifest in the audit
@@ -2510,6 +2532,8 @@ def _run_ask_pipeline(req: AskRequest):
         "regrounded": out["regrounded"],
         "savings": out["savings"],
         "cloud_manifest": cloud_manifest if req.allow_cloud else None,
+        "degraded": out.get("degraded", False),
+        "error": out.get("error"),
     }
 
 
@@ -2635,14 +2659,18 @@ def plan(req: AskRequest):
 @app.post("/agent/execute")
 def execute(req: ExecuteRequest):
     server_approved = _resolve_server_approval(req.approval_id, req.action)
-    res = core.execute(
-        req.action,
-        server_approved,
-        req.double_confirmed,
-        approval_id=req.approval_id,
-        thread_id=req.thread_id,
-        tool_call_id=req.tool_call_id,
-    )
+    token = _execution_consent.set(server_approved)
+    try:
+        res = core.execute(
+            req.action,
+            server_approved,
+            req.double_confirmed,
+            approval_id=req.approval_id,
+            thread_id=req.thread_id,
+            tool_call_id=req.tool_call_id,
+        )
+    finally:
+        _execution_consent.reset(token)
     audit.extend(core.drain_audit())
     if req.approval_id:
         try:
@@ -3294,8 +3322,19 @@ def approvals(status: str | None = None):
     return _page(reqs)
 
 
+def _decider_id(request: Request) -> str | None:
+    return getattr(request.state, "device_id", None) or request.headers.get(
+        "x-shadow-device-id"
+    )
+
+
 @app.post("/approvals/{id}/approve")
-def approve(id: str):
+def approve(id: str, request: Request):
+    # Any trusted paired device may approve: every device was enrolled with
+    # the owner's approval, and phones (enrolled via /devices/register, not
+    # owners) are the primary approval surface. The approving device is
+    # recorded so every decision is attributable.
+    approver = _decider_id(request)
     try:
         req = core.approvals.decide(id, True)
     except ValueError as e:
@@ -3306,14 +3345,14 @@ def approve(id: str):
             event_type="approval_approved",
             proposed_action=req.action.description,
             status="approved",
-            metadata={"approval_id": id},
+            metadata={"approval_id": id, "approved_by": approver},
         )
     )
     return req
 
 
 @app.post("/approvals/{id}/deny")
-def deny(id: str, req: DenyRequest):
+def deny(id: str, req: DenyRequest, request: Request):
     try:
         out = core.approvals.decide(id, False, req.reason)
     except ValueError as e:
@@ -3325,7 +3364,7 @@ def deny(id: str, req: DenyRequest):
             proposed_action=out.action.description,
             status="denied",
             result=req.reason,
-            metadata={"approval_id": id},
+            metadata={"approval_id": id, "denied_by": _decider_id(request)},
         )
     )
     return out
@@ -3360,8 +3399,21 @@ def set_emergency_pause(req: EmergencyPauseRequest):
 
 
 @app.get("/audit")
-def get_audit():
-    return audit + core.drain_audit() + sessions.audit
+def get_audit(event_type: str | None = None, limit: int = 200):
+    """Audit trail, oldest first, as the uniform page envelope.
+
+    Core events are drained INTO the persistent audit list first (draining
+    and only returning them used to lose them after one read). Transport
+    auth events are merged in by timestamp. ``limit`` keeps the newest N
+    matching events; ``count`` is the total number that matched."""
+    audit.extend(core.drain_audit())
+    events = sorted([*audit, *sessions.audit], key=lambda e: e.timestamp)
+    if event_type:
+        events = [e for e in events if e.event_type == event_type]
+    limit = max(1, min(limit, 1000))
+    page = _page(events[-limit:])
+    page["count"] = len(events)
+    return page
 
 
 @app.get("/model/providers")

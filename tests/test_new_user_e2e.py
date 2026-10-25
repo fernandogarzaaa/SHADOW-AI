@@ -216,7 +216,7 @@ def test_new_user_journey_against_uvicorn_subprocess(tmp_path):
 
         audit = authed_request(base_url, creds, "GET", "/audit")
         assert audit.status_code == 200
-        event_types = {event["event_type"] for event in audit.json()}
+        event_types = {event["event_type"] for event in audit.json()["items"]}
         assert {"device_paired", "memory_ingest", "agent_ask", "approval_approved"} <= event_types
     finally:
         proc.terminate()

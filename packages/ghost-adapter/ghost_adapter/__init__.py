@@ -1,4 +1,4 @@
-import os, time, json, socket, ipaddress
+import os, time, json, socket, ipaddress, threading
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse, urljoin
@@ -42,11 +42,22 @@ def _resolve_public_ips(host: str) -> list[str]:
     if not ips:
         raise ValueError(f"host {host!r} resolved to no addresses")
     for ip_str in ips:
-        ip = ipaddress.ip_address(ip_str)
-        if (ip.is_private or ip.is_loopback or ip.is_link_local
-                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+        if not _is_public_ip(ip_str):
             raise ValueError(f"blocked non-public address for {host!r}: {ip_str}")
     return ips
+
+
+def _is_public_ip(ip_str: str) -> bool:
+    """Globally routable unicast only. ``is_global`` also rejects shared
+    address space (CGNAT 100.64/10) and other special ranges that the
+    is_private family misses; IPv4-mapped/compat IPv6 is judged by the
+    embedded IPv4 address."""
+    ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = ip.ipv4_mapped or ip.sixtofour
+        if embedded is not None:
+            ip = embedded
+    return ip.is_global and not ip.is_multicast
 
 
 def _validate_http_hop(url: str) -> str:
@@ -81,45 +92,71 @@ def _validate_http_hop_with_ips(url: str) -> tuple[str, str, list[str]]:
 
 import contextlib
 
+# Connect-time DNS pins are per thread: a single wrapper around
+# socket.getaddrinfo is installed once and consults only the calling
+# thread's pins. Swapping socket.getaddrinfo in and out per request was
+# not thread-safe: two overlapping fetches could restore each other's
+# wrapper and leave the process permanently patched.
+_dns_pins = threading.local()
+_dns_install_lock = threading.Lock()
+_ORIGINAL_GETADDRINFO = socket.getaddrinfo
+_real_getaddrinfo = socket.getaddrinfo
+
+
+def _pinning_getaddrinfo(host_arg, port, *args, **kwargs):
+    # Re-entrancy guard: if something wrapped us after installation (e.g.
+    # a test double that delegates to whatever it captured), a nested call
+    # goes straight to the platform resolver instead of looping.
+    if getattr(_dns_pins, "depth", 0):
+        return _ORIGINAL_GETADDRINFO(host_arg, port, *args, **kwargs)
+    _dns_pins.depth = 1
+    try:
+        infos = _real_getaddrinfo(host_arg, port, *args, **kwargs)
+    finally:
+        _dns_pins.depth = 0
+    pins = getattr(_dns_pins, "map", None)
+    if pins and isinstance(host_arg, str) and host_arg.lower() in pins:
+        host, allowed = pins[host_arg.lower()]
+        kept = [info for info in infos if info[4][0] in allowed]
+        if not kept:
+            raise socket.gaierror(
+                f"DNS pinning: {host!r} no longer resolves to a validated address")
+        return kept
+    return infos
+
+
+def _install_dns_pinning() -> None:
+    global _real_getaddrinfo
+    with _dns_install_lock:
+        if socket.getaddrinfo is not _pinning_getaddrinfo:
+            _real_getaddrinfo = socket.getaddrinfo
+            socket.getaddrinfo = _pinning_getaddrinfo
+
+
 @contextlib.contextmanager
 def _pinned_dns(host: str, ips: list[str]):
-    """Pin connect-time DNS for `host` to the validated `ips`.
+    """Pin connect-time DNS for `host` to the validated `ips`, for the
+    calling thread only.
 
-    httpx/httpcore resolve the hostname again when opening the socket,
-    after we already validated it. This context narrows
-    socket.getaddrinfo so the pinned host can only resolve to addresses
-    we validated as public; if the connect-time answer contains none of
-    them (full rebinding flip), resolution fails closed with gaierror.
-    Every other host resolves untouched.
-
-    Threading note: the patch is process-global while a request is in
-    flight. The only behavioral change for other threads is that the
-    pinned hostile hostname resolves to its validated (public) addresses
-    instead of whatever DNS currently says, which fails safe.
+    httpx/httpcore (sync) resolve the hostname again in this thread when
+    opening the socket, after we already validated it. While pinned, the
+    host can only resolve to addresses we validated as public; if the
+    connect-time answer contains none of them (full rebinding flip),
+    resolution fails closed with gaierror. Other hosts, and other threads,
+    resolve untouched.
     """
-    real_getaddrinfo = socket.getaddrinfo
-    pinned = set(ips)
+    _install_dns_pinning()
     try:
         idna = host.encode("idna").decode("ascii").lower()
     except (UnicodeError, ValueError):
         idna = host.lower()
-    wanted = {host.lower(), idna}
-
-    def _patched(host_arg, port, *args, **kwargs):
-        if isinstance(host_arg, str) and host_arg.lower() in wanted:
-            infos = real_getaddrinfo(host_arg, port, *args, **kwargs)
-            kept = [info for info in infos if info[4][0] in pinned]
-            if not kept:
-                raise socket.gaierror(
-                    f"DNS pinning: {host!r} no longer resolves to a validated address")
-            return kept
-        return real_getaddrinfo(host_arg, port, *args, **kwargs)
-
-    socket.getaddrinfo = _patched
+    entry = (host, set(ips))
+    previous = getattr(_dns_pins, "map", None)
+    _dns_pins.map = {**(previous or {}), host.lower(): entry, idna: entry}
     try:
         yield
     finally:
-        socket.getaddrinfo = real_getaddrinfo
+        _dns_pins.map = previous
 
 
 def _ssrf_fetch(url: str, timeout: float = 15, client=None):
@@ -331,7 +368,11 @@ class GhostAdapter:
             steps=[{"tool": a.tool_name, "risk": str(getattr(a, "risk", "low")), "description": a.description, "params": getattr(a, "params", {})} for a in plan.actions],
         )
 
-    def execute(self, ir: GhostTaskIR, approved: bool = False) -> dict:
+    def execute(self, ir: GhostTaskIR, approved: bool = False, explicit_consent: bool = False) -> dict:
+        """Run an approved IR. ``approved`` gates execution at all;
+        ``explicit_consent`` is separate and must come from a verified
+        approval for consent-gated tools (calendar, email), never from the
+        mere fact that the run was allowed."""
         if not approved:
             return {"status": "approval_required", "ir": ir.model_dump(), "mode": self.mode}
         start = time.time()
@@ -341,7 +382,7 @@ class GhostAdapter:
         for step in ir.steps:
             tool = step.get("tool", "")
             try:
-                results.append({"tool": tool, "result": self.executor.run(tool, step.get("params", {}), explicit_consent=approved)})
+                results.append({"tool": tool, "result": self.executor.run(tool, step.get("params", {}), explicit_consent=explicit_consent)})
             except KeyError:
                 results.append({"tool": tool, "skipped": "no real handler for this tool", "description": step.get("description", "")})
             except Exception as e:

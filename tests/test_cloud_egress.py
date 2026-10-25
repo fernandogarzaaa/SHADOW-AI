@@ -196,7 +196,8 @@ def test_reground_retry_uses_authorized_context_only():
     h = HybridRouter(
         LocalMockModel(),
         axiom=SimpleNamespace(
-            package_context=lambda text: {"context": text}),
+            package_context=lambda text: {"context": text},
+            redactor=SimpleNamespace(redact=lambda text: text)),
         router=SimpleNamespace(
             decide=lambda prompt, tokens, frontier_available, threshold:
                    SimpleNamespace(route="frontier", reason="test", complexity=0.9)),
@@ -250,3 +251,35 @@ def test_memory_search_endpoint_excludes_sensitive_by_default():
                                     'include_sensitive': 'true'}).json()
     assert len(optin_hits) == 1
     assert 'api key' in optin_hits[0]['item']['text']
+
+
+def test_reground_retry_is_redacted():
+    """The expanded (uncompressed) retry must still carry redaction: an
+    email in authorized context never reaches the provider verbatim."""
+    from axiom_adapter import AxiomAdapter
+    frontier = _Frontier()
+    h = HybridRouter(
+        LocalMockModel(),
+        axiom=AxiomAdapter(),
+        router=SimpleNamespace(
+            decide=lambda prompt, tokens, frontier_available, threshold:
+                   SimpleNamespace(route="frontier", reason="test", complexity=0.9)),
+        verifier=SimpleNamespace(score=lambda answer, context: 0.0),
+    )
+    ctx = "Contact dana.lead@example.com about Aurora."
+    out = h.run("summarize", ctx, frontier=frontier, cloud_context=ctx, verify=True)
+    assert out["regrounded"] is True
+    for sent in frontier.contexts:
+        assert "dana.lead@example.com" not in sent
+
+
+def test_simple_prompt_uses_cloud_when_only_local_is_mock(monkeypatch):
+    """With only the placeholder local model, an approved cloud model must
+    answer even "simple" prompts instead of the canned mock string."""
+    monkeypatch.delenv("SHADOW_LOCAL_SHORTCIRCUIT", raising=False)
+    frontier = _Frontier()
+    h = HybridRouter(LocalMockModel())
+    out = h.run("hi?", "", frontier=frontier)
+    assert out["route"] == "frontier"
+    monkeypatch.setenv("SHADOW_LOCAL_SHORTCIRCUIT", "true")
+    assert HybridRouter(LocalMockModel()).run("hi?", "", frontier=frontier)["route"] == "local"
