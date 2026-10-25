@@ -49,3 +49,13 @@ shadow_node = ["policy.yaml", "policy.yaml.example", "web/*"]
 pythonpath = ["apps/shadow-node", "packages/agent-core", "packages/memory-engine", "packages/axiom-adapter", "packages/ghost-adapter"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["apps/mobile", "apps/ios-shadow"]
+
+[tool.ruff.lint]
+# Bug classes only for now (syntax errors, undefined names, redefinitions,
+# unused variables, invalid comparisons). Style rules can be layered on
+# once the existing code is reformatted.
+select = ["E9", "F63", "F7", "F82", "F811", "F841"]

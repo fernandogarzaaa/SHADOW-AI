@@ -2028,8 +2028,6 @@ def get_scheduled_task(task_id: str):
         if r is None:
             raise HTTPException(404, "scheduled task not found")
         return reminder_to_task(r).model_dump()
-    from .ambient_tasks import BUILTIN_TASKS
-
     if ident not in BUILTIN_TASKS and ident not in (
         ambient_scheduler.get_config().tasks or []
     ):

@@ -2,9 +2,12 @@ from __future__ import annotations
 import hmac, hashlib, time, os, secrets, threading
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 from urllib.parse import parse_qsl, quote
 from .models import Device, AuditEvent, now
+
+if TYPE_CHECKING:
+    from .models import AgentAction
 
 MAX_SKEW_SECONDS = 300
 
