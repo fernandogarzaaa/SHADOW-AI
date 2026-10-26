@@ -359,6 +359,16 @@ export default function ApprovalDetailScreen() {
 							Details
 						</Text>
 					</View>
+					{action.tool_name === "browser.action" && typeof action.params?.task_id === "string" ? (
+						<Pressable
+							onPress={() => router.push(`/browser/${String(action.params.task_id)}`)}
+							accessibilityRole="button"
+							accessibilityLabel="Watch the browser task live"
+							style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingVertical: Spacing.sm })}
+						>
+							<Text style={[typography.uiLabel, { color: colors.primary, fontWeight: "700" }]}>Watch live</Text>
+						</Pressable>
+					) : null}
 					<ParamRows params={action.params ?? {}} />
 
 					<View style={styles.divider}>

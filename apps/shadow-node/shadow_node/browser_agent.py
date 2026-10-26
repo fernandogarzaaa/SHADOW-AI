@@ -226,7 +226,7 @@ Rules:
 
 class BrowserAgent:
     def __init__(self, model_factory, approvals, policy_profile, vault: Vault, audit,
-                 allow_private_hosts: bool = False, launcher=None):
+                 allow_private_hosts: bool = False, launcher=None, notify=None):
         """model_factory() -> provider with complete(prompt, context) or None.
         approvals: agent_core ApprovalWorkflow. policy_profile() -> UserProfile.
         allow_private_hosts is for tests only (local fixture servers)."""
@@ -237,6 +237,9 @@ class BrowserAgent:
         self.audit = audit
         self.allow_private_hosts = allow_private_hosts
         self.launcher = launcher or _launch_chrome
+        # notify(task, event) for "question" / "done" / "failed" (push to the
+        # phone); best-effort, never raises into the task loop.
+        self.notify = notify or (lambda task, event: None)
         self.tasks: dict[str, BrowserTask] = {}
         self._lock = threading.Lock()
 
@@ -388,6 +391,14 @@ class BrowserAgent:
         finally:
             self.audit("browser_task_finished", task.status,
                        {"task_id": task.id, "steps": len(task.steps), "error": task.error})
+            if task.status in ("done", "failed"):
+                self._notify(task, task.status)
+
+    def _notify(self, task: BrowserTask, event: str) -> None:
+        try:
+            self.notify(task, event)
+        except Exception:
+            pass
 
     def _frame(self, page, task: BrowserTask) -> None:
         try:
@@ -495,6 +506,7 @@ class BrowserAgent:
 
     def _ask(self, task: BrowserTask, question: str) -> str:
         task.question, task.reply, task.status = question[:500], None, "waiting_user"
+        self._notify(task, "question")
         deadline = time.time() + APPROVAL_WAIT_SECONDS
         while time.time() < deadline:
             if task.stop_requested or self.profile().emergency_paused:

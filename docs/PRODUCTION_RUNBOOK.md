@@ -56,6 +56,28 @@ app. That device becomes the owner; later devices are approved from Devices.
 - `GET /model/providers` → confirm `cloud_model_ready` matches intent.
 - With auth on, unsigned requests to protected routes return `401`.
 
+## Push notifications to the phone (optional)
+
+Approval requests and browser-task questions can reach the Expo app as push
+notifications.
+
+```bash
+SHADOW_EXPO_PUSH_ENABLED=true
+SHADOW_PUSH_DETAIL=brief   # default; "full" puts the action text in the push
+```
+
+- The app needs a real EAS project id (`extra.eas.projectId` in
+  `apps/mobile/app.config.js`) and a development/preview/production build;
+  Expo Go can't receive pushes.
+- Push text passes through Expo's and Apple's/Google's servers, so by default
+  it only says what kind of thing is waiting ("A browser step is waiting for
+  your approval"), never the content.
+- Routine approvals show Approve / Deny on the notification; Approve requires
+  unlocking the phone. Browser steps, sends, purchases and anything
+  irreversible only show Review, which opens the full card in the app.
+- Push tokens persist with `SHADOW_RUNTIME_DB` and are dropped when a device
+  is disconnected.
+
 ## Operational hardening (built in)
 - **Rate limiting:** `SHADOW_RATE_LIMIT_RPM` (per-client token bucket; `/health`
   and `/ready` exempt). Over-limit requests get `429`.

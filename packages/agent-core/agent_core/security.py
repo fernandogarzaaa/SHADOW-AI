@@ -284,6 +284,14 @@ class DeviceSessionStore:
     def revoke(self, device_id: str):
         if device_id in self.devices:
             self.devices[device_id].revoked = True
+        # A disconnected device must stop receiving approval pushes.
+        self.set_push_token(device_id, None)
+
+    def set_push_token(self, device_id: str, token: str | None) -> None:
+        if token is None:
+            self.push_tokens.pop(device_id, None)
+        else:
+            self.push_tokens[device_id] = token
 
     def _persist_device(self, dev: Device) -> None:
         """Hook for durable stores; in-memory devices need no write."""

@@ -252,6 +252,12 @@ media_store = media_mod.MediaStore(_runtime_store if _runtime_db else None)
 set_system_prompt_override(system_prompt_for(persona))
 bus = EventBus()
 EXPO_PUSH_ENABLED = os.getenv("SHADOW_EXPO_PUSH_ENABLED", "false").lower() == "true"
+# Push text passes through Expo's and Apple's/Google's servers. "brief"
+# (default) says only what kind of thing is waiting; "full" includes the
+# action description.
+PUSH_DETAIL = os.getenv("SHADOW_PUSH_DETAIL", "brief").lower()
+APPROVAL_CATEGORY = "shadow.approval"  # Approve / Deny buttons on the push
+REVIEW_CATEGORY = "shadow.approval.review"  # a single Review button (opens the app)
 
 
 def _send_expo_push(
@@ -281,22 +287,47 @@ def _send_expo_push(
         log.warning("expo_push_failed", extra={"error": str(e)[:200]})
 
 
+def _approval_push(req) -> dict:
+    """Title, body, category and data for an approval push.
+
+    Routine approvals get Approve / Deny buttons on the notification.
+    Anything with real consequences (browser steps, irreversible, outbound,
+    high-risk or double-confirmation actions) only gets "Review", which
+    opens the app so the user sees the full card before deciding."""
+    action = req.action
+    tool = action.tool_name.lower()
+    review_only = (
+        tool == browser_agent.APPROVAL_TOOL
+        or bool(req.requires_double_confirmation)
+        or core.policy.is_irreversible(action)
+        or tool in core.policy.outbound_tools
+        or tool in core.policy.sensitive_tools
+        or str(getattr(req.risk_label, "value", req.risk_label)) in ("high", "blocked")
+    )
+    if PUSH_DETAIL == "full":
+        body = req.action_preview or action.description
+    elif tool == browser_agent.APPROVAL_TOOL:
+        body = "A browser step is waiting for your approval."
+    else:
+        body = f"{action.tool_name} is waiting for your decision."
+    data = {"type": "approval.created", "approval_id": req.id}
+    if tool == browser_agent.APPROVAL_TOOL and isinstance(action.params, dict):
+        data["task_id"] = action.params.get("task_id")
+    return {"title": "Approval needed", "body": body,
+            "category": REVIEW_CATEGORY if review_only else APPROVAL_CATEGORY, "data": data}
+
+
 def _notify_approval_created(req):
     if not EXPO_PUSH_ENABLED:
         return
+    msg = _approval_push(req)
 
     def _run():
         for device_id, token in list(sessions.push_tokens.items()):
             dev = sessions.devices.get(device_id)
             if dev is None or dev.revoked:
                 continue
-            _send_expo_push(
-                token,
-                "Approval needed",
-                req.action_preview or req.action.description,
-                {"type": "approval.created", "approval_id": req.id},
-                category_id="shadow.approval",
-            )
+            _send_expo_push(token, msg["title"], msg["body"], msg["data"], category_id=msg["category"])
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -654,7 +685,21 @@ browser = browser_agent.BrowserAgent(
     policy_profile=lambda: profile,
     vault=browser_agent.Vault(credentials),
     audit=lambda ev, st, md: audit.append(AuditEvent(actor="browser", event_type=ev, status=st, metadata=md)),
+    notify=lambda task, event: _notify_browser_task(task, event),
 )
+
+
+def _notify_browser_task(task, event: str) -> None:
+    """Push when a browser task needs you or finishes (approval steps push
+    through the normal approval path)."""
+    goal = task.goal if PUSH_DETAIL == "full" else "your browser task"
+    title, body = {
+        "question": ("Shadow has a question", f"Answer it to continue {goal}."),
+        "done": ("Browser task finished", f"Shadow finished {goal}."),
+        "failed": ("Browser task stopped", f"Shadow couldn't finish {goal}."),
+    }.get(event, (None, None))
+    if title:
+        _notify_proactive(title, body, {"type": "browser.task", "task_id": task.id, "event": event})
 
 
 def active_provider() -> str:
@@ -2844,7 +2889,7 @@ def set_push_token(device_id: str, req: PushTokenRequest, request: Request):
         raise HTTPException(404, "unknown device")
     if not req.push_token.startswith("ExponentPushToken["):
         raise HTTPException(400, "not an Expo push token")
-    sessions.push_tokens[device_id] = req.push_token
+    sessions.set_push_token(device_id, req.push_token)
     audit.append(
         AuditEvent(
             actor="user",

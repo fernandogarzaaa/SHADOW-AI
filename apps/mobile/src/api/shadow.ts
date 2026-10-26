@@ -1227,3 +1227,100 @@ export async function getMediaContent(id: string): Promise<BinaryResponse> {
 		await shadowFetch(`/media/${encodeURIComponent(id)}/content`),
 	);
 }
+
+// --- Browser agent (node: /browser/*) ------------------------------------------------
+
+export type BrowserTaskStatus =
+	| "queued"
+	| "running"
+	| "waiting_approval"
+	| "waiting_user"
+	| "done"
+	| "failed"
+	| "stopped";
+
+export interface BrowserStep {
+	n: number;
+	action: {
+		action: string;
+		url?: string;
+		index?: number;
+		text?: string;
+		value?: string;
+		direction?: string;
+		submit?: boolean;
+	};
+	result: string;
+	at: number;
+}
+
+export interface BrowserTask {
+	id: string;
+	goal: string;
+	status: BrowserTaskStatus;
+	provider: string;
+	url: string;
+	title: string;
+	answer: string | null;
+	error: string | null;
+	question: string | null;
+	approval_id: string | null;
+	notes: string[];
+	steps: BrowserStep[];
+	frame_at: number;
+	created_at: number;
+}
+
+export const BROWSER_ACTIVE_STATUSES: ReadonlySet<BrowserTaskStatus> = new Set([
+	"queued",
+	"running",
+	"waiting_approval",
+	"waiting_user",
+]);
+
+export async function listBrowserTasks(): Promise<BrowserTask[]> {
+	const page = await readJson<Page<BrowserTask>>(await shadowFetch("/browser/tasks"));
+	return page.items;
+}
+
+export async function getBrowserTask(id: string): Promise<BrowserTask> {
+	return readJson(await shadowFetch(`/browser/tasks/${encodeURIComponent(id)}`));
+}
+
+export async function startBrowserTask(goal: string, startUrl: string): Promise<BrowserTask> {
+	return readJson(
+		await shadowFetch("/browser/tasks", {
+			method: "POST",
+			body: { goal, start_url: startUrl },
+		}),
+	);
+}
+
+export async function stopBrowserTask(id: string): Promise<BrowserTask> {
+	return readJson(
+		await shadowFetch(`/browser/tasks/${encodeURIComponent(id)}/stop`, { method: "POST", body: {} }),
+	);
+}
+
+export async function replyBrowserTask(id: string, text: string): Promise<BrowserTask> {
+	return readJson(
+		await shadowFetch(`/browser/tasks/${encodeURIComponent(id)}/reply`, {
+			method: "POST",
+			body: { text },
+		}),
+	);
+}
+
+/**
+ * Signed URL + headers for the task's latest screenshot. `frameAt` busts
+ * the image cache; it is part of the signed query string.
+ */
+export async function browserFrameSource(
+	id: string,
+	frameAt: number,
+): Promise<{ uri: string; headers: Record<string, string> }> {
+	const { url, headers } = await authedDownloadParams(
+		`/browser/tasks/${encodeURIComponent(id)}/frame?t=${encodeURIComponent(String(frameAt))}`,
+	);
+	return { uri: url, headers };
+}

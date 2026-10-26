@@ -13,6 +13,7 @@ import {
 	BrainIcon,
 	CloudIcon,
 	DocumentIcon,
+	GlobeIcon,
 	HelpIcon,
 	InfoIcon,
 	KeyIcon,
@@ -246,6 +247,14 @@ export default function SettingsIndexScreen() {
 					icon={<MicIcon size={ICON_SIZE} color={colors.foreground} />}
 					onPress={() => router.push("/settings/voice")}
 				/>
+				{isPaired ? (
+					<SettingsRow
+						title="Browser"
+						value="Tasks, live view"
+						icon={<GlobeIcon size={ICON_SIZE} color={colors.foreground} />}
+						onPress={() => router.push("/browser")}
+					/>
+				) : null}
 			</SettingsGroup>
 
 			<SettingsGroup>
