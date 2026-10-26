@@ -111,6 +111,7 @@ from .ambient_tasks import (
 )
 from . import provider_auth
 from . import claude_code
+from . import browser_agent
 from .chatgpt_plan import (
     PROVIDER as CHATGPT_PLAN,
     MANAGE_USAGE_URL,
@@ -647,6 +648,14 @@ def _save_user_rules() -> None:
 
 _load_user_rules()
 
+browser = browser_agent.BrowserAgent(
+    model_factory=lambda: _build_active_frontier(active_provider()),
+    approvals=core.approvals,
+    policy_profile=lambda: profile,
+    vault=browser_agent.Vault(credentials),
+    audit=lambda ev, st, md: audit.append(AuditEvent(actor="browser", event_type=ev, status=st, metadata=md)),
+)
+
 
 def active_provider() -> str:
     """The provider asks go to: chosen in the dashboard (stored), else the
@@ -1004,7 +1013,7 @@ WEB_INDEX = os.path.join(WEB_DIR, "index.html")
 # IndexedDB, so the CSP is the main defence against injected script.
 DASHBOARD_CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+    "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; "
     "base-uri 'none'; form-action 'self'; object-src 'none'"
 )
 
@@ -3586,6 +3595,115 @@ def deny(id: str, req: DenyRequest, request: Request):
         )
     )
     return out
+
+
+class BrowserTaskRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=2000)
+    start_url: str = ""
+
+
+class BrowserReplyRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class VaultEntryRequest(BaseModel):
+    origin: str
+    username: str = ""
+    password: str = Field(min_length=1)
+
+
+class VaultDeleteRequest(BaseModel):
+    origin: str
+
+
+@app.get("/browser/status")
+def browser_status():
+    return {**browser_agent.available(), "tasks": [t.summary() for t in browser.tasks.values()]}
+
+
+@app.post("/browser/tasks", status_code=201)
+def browser_start(req: BrowserTaskRequest):
+    """Start a browser task with the model chosen in Models. Consequential
+    steps (buy, pay, send, submit, delete, sign in) wait for approval."""
+    if not browser_agent.available()["available"]:
+        raise HTTPException(503, browser_agent.available()["reason"])
+    try:
+        task = browser.start(req.goal, req.start_url, active_provider())
+    except browser_agent.BrowserTaskError as e:
+        raise HTTPException(409, str(e))
+    return task.summary()
+
+
+@app.get("/browser/tasks")
+def browser_tasks():
+    return _page(sorted((t.summary() for t in browser.tasks.values()), key=lambda t: t["created_at"], reverse=True))
+
+
+def _browser_task(task_id: str):
+    try:
+        return browser._get(task_id)
+    except KeyError:
+        raise HTTPException(404, "unknown browser task")
+
+
+@app.get("/browser/tasks/{task_id}")
+def browser_task(task_id: str):
+    return _browser_task(task_id).summary()
+
+
+@app.get("/browser/tasks/{task_id}/frame")
+def browser_frame(task_id: str):
+    """Latest screenshot of the task's page (the live view)."""
+    task = _browser_task(task_id)
+    if not task.frame:
+        raise HTTPException(404, "no frame yet")
+    return Response(task.frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/browser/tasks/{task_id}/stop")
+def browser_stop(task_id: str):
+    _browser_task(task_id)
+    return browser.stop(task_id).summary()
+
+
+@app.post("/browser/tasks/{task_id}/reply")
+def browser_reply(task_id: str, req: BrowserReplyRequest):
+    _browser_task(task_id)
+    try:
+        return browser.reply(task_id, req.text).summary()
+    except browser_agent.BrowserTaskError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/browser/vault")
+def browser_vault_list():
+    """Saved site logins: origins and usernames only. Passwords never leave
+    the node and are never shown to the model."""
+    return _page(browser.vault.list())
+
+
+@app.put("/browser/vault")
+def browser_vault_put(req: VaultEntryRequest, request: Request):
+    _require_owner(request)
+    try:
+        origin = browser.vault.put(req.origin, req.username, req.password)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    audit.append(AuditEvent(actor="user", event_type="browser_login_saved", status="stored",
+                            metadata={"origin": origin}))
+    return {"origin": origin, "username": req.username}
+
+
+@app.post("/browser/vault/delete")
+def browser_vault_delete(req: VaultDeleteRequest, request: Request):
+    _require_owner(request)
+    try:
+        removed = browser.vault.delete(req.origin)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    audit.append(AuditEvent(actor="user", event_type="browser_login_deleted", status="revoked",
+                            metadata={"origin": req.origin}))
+    return {"removed": removed}
 
 
 class RuleRequest(BaseModel):

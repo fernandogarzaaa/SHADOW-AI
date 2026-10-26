@@ -84,6 +84,13 @@ async function api(path, { method = "GET", body, auth = true } = {}) {
   return { data, status: r.status };
 }
 const get = async (p) => (await api(p)).data;
+
+async function getBlob(path) {
+  const headers = state.authRequired && state.cred ? await authHeaders(state.cred, "GET", path, "") : {};
+  const r = await fetch(path, { headers, credentials: "same-origin" });
+  if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`, `HTTP ${r.status}`);
+  return r.blob();
+}
 const post = async (p, body = {}) => (await api(p, { method: "POST", body })).data;
 const patch = async (p, body) => (await api(p, { method: "PATCH", body })).data;
 const del = async (p) => (await api(p, { method: "DELETE" })).data;
@@ -133,6 +140,7 @@ const VIEWS = {
   ask: ["Ask Shadow", "Ask about your private memory.", () => refreshBilling()],
   approvals: ["Approvals", "Your explicit yes or no.", loadApprovals],
   actions: ["Actions", "Real actions, behind the approval gate.", loadActions],
+  browser: ["Browser", "A private browser that does tasks for you, with your approval.", loadBrowser],
   memory: ["Memory", "What Shadow knows, encrypted on this node.", loadMemory],
   goals: ["Goals", "Outcomes you're working toward.", loadGoals],
   schedule: ["Schedule", "Reminders and background tasks.", loadSchedule],
@@ -340,6 +348,14 @@ const ACTIONS = {
   reload: (el) => VIEWS[el.dataset.target]?.[2]?.(),
   "approval-decide": (el) => decideApproval(el.dataset.id, el.dataset.ok === "1", el),
   "approval-run": (el) => runApproval(el.dataset.id, el),
+  "browser-watch": (el) => { state.browserFrameAt = null; watchBrowser(el.dataset.id); window.scrollTo({ top: 0 }); },
+  "browser-stop": async () => {
+    try { await post(`/browser/tasks/${encodeURIComponent(state.browserTask)}/stop`); toast("Stopping…"); } catch (e) { toast(errText(e), true); }
+  },
+  "vault-delete": async (el) => {
+    if (!confirm(`Remove the saved login for ${el.dataset.origin}?`)) return;
+    try { await post("/browser/vault/delete", { origin: el.dataset.origin }); loadVault(); } catch (e) { toast(errText(e), true); }
+  },
   "approval-always": async (el) => {
     await busy(el, async () => {
       try {
@@ -649,12 +665,13 @@ async function decideApproval(id, ok, el) {
     try {
       if (ok) {
         await post(`/approvals/${encodeURIComponent(id)}/approve`);
-        toast("Approved. Run it below when you're ready.");
+        toast(currentView() === "browser" ? "Approved. The browser continues." : "Approved. Run it below when you're ready.");
       } else {
         const reason = prompt("Why are you denying this? (optional)") ?? "";
         await post(`/approvals/${encodeURIComponent(id)}/deny`, { reason: reason || "Denied from dashboard" });
         toast("Denied.");
       }
+      if (currentView() === "browser") { $("#browserPrompt").dataset.key = ""; return; }
       loadApprovals();
     } catch (e) { toast(errText(e), true); }
   });
@@ -773,6 +790,161 @@ $("#actForm").addEventListener("submit", async (ev) => {
       $("#actOut").innerHTML = `<div class="answer bad" role="alert">${esc(errText(e))}</div>`;
     }
   });
+});
+
+// --- browser ------------------------------------------------------------------------------
+
+const BROWSER_STATUS = {
+  queued: ["Starting", ""], running: ["Working", "accent"], waiting_approval: ["Needs your approval", "warn"],
+  waiting_user: ["Has a question", "warn"], done: ["Done", "ok"], failed: ["Failed", "bad"], stopped: ["Stopped", ""],
+};
+const BROWSER_ACTIVE = new Set(["queued", "running", "waiting_approval", "waiting_user"]);
+let browserTimer = null;
+let browserFrameUrl = null;
+
+function describeStep(a) {
+  switch (a.action) {
+    case "go": return `Open ${a.url}`;
+    case "click": return `Click element ${a.index}`;
+    case "type": return `Type "${a.text}"${a.submit ? " and submit" : ""}`;
+    case "select": return `Choose "${a.value}"`;
+    case "scroll": return `Scroll ${a.direction || "down"}`;
+    case "back": return "Go back";
+    case "note": return `Note: ${a.text}`;
+    case "ask": return `Ask you: ${a.text}`;
+    case "done": return "Finish";
+    default: return a.action || "?";
+  }
+}
+
+async function loadBrowser() {
+  get("/providers").then((d) => {
+    const ok = d.active_provider && d.active_provider !== "local_mock";
+    $("#browserModel").innerHTML = ok
+      ? `Driven by ${esc(PROVIDER_LABELS[d.active_provider] || d.active_provider)}${d.active_provider === "chatgpt_plan" ? ' · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">Manage usage</a>' : ""}.`
+      : 'Needs a cloud model: choose one in <a href="#/models">Models</a>.';
+    $("#browserBtn").disabled = !ok;
+  }).catch(() => {});
+  loadVault();
+  const list = $("#browserTasks");
+  if (!list.innerHTML) list.innerHTML = skeleton(1);
+  try {
+    const r = await get("/browser/tasks");
+    list.innerHTML = r.items.length ? r.items.map((t) => {
+      const [label, tone] = BROWSER_STATUS[t.status] || [t.status, ""];
+      return `<div class="item"><div class="t">${esc(t.goal)} <span class="pill ${tone}">${esc(label)}</span></div>
+        <div class="d">${esc(t.answer || t.error || t.url || "")}</div>
+        <div class="acts"><button class="ghost sm" type="button" data-action="browser-watch" data-id="${esc(t.id)}">View</button></div></div>`;
+    }).join("") : empty("No browser tasks yet.", "", true);
+    const live = r.items.find((t) => BROWSER_ACTIVE.has(t.status));
+    if (live && !state.browserTask) watchBrowser(live.id);
+  } catch (e) {
+    list.innerHTML = failed(e);
+  }
+}
+
+function watchBrowser(id) {
+  state.browserTask = id;
+  $("#browserLive").hidden = false;
+  clearTimeout(browserTimer);
+  pollBrowser();
+}
+
+async function pollBrowser() {
+  const id = state.browserTask;
+  if (!id || currentView() !== "browser") return;
+  let t;
+  try {
+    t = await get(`/browser/tasks/${encodeURIComponent(id)}`);
+  } catch (e) {
+    $("#browserStatus").textContent = errText(e);
+    return;
+  }
+  const [label, tone] = BROWSER_STATUS[t.status] || [t.status, ""];
+  $("#browserLiveTitle").textContent = t.goal.length > 70 ? `${t.goal.slice(0, 70)}…` : t.goal;
+  const st = $("#browserStatus");
+  st.textContent = label;
+  st.className = `pill ${tone}`;
+  $("#browserStop").hidden = !BROWSER_ACTIVE.has(t.status);
+  $("#browserUrlNow").textContent = t.url || "";
+  $("#browserSteps").innerHTML = t.steps.map((s) => `<li><b>${esc(describeStep(s.action))}</b> · ${esc(s.result)}</li>`).join("");
+  let prompt = "";
+  if (t.status === "waiting_approval" && t.approval_id) {
+    const a = approvalCache.get(t.approval_id) || (await get("/approvals?status=pending")).items.find((x) => x.id === t.approval_id);
+    if (a) approvalCache.set(a.id, a);
+    prompt = `<div class="item beam-pulse" style="margin-bottom:12px"><div class="t">Approve this step?</div>
+      <div class="d">${esc(a ? a.action.description : "The task wants to do something that changes a site.")}</div>
+      <div class="acts"><button class="btn sm" type="button" data-action="approval-decide" data-ok="1" data-id="${esc(t.approval_id)}">Approve</button>
+      <button class="ghost sm danger" type="button" data-action="approval-decide" data-ok="0" data-id="${esc(t.approval_id)}">Deny</button></div></div>`;
+  } else if (t.status === "waiting_user" && t.question) {
+    prompt = `<form class="item" id="browserReplyForm" style="margin-bottom:12px"><div class="t">${esc(t.question)}</div>
+      <div class="row" style="margin-top:8px"><input class="grow" id="browserReply" aria-label="Your answer" style="margin:0" required />
+      <button class="btn sm" type="submit">Answer</button></div></form>`;
+  }
+  const prev = $("#browserPrompt");
+  if (prev.dataset.key !== `${t.status}:${t.approval_id}:${t.question}`) {
+    prev.innerHTML = prompt;
+    prev.dataset.key = `${t.status}:${t.approval_id}:${t.question}`;
+  }
+  $("#browserAnswer").innerHTML = t.answer
+    ? `<div class="answer">${esc(t.answer)}</div>${t.notes.length ? `<ul class="steps">${t.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}`
+    : t.error ? `<div class="answer bad">${esc(t.error)}</div>` : "";
+  if (t.frame_at && t.frame_at !== state.browserFrameAt) {
+    try {
+      const blob = await getBlob(`/browser/tasks/${encodeURIComponent(id)}/frame`);
+      if (browserFrameUrl) URL.revokeObjectURL(browserFrameUrl);
+      browserFrameUrl = URL.createObjectURL(blob);
+      $("#browserFrame").src = browserFrameUrl;
+      state.browserFrameAt = t.frame_at;
+    } catch { /* next poll retries */ }
+  }
+  if (BROWSER_ACTIVE.has(t.status)) browserTimer = setTimeout(pollBrowser, 1500);
+  else loadBrowser();
+}
+
+$("#browserForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const goal = $("#browserGoal").value.trim();
+  if (!goal) return $("#browserGoal").focus();
+  await busy($("#browserBtn"), async () => {
+    try {
+      const t = await post("/browser/tasks", { goal, start_url: $("#browserUrl").value.trim() });
+      $("#browserGoal").value = "";
+      state.browserFrameAt = null;
+      watchBrowser(t.id);
+      loadBrowser();
+    } catch (e) { toast(errText(e), true); }
+  });
+});
+
+document.addEventListener("submit", async (ev) => {
+  if (ev.target.id !== "browserReplyForm") return;
+  ev.preventDefault();
+  try {
+    await post(`/browser/tasks/${encodeURIComponent(state.browserTask)}/reply`, { text: $("#browserReply").value });
+    $("#browserPrompt").dataset.key = "";
+  } catch (e) { toast(errText(e), true); }
+});
+
+async function loadVault() {
+  const out = $("#vaultOut");
+  try {
+    const r = await get("/browser/vault");
+    out.innerHTML = r.items.length ? r.items.map((v) => `<div class="item"><div class="t">${esc(v.origin)}</div>
+      <div class="d">${esc(v.username || "(no username)")} · password saved</div>
+      <div class="acts"><button class="ghost sm danger" type="button" data-action="vault-delete" data-origin="${esc(v.origin)}">Remove</button></div></div>`).join("")
+      : empty("No saved logins.");
+  } catch (e) { out.innerHTML = failed(e); }
+}
+
+$("#vaultForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await api("/browser/vault", { method: "PUT", body: { origin: $("#vaultOrigin").value, username: $("#vaultUser").value, password: $("#vaultPass").value } });
+    ev.target.reset();
+    toast("Login saved.");
+    loadVault();
+  } catch (e) { toast(errText(e), true); }
 });
 
 // --- memory -------------------------------------------------------------------------------

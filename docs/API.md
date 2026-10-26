@@ -171,6 +171,21 @@ Generated from the route table. "signed" routes need the `x-shadow-*` request-si
 |---|---|---|---|
 | `GET` | `/audit` | signed | Audit trail, oldest first, as the uniform page envelope. |
 
+### browser
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/browser/status` | signed |  |
+| `GET` | `/browser/tasks/{task_id}/frame` | signed | Latest screenshot of the task's page (the live view). |
+| `POST` | `/browser/tasks/{task_id}/reply` | signed |  |
+| `POST` | `/browser/tasks/{task_id}/stop` | signed |  |
+| `GET` | `/browser/tasks/{task_id}` | signed |  |
+| `GET` | `/browser/tasks` | signed |  |
+| `POST` | `/browser/tasks` | signed | Start a browser task with the model chosen in Models. |
+| `POST` | `/browser/vault/delete` | signed |  |
+| `GET` | `/browser/vault` | signed | Saved site logins: origins and usernames only. |
+| `PUT` | `/browser/vault` | signed |  |
+
 ### claims
 
 | Method | Path | Auth | Summary |
