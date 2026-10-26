@@ -9,7 +9,8 @@ ledger from agent_core is used.
 import tempfile
 import time
 
-from agent_core import DeviceSessionStore, InMemoryNonceLedger, MAX_SKEW_SECONDS
+from agent_core import DeviceSessionStore, InMemoryNonceLedger
+from agent_core.security import NONCE_RETENTION_SECONDS
 from shadow_node.runtime_store import (
     EncryptedRuntimeStore,
     PersistentNonceLedger,
@@ -28,7 +29,7 @@ def test_in_memory_ledger_device_scoped():
 
 def test_in_memory_ledger_expiry():
     led = InMemoryNonceLedger()
-    led.record("devA", "n-old", time.time() - MAX_SKEW_SECONDS - 1)
+    led.record("devA", "n-old", time.time() - NONCE_RETENTION_SECONDS - 1)
     assert led.seen("devA", "n-old") is False
     # Prune cleaned the backing dict.
     assert led.nonces == {}
@@ -65,7 +66,7 @@ def test_persistent_ledger_prunes_expired():
         db = f"{d}/runtime.db"
         store = EncryptedRuntimeStore(db)
         led = PersistentNonceLedger(store)
-        led.record("devA", "n-stale", time.time() - MAX_SKEW_SECONDS - 1)
+        led.record("devA", "n-stale", time.time() - NONCE_RETENTION_SECONDS - 1)
         led.record("devA", "n-fresh", time.time())
         # Force a prune (interval gate would otherwise skip it).
         led._last_prune = 0.0
@@ -106,12 +107,12 @@ def test_persistent_claim_race_serializes():
 
 
 def test_persistent_claim_stale_row_is_not_replay():
-    """A row older than MAX_SKEW_SECONDS is treated as absent, not replay."""
+    """A row older than NONCE_RETENTION_SECONDS is treated as absent, not replay."""
     path = tempfile.NamedTemporaryFile().name
     key = EncryptedRuntimeStore(path, key=None).key
     store = EncryptedRuntimeStore(path, key=key)
     led = PersistentNonceLedger(store)
-    assert led.claim("devA", "old", time.time() - MAX_SKEW_SECONDS - 10) is True
+    assert led.claim("devA", "old", time.time() - NONCE_RETENTION_SECONDS - 10) is True
     # Fresh claim on the same nonce now succeeds: the stale row was replaced.
     assert led.claim("devA", "old", time.time()) is True
     # And a second fresh claim is a replay.

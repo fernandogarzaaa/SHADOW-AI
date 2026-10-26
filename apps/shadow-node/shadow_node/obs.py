@@ -14,6 +14,13 @@ class RateLimiter:
         self._tokens: dict[str, float] = {}
         self._last: dict[str, float] = {}
 
+    def peek(self, key: str) -> bool:
+        """True when `key` has at least one token, without consuming it."""
+        now = time.monotonic()
+        tokens = self._tokens.get(key, self.capacity)
+        tokens = min(self.capacity, tokens + (now - self._last.get(key, now)) * self.rate)
+        return tokens >= 1
+
     def allow(self, key: str) -> bool:
         now = time.monotonic()
         tokens = self._tokens.get(key, self.capacity)

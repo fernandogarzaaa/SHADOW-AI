@@ -108,7 +108,7 @@ struct ShadowRequestSigner {
         let nonce = Self.hex(nonceBytes)
         let ts = String(Int(Date().timeIntervalSince1970))
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: true)
-        let sig = Self.signature(secret: identity.sharedSecret, method: method, path: comps?.path ?? url.path,
+        let sig = Self.signature(secret: identity.sharedSecret, method: method, path: comps?.percentEncodedPath ?? url.path,
                                  query: comps?.percentEncodedQuery, body: body, nonce: nonce, timestamp: ts,
                                  deviceId: identity.deviceId)
         return [

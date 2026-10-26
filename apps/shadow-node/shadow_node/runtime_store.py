@@ -173,7 +173,7 @@ class PersistentNonceLedger:
     """NonceLedger backed by the encrypted runtime DB.
 
     seen()/record() are keyed (device_id, nonce) with the same semantics
-    as the in-memory ledger. Rows expire MAX_SKEW_SECONDS after being
+    as the in-memory ledger. Rows expire NONCE_RETENTION_SECONDS after being
     seen; expired rows are pruned lazily (at most once a minute) since
     expiry is embedded in the ciphertext and cannot be filtered in SQL.
     Volume is bounded by design: one row per authenticated request, each
@@ -207,9 +207,9 @@ class PersistentNonceLedger:
             self._prune(now)
 
     def _prune(self, now: float) -> None:
-        from agent_core import MAX_SKEW_SECONDS
+        from agent_core.security import NONCE_RETENTION_SECONDS
         expired = [row.id for row in self._store.all("nonces", _NonceRow)
-                   if now - row.seen_at > MAX_SKEW_SECONDS]
+                   if now - row.seen_at > NONCE_RETENTION_SECONDS]
         if not expired:
             return
         with self._store.lock:
@@ -224,12 +224,12 @@ class PersistentNonceLedger:
         Runs inside a BEGIN IMMEDIATE transaction so two Uvicorn workers
         racing the same (device_id, nonce) serialize: exactly one insert
         wins and the loser gets False (replay). A stale row (older than
-        MAX_SKEW_SECONDS) is treated as absent, not as a replay.
+        NONCE_RETENTION_SECONDS) is treated as absent, not as a replay.
         """
-        from agent_core import MAX_SKEW_SECONDS
+        from agent_core.security import NONCE_RETENTION_SECONDS
         key = self._key(device_id, nonce)
         with self._store.lock:
-            fresh = self._claim_locked(key, device_id, nonce, seen_at, MAX_SKEW_SECONDS)
+            fresh = self._claim_locked(key, device_id, nonce, seen_at, NONCE_RETENTION_SECONDS)
         # claim() is the only write on the verify path (record() is not
         # called there), so it owns pruning too; otherwise the nonce table
         # grows by one row per authenticated request forever.
@@ -242,7 +242,7 @@ class PersistentNonceLedger:
             self._prune_thread.start()
         return fresh
 
-    def _claim_locked(self, key, device_id, nonce, seen_at, MAX_SKEW_SECONDS) -> bool:
+    def _claim_locked(self, key, device_id, nonce, seen_at, retention) -> bool:
         conn = self._store.conn
         if conn.in_transaction:
             conn.commit()
@@ -258,7 +258,7 @@ class PersistentNonceLedger:
                         self._store.cipher.decrypt(blob).decode())
                 except Exception:
                     continue  # corrupt row: treat as absent, overwrite below
-                if seen_at - row.seen_at <= MAX_SKEW_SECONDS:
+                if seen_at - row.seen_at <= retention:
                     conn.execute("ROLLBACK")
                     return False
             conn.execute("DELETE FROM runtime WHERE collection='nonces' AND id=?", (key,))

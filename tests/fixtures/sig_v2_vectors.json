@@ -75,6 +75,33 @@
       "body": "{\"prompt\":\"hi é\"}",
       "canonical_query": "",
       "signature": "ce8024826b0860eb9f3cad82c4707fddef45c8d9a4108d4f24891bbc36ffe9ef"
+    },
+    {
+      "name": "encoded_path",
+      "method": "GET",
+      "path": "/scheduled-tasks/ambient%3Afeed_digest",
+      "query": "",
+      "body": "",
+      "canonical_query": "",
+      "signature": "6d2887b3e83a527faf7f5b0809d079ce0b83f97b9c54fd18eab0ddaaa9086289"
+    },
+    {
+      "name": "non_ascii_key_order",
+      "method": "GET",
+      "path": "/memory/search",
+      "query": "%C3%A9=1&a=2",
+      "body": "",
+      "canonical_query": "%C3%A9=1&a=2",
+      "signature": "6ce0e66fe113f5075ade3e9e82bdb33becfb690a39dac47d084d018edcd9294e"
+    },
+    {
+      "name": "bare_key",
+      "method": "GET",
+      "path": "/audit",
+      "query": "flag&b=1",
+      "body": "",
+      "canonical_query": "b=1&flag=",
+      "signature": "bbdd2b8ee12cbfa869ee65cebd13d3ee8bc155328d874fcfafad2976e3cf81d9"
     }
   ]
 }

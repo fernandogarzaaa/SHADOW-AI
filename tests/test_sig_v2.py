@@ -298,3 +298,59 @@ def test_claim_prunes_stale_nonces(tmp_path):
     ledger._prune_thread.join(timeout=5)  # pruning runs off the request path
     ids = [r.id for r in store.all("nonces", _NonceRow)]
     assert ids == ["dev:new"]
+
+
+# --- Goldfish review round 1: code fixes -----------------------------------
+
+def test_v2_signs_path_as_sent(api):
+    """Browsers and fetch clients sign the encoded path (URL.pathname). The
+    node must verify the same bytes: toggling `ambient:feed_digest` from the
+    dashboard used to fail with invalid_signature."""
+    client, m = api
+    dev = _owner(m)
+    raw = "/scheduled-tasks/ambient%3Afeed_digest"
+    r = client.get(raw, headers=_v2(dev.id, "owner-secret", "GET", raw))
+    assert r.status_code == 200, r.text
+    # signing the decoded form no longer matches the request as sent
+    r = client.get(raw, headers=_v2(dev.id, "owner-secret", "GET", "/scheduled-tasks/ambient:feed_digest"))
+    assert r.status_code == 401
+
+
+def test_v1_still_signs_decoded_path(api):
+    client, m = api
+    dev = _owner(m)
+    raw = "/scheduled-tasks/ambient%3Afeed_digest"
+    r = client.get(raw, headers=_v1(dev.id, "owner-secret", "GET", "/scheduled-tasks/ambient:feed_digest"))
+    assert r.status_code == 200
+
+
+def test_nonce_remembered_for_full_skew_window():
+    """A timestamp is valid for +/-300 s, so a nonce must be remembered for
+    600 s; otherwise a future-stamped request replays after 300 s."""
+    from agent_core.security import InMemoryNonceLedger, NONCE_RETENTION_SECONDS, MAX_SKEW_SECONDS
+    assert NONCE_RETENTION_SECONDS == 2 * MAX_SKEW_SECONDS
+    ledger = InMemoryNonceLedger()
+    assert ledger.claim("dev", "n", 1000.0)
+    assert ledger.claim("dev", "n", 1450.0) is False   # replay inside the window
+    assert ledger.claim("dev", "n", 1000.0 + 601)       # forgotten only after 600 s
+
+
+def test_persistent_nonce_remembered_for_full_skew_window(tmp_path):
+    from cryptography.fernet import Fernet
+    from shadow_node.runtime_store import EncryptedRuntimeStore, PersistentNonceLedger
+    ledger = PersistentNonceLedger(EncryptedRuntimeStore(str(tmp_path / "n.db"), key=Fernet.generate_key()))
+    assert ledger.claim("dev", "n", 1000.0)
+    assert ledger.claim("dev", "n", 1450.0) is False
+
+
+def test_failed_auth_is_rate_limited(api, monkeypatch):
+    client, m = api
+    from shadow_node.obs import RateLimiter
+    monkeypatch.setattr(m, "rate_limiter", RateLimiter(rpm=3))
+    dev = _owner(m)
+    codes = []
+    for _ in range(5):
+        h = _v2(dev.id, "wrong-secret", "GET", "/devices")
+        codes.append(client.get("/devices", headers=h).status_code)
+    assert codes[:3] == [401, 401, 401]
+    assert codes[3:] == [429, 429]

@@ -10,6 +10,11 @@ if TYPE_CHECKING:
     from .models import AgentAction
 
 MAX_SKEW_SECONDS = 300
+# A timestamp is accepted up to MAX_SKEW_SECONDS either side of now, so a
+# request stamped in the future stays valid for 2x the skew. Nonces must be
+# remembered at least that long or the request can be replayed once its
+# nonce is forgotten.
+NONCE_RETENTION_SECONDS = 2 * MAX_SKEW_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -44,8 +49,8 @@ class NonceLedger:
 
 
 class InMemoryNonceLedger(NonceLedger):
-    """Process-local ledger. Entries expire MAX_SKEW_SECONDS after being
-    seen; expired entries are pruned lazily on access."""
+    """Process-local ledger. Entries expire NONCE_RETENTION_SECONDS after
+    being seen; expired entries are pruned lazily on access."""
 
     def __init__(self, backing: dict[str, float] | None = None):
         self.nonces: dict[str, float] = backing if backing is not None else {}
@@ -57,7 +62,7 @@ class InMemoryNonceLedger(NonceLedger):
 
     def _prune(self, now_ts: float) -> None:
         for key, seen_at in list(self.nonces.items()):
-            if now_ts - seen_at > MAX_SKEW_SECONDS:
+            if now_ts - seen_at > NONCE_RETENTION_SECONDS:
                 del self.nonces[key]
 
     def seen(self, device_id: str, nonce: str) -> bool:

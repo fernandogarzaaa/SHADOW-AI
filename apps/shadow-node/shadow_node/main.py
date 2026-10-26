@@ -810,6 +810,18 @@ def _canonical_body(raw: bytes, content_type: str) -> str:
     return raw.decode()
 
 
+def _signed_path(scope, version: int) -> str:
+    """The path a signature covers. v2 signs the path exactly as sent on the
+    wire (percent-encoding preserved), which is what browsers and fetch
+    clients produce; decoding is lossy (%2F vs /). v1 keeps the decoded
+    path for clients paired before v2."""
+    if version == 2:
+        raw = scope.get("raw_path")
+        if raw:
+            return raw.decode("latin-1").split("?", 1)[0]
+    return scope["path"]
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     exempt = (
@@ -823,6 +835,12 @@ async def auth_middleware(request: Request, call_next):
     if AUTH_REQUIRED and not exempt:
         h = request.headers
         device_id = h.get("x-shadow-device-id")
+        # Failed authentication is rate limited per client IP (when the
+        # limiter is enabled) before any signature work, so guessing device
+        # ids or signatures can't run unthrottled.
+        ip_bucket = "authfail:" + (request.client.host if request.client else "anon")
+        if rate_limiter is not None and not rate_limiter.peek(ip_bucket):
+            return JSONResponse(status_code=429, content={"detail": "rate_limited"})
         try:
             version = int(h.get("x-shadow-signature-version") or "1")
         except ValueError:
@@ -851,12 +869,14 @@ async def auth_middleware(request: Request, call_next):
                 h.get("x-shadow-nonce"),
                 h.get("x-shadow-timestamp"),
                 request.method,
-                request.url.path,
+                _signed_path(request.scope, version),
                 body,
                 query=request.url.query,
                 version=version,
             )
         if not ok:
+            if rate_limiter is not None:
+                rate_limiter.allow(ip_bucket)  # charge the failure
             # This middleware runs outside CORSMiddleware, so auth rejections
             # would otherwise leave browser clients with an opaque
             # "Failed to fetch" instead of the 401. Reflect the origin for
@@ -3703,7 +3723,7 @@ async def ws_tasks(ws: WebSocket):
             h.get("x-shadow-nonce"),
             h.get("x-shadow-timestamp"),
             "GET",
-            "/ws/tasks",
+            _signed_path(ws.scope, version),
             hashlib.sha256(b"").hexdigest() if version == 2 else "",
             query=ws.url.query,
             version=version,
