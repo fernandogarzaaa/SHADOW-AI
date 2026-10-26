@@ -129,6 +129,8 @@ SCOPED_ROUTES: dict[str, frozenset[str]] = {
     "/accounts/{service_id}/connect": frozenset({"POST"}),
     "/accounts/{service_id}/disconnect": frozenset({"POST"}),
     # providers
+    "/policy/rules": frozenset({"GET"}),
+    "/policy/rules/{tool}": frozenset({"PUT", "DELETE"}),
     "/providers": frozenset({"GET"}),
     "/providers/active": frozenset({"POST"}),
     "/providers/chatgpt_plan/model": frozenset({"PUT"}),

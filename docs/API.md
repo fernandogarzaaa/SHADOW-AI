@@ -327,6 +327,14 @@ Generated from the route table. "signed" routes need the `x-shadow-*` request-si
 | `GET` | `/persona` | signed | The assistant's Cookie-style identity: name, avatar emoji, vibe, status. |
 | `PUT` | `/persona` | signed | Update the assistant's identity. |
 
+### policy
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `DELETE` | `/policy/rules/{tool}` | signed |  |
+| `PUT` | `/policy/rules/{tool}` | signed |  |
+| `GET` | `/policy/rules` | signed | Your per-tool rules plus, for every known tool, whether "Allow" is possible and why not. |
+
 ### providers
 
 | Method | Path | Auth | Summary |

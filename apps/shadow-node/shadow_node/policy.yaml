@@ -87,3 +87,16 @@ approval_required_risks:
 #   memory.recall: always_allow
 #   send_email: always_ask
 tool_tiers: {}
+
+# Tools whose parameters leave this node. Their parameters are scanned
+# before running: anything that looks like a credential (API key, token,
+# private key, password) is always refused; payment card and Social
+# Security numbers need an approval that names them. No tier or user rule
+# can waive either. Users also can't "Always allow" these tools.
+outbound_tools:
+  - send_email
+  - send_message
+  - email.draft
+  - calendar.create
+  - http.get
+  - web.search

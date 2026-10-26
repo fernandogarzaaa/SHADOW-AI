@@ -340,6 +340,15 @@ const ACTIONS = {
   reload: (el) => VIEWS[el.dataset.target]?.[2]?.(),
   "approval-decide": (el) => decideApproval(el.dataset.id, el.dataset.ok === "1", el),
   "approval-run": (el) => runApproval(el.dataset.id, el),
+  "approval-always": async (el) => {
+    await busy(el, async () => {
+      try {
+        await post(`/approvals/${encodeURIComponent(el.dataset.id)}/approve`, { remember: true });
+        toast("Approved, and allowed from now on. Change it any time in Actions → Permissions.");
+        loadApprovals();
+      } catch (e) { toast(errText(e), true); }
+    });
+  },
   "mem-delete": async (el) => {
     if (!confirm("Delete this memory? It will no longer be searched or sent anywhere.")) return;
     try {
@@ -601,8 +610,11 @@ function approvalItem(a, mode) {
   const params = act.params && Object.keys(act.params).length ? `<pre class="json">${esc(JSON.stringify(act.params, null, 2))}</pre>` : "";
   const dbl = a.requires_double_confirmation ? '<span class="pill warn">needs a second confirmation</span>' : "";
   const exp = a.expires_at ? `<span class="pill">expires ${esc(fmtTime(a.expires_at))}</span>` : "";
+  const always = mode === "pending" && state.allowEligible?.has(act.tool_name)
+    ? `<button class="ghost sm" type="button" data-action="approval-always" data-id="${esc(a.id)}" title="Approve this and allow ${esc(act.tool_name)} from now on">Always allow</button>`
+    : "";
   const buttons = mode === "pending"
-    ? `<button class="btn sm" type="button" data-action="approval-decide" data-ok="1" data-id="${esc(a.id)}">Approve</button>
+    ? `<button class="btn sm" type="button" data-action="approval-decide" data-ok="1" data-id="${esc(a.id)}">Approve</button>${always}
        <button class="ghost sm danger" type="button" data-action="approval-decide" data-ok="0" data-id="${esc(a.id)}">Deny</button>`
     : `<button class="btn sm" type="button" data-action="approval-run" data-id="${esc(a.id)}">Run now</button>`;
   return `<div class="item${mode === "pending" ? " beam-pulse" : ""}"><div class="t">${esc(act.tool_name)} <span class="pill ${esc(a.risk_label)}">${esc(a.risk_label)} risk</span>${dbl}${exp}</div>
@@ -617,7 +629,11 @@ async function loadApprovals() {
   const ready = $("#apprReady");
   if (!out.innerHTML) { out.innerHTML = skeleton(2); ready.innerHTML = skeleton(1); }
   try {
-    const [pend, appr] = await Promise.all([get("/approvals?status=pending"), get("/approvals?status=approved")]);
+    const [pend, appr, rules] = await Promise.all([
+      get("/approvals?status=pending"), get("/approvals?status=approved"),
+      get("/policy/rules").catch(() => ({ items: [] })),
+    ]);
+    state.allowEligible = new Set(rules.items.filter((r) => r.allow_eligible && r.rule !== "allow").map((r) => r.tool));
     [...pend.items, ...appr.items].forEach((a) => approvalCache.set(a.id, a));
     out.innerHTML = pend.items.length ? pend.items.map((a) => approvalItem(a, "pending")).join("") : empty("Nothing waiting.", " New requests will appear here.", true);
     ready.innerHTML = appr.items.length ? appr.items.map((a) => approvalItem(a, "approved")).join("") : empty("Nothing approved and waiting to run.");
@@ -674,7 +690,45 @@ const FIELDS = {
 };
 let toolMeta = [];
 
+const RULE_LABELS = { "": "Default", allow: "Allow", ask: "Ask first", block: "Block" };
+
+async function loadRules() {
+  const out = $("#rulesOut");
+  if (!out.innerHTML) out.innerHTML = skeleton(2);
+  try {
+    const r = await get("/policy/rules");
+    out.innerHTML = r.items.map((row) => {
+      const opts = ["", "allow", "ask", "block"].map((v) => {
+        const disabled = v === "allow" && !row.allow_eligible;
+        return `<option value="${v}"${(row.rule || "") === v ? " selected" : ""}${disabled ? " disabled" : ""}>${RULE_LABELS[v]}${disabled ? " (not available)" : ""}</option>`;
+      }).join("");
+      const why = row.allow_eligible ? "" : `<div class="d">Always needs your approval: ${esc(row.allow_blocked_reason || "")}.</div>`;
+      return `<div class="item"><div class="row" style="align-items:center">
+        <div class="grow"><div class="t">${esc(row.tool)} ${row.outbound ? '<span class="pill warn">sends data</span>' : ""}</div>${why}</div>
+        <div><label class="sr-only" for="rule-${esc(row.tool)}">Rule for ${esc(row.tool)}</label>
+        <select id="rule-${esc(row.tool)}" data-rule-tool="${esc(row.tool)}" style="margin:0;width:auto">${opts}</select></div></div></div>`;
+    }).join("") || empty("No tools registered.");
+  } catch (e) {
+    out.innerHTML = e.status === 403 ? empty("Only an owner device can change permissions.") : failed(e);
+  }
+}
+
+document.addEventListener("change", async (ev) => {
+  const tool = ev.target.dataset?.ruleTool;
+  if (!tool) return;
+  const rule = ev.target.value;
+  try {
+    if (rule) await api(`/policy/rules/${encodeURIComponent(tool)}`, { method: "PUT", body: { rule } });
+    else await del(`/policy/rules/${encodeURIComponent(tool)}`);
+    toast(rule ? `${tool}: ${RULE_LABELS[rule]}.` : `${tool}: back to default.`);
+  } catch (e) {
+    toast(errText(e), true);
+    loadRules();
+  }
+});
+
 async function loadActions() {
+  loadRules();
   const cat = $("#toolCatalogOut");
   if (!cat.innerHTML) cat.innerHTML = skeleton(3);
   try {

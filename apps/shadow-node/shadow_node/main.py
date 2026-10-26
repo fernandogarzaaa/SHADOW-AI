@@ -626,6 +626,28 @@ chatgpt_auth = ChatGPTPlanAuth(credentials)
 SUBSCRIPTION_PROVIDERS = {CHATGPT_PLAN, CLAUDE_CODE}
 
 
+# User approval rules (Allow / Ask first / Block per tool), persisted
+# encrypted on the node and layered over the operator policy.
+_RULES_KEY = "_policy_rules"
+
+
+def _load_user_rules() -> None:
+    for tool, rule in ((credentials.get(_RULES_KEY) or {}).get("rules") or {}).items():
+        try:
+            core.policy.set_user_rule(tool, rule)
+        except ValueError:
+            # Operator policy changed since the rule was saved (e.g. the tool
+            # became sensitive): drop the now-invalid allow.
+            pass
+
+
+def _save_user_rules() -> None:
+    credentials.set(_RULES_KEY, {"rules": dict(core.policy.user_rules)})
+
+
+_load_user_rules()
+
+
 def active_provider() -> str:
     """The provider asks go to: chosen in the dashboard (stored), else the
     SHADOW_MODEL_PROVIDER environment default."""
@@ -3499,13 +3521,29 @@ def _decider_id(request: Request) -> str | None:
     )
 
 
+class ApproveRequest(BaseModel):
+    # "Always allow": also save a standing allow rule for this tool (only
+    # for tools eligible for one; owner devices only).
+    remember: bool = False
+
+
 @app.post("/approvals/{id}/approve")
-def approve(id: str, request: Request):
+def approve(id: str, request: Request, req: ApproveRequest | None = None):
     # Any trusted paired device may approve: every device was enrolled with
     # the owner's approval, and phones (enrolled via /devices/register, not
     # owners) are the primary approval surface. The approving device is
     # recorded so every decision is attributable.
     approver = _decider_id(request)
+    remember = bool(req and req.remember)
+    if remember:
+        # Check everything before deciding: a refused "Always allow" must
+        # leave the approval untouched.
+        _require_owner(request)
+        pending = core.approvals.requests.get(id)
+        if pending is not None:
+            ok, why = core.policy.allow_eligible(pending.action.tool_name)
+            if not ok:
+                raise HTTPException(409, f"'{pending.action.tool_name}' can't be always allowed: {why}")
     try:
         req = core.approvals.decide(id, True)
     except ValueError as e:
@@ -3519,6 +3557,15 @@ def approve(id: str, request: Request):
             metadata={"approval_id": id, "approved_by": approver},
         )
     )
+    if remember:
+        _require_owner(request)
+        try:
+            core.policy.set_user_rule(req.action.tool_name, "allow")
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        _save_user_rules()
+        audit.append(AuditEvent(actor="user", event_type="policy_rule_set", status="ok",
+                                metadata={"tool": req.action.tool_name, "rule": "allow", "via": id}))
     return req
 
 
@@ -3539,6 +3586,53 @@ def deny(id: str, req: DenyRequest, request: Request):
         )
     )
     return out
+
+
+class RuleRequest(BaseModel):
+    rule: str  # allow | ask | block
+
+
+@app.get("/policy/rules")
+def list_policy_rules():
+    """Your per-tool rules plus, for every known tool, whether "Allow" is
+    possible and why not. Hard gates (pause, blocked tools, irreversible
+    actions, outgoing secrets) aren't rules: nothing here can change them."""
+    tools = sorted(set(core.tools.names()) | set(core.policy.user_rules))
+    rows = []
+    for t in tools:
+        ok, why = core.policy.allow_eligible(t)
+        rows.append({
+            "tool": t,
+            "rule": core.policy.user_rules.get(t.lower()),
+            "allow_eligible": ok,
+            "allow_blocked_reason": why or None,
+            "operator_tier": core.policy.tool_tiers.get(t.lower()),
+            "outbound": t.lower() in core.policy.outbound_tools,
+        })
+    return _page(rows)
+
+
+@app.put("/policy/rules/{tool}")
+def set_policy_rule(tool: str, req: RuleRequest, request: Request):
+    _require_owner(request)
+    try:
+        core.policy.set_user_rule(tool, req.rule)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    _save_user_rules()
+    audit.append(AuditEvent(actor="user", event_type="policy_rule_set", status="ok",
+                            metadata={"tool": tool, "rule": req.rule}))
+    return {"tool": tool, "rule": req.rule}
+
+
+@app.delete("/policy/rules/{tool}")
+def delete_policy_rule(tool: str, request: Request):
+    _require_owner(request)
+    core.policy.set_user_rule(tool, None)
+    _save_user_rules()
+    audit.append(AuditEvent(actor="user", event_type="policy_rule_cleared", status="ok",
+                            metadata={"tool": tool}))
+    return {"tool": tool, "rule": None}
 
 
 @app.get("/emergency_pause")
