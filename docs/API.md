@@ -331,6 +331,11 @@ Generated from the route table. "signed" routes need the `x-shadow-*` request-si
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
+| `POST` | `/providers/active` | signed | Choose where cloud-approved asks go. |
+| `PUT` | `/providers/chatgpt_plan/model` | signed |  |
+| `GET` | `/providers/chatgpt_plan/models` | signed |  |
+| `POST` | `/providers/chatgpt_plan/signin` | signed | Start "Continue with ChatGPT". |
+| `POST` | `/providers/claude_code/enable` | signed | Opt in to the experimental Claude Code delegate. |
 | `POST` | `/providers/{name}/connect` | signed |  |
 | `POST` | `/providers/{name}/oauth/exchange` | signed |  |
 | `GET` | `/providers/{name}/oauth/start` | signed |  |

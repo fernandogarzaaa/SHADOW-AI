@@ -113,7 +113,7 @@
         <label for="askInput" class="sr-only">Question</label>
         <textarea id="askInput" placeholder="What did I note about the Aurora project?" required></textarea>
         <div class="row">
-          <label class="check grow"><input type="checkbox" id="askCloud" /> Use the cloud model (needs a cloud consent grant)</label>
+          <label class="check grow"><input type="checkbox" id="askCloud" /> Use the cloud model <span id="askBilling"></span></label>
           <button class="btn" type="submit" id="askBtn">Ask</button>
         </div>
         <div id="askOut" aria-live="polite"></div>
@@ -260,8 +260,13 @@
         <div id="savingsBox" class="meta"><span class="pill">Ask something to see routing and token savings.</span></div>
       </div>
       <div class="card">
-        <h2>Providers</h2>
-        <p class="hint">Connect with an API key, or with OAuth where the provider supports it. Consumer chat subscriptions (ChatGPT Plus, Claude Pro, Gemini Advanced) can't power third-party apps.</p>
+        <h2>Use a subscription you already have</h2>
+        <p class="hint">Instead of an API key, answer with the usage included in a plan you pay for. Only options the provider allows are offered.</p>
+        <div id="subscriptionsOut" class="list"></div>
+      </div>
+      <div class="card">
+        <h2>API keys</h2>
+        <p class="hint">Bring your own key. Keys are stored encrypted on this node and never sent to your other devices.</p>
         <div id="providersOut" class="list"></div>
       </div>
     </section>

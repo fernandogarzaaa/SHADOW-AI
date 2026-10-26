@@ -110,9 +110,19 @@ from .ambient_tasks import (
     memory_digest as _amb_memory_digest,
 )
 from . import provider_auth
+from . import claude_code
+from .chatgpt_plan import (
+    PROVIDER as CHATGPT_PLAN,
+    MANAGE_USAGE_URL,
+    ChatGPTPlanAuth,
+    ChatGPTPlanError,
+    ChatGPTPlanProvider,
+)
+CLAUDE_CODE = claude_code.PROVIDER
 from . import accounts
 from .events import EventBus
 from pathlib import Path
+import httpx
 import contextlib, contextvars, re, tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
 from contextlib import asynccontextmanager
 
@@ -612,6 +622,40 @@ ambient_scheduler.update_context(
 hybrid = HybridRouter(model, axiom)
 credentials = provider_auth.CredentialStore()
 oauth_txns = provider_auth.OAuthTransactionStore()
+chatgpt_auth = ChatGPTPlanAuth(credentials)
+SUBSCRIPTION_PROVIDERS = {CHATGPT_PLAN, CLAUDE_CODE}
+
+
+def active_provider() -> str:
+    """The provider asks go to: chosen in the dashboard (stored), else the
+    SHADOW_MODEL_PROVIDER environment default."""
+    chosen = (credentials.get("_active") or {}).get("provider")
+    return chosen or model_config.provider
+
+
+def _claude_code_enabled() -> bool:
+    return bool((credentials.get("_claude_code") or {}).get("enabled")) and not claude_code.killed()
+
+
+def _build_active_frontier(provider: str):
+    """Construct the frontier model for `provider`, or None when it isn't
+    connected. Subscription providers are only ever built for a
+    user-initiated ask (this function's only caller)."""
+    if provider == CHATGPT_PLAN:
+        cred = credentials.get(CHATGPT_PLAN) or {}
+        if cred.get("type") != "chatgpt_plan":
+            return None
+        return ChatGPTPlanProvider(chatgpt_auth, cred.get("model") or "")
+    if provider == CLAUDE_CODE:
+        return claude_code.ClaudeCodeProvider() if _claude_code_enabled() else None
+    cred = credentials.resolve(provider)
+    if cred is None:
+        return None
+    cred = {**cred, "endpoint": model_config.endpoint if provider == model_config.provider else ""}
+    # SHADOW_MODEL_NAME belongs to the env-configured provider; any other
+    # provider uses its own catalog default (never a foreign model id).
+    model = model_config.model_name if (provider == model_config.provider and os.getenv("SHADOW_MODEL_NAME")) else None
+    return build_frontier(provider, cred, model)
 AUTH_REQUIRED = os.getenv("SHADOW_AUTH_REQUIRED", "true").lower() == "true"
 GROUNDING_VERIFY = os.getenv("SHADOW_GROUNDING_VERIFY", "true").lower() == "true"
 RATE_LIMIT_RPM = int(os.getenv("SHADOW_RATE_LIMIT_RPM", "0"))  # 0 disables
@@ -829,6 +873,7 @@ async def auth_middleware(request: Request, call_next):
         or request.url.path
         in {"/", "/health", "/ready", "/pair/start", "/pair/confirm"}
         or request.url.path.startswith("/web/")
+        or request.url.path == "/auth/callback"
         or request.url.path.startswith("/docs")
         or request.url.path.startswith("/openapi")
     )
@@ -2530,7 +2575,7 @@ def _run_ask_pipeline(req: AskRequest):
     # payload, independent of the `sensitive` flag, grants, or approvals.
     cloud_manifest = core.policy.authorize_cloud_context(
         results,
-        provider=model_config.provider,
+        provider=active_provider(),
         purpose="answer_user_question",
         grants=consents,
     )
@@ -2555,14 +2600,8 @@ def _run_ask_pipeline(req: AskRequest):
             403, "cloud escalation requires active grant and explicit approval"
         )
     # Hybrid routing: build a frontier provider only when cloud is approved AND a credential resolves; else fully local.
-    frontier = None
-    if req.allow_cloud:
-        cred = credentials.resolve(model_config.provider)
-        if cred is not None:
-            cred = {**cred, "endpoint": model_config.endpoint}
-            frontier = build_frontier(
-                model_config.provider, cred, model_config.model_name
-            )
+    provider_name = active_provider()
+    frontier = _build_active_frontier(provider_name) if req.allow_cloud else None
     try:
         out = hybrid.run(
             req.prompt,
@@ -2579,20 +2618,26 @@ def _run_ask_pipeline(req: AskRequest):
             AuditEvent(
                 actor="agent",
                 event_type="cloud_model_error",
-                model_used=model_config.provider,
+                model_used=provider_name,
                 status="fallback_local",
                 result=safe_error,
             )
         )
         out = hybrid.run(req.prompt, raw_context, frontier=None)
-        # Never pass a placeholder off as an answer: say plainly that the
-        # cloud model failed, and flag the response as degraded.
-        out["answer"] = (
-            f"The cloud model ({model_config.provider}) could not answer ({safe_error}). "
-            "Nothing was generated; try again shortly."
-        )
+        # Never pass a placeholder off as an answer, and never fall back to
+        # another billing path (e.g. the user's API key) silently: say
+        # plainly that the cloud model failed and flag the response.
+        if isinstance(e, (ChatGPTPlanError, claude_code.ClaudeCodeError)):
+            out["answer"] = f"{e} Nothing was generated."
+        else:
+            out["answer"] = (
+                f"The cloud model ({provider_name}) could not answer ({safe_error}). "
+                "Nothing was generated; try again shortly."
+            )
         out["degraded"] = True
-        out["error"] = "cloud_model_error"
+        out["error"] = getattr(e, "code", None) or "cloud_model_error"
+        if provider_name == CHATGPT_PLAN:
+            out["manage_usage_url"] = MANAGE_USAGE_URL
     cloud_used = out["route"] == "frontier"
     if cloud_used:
         # Every cloud egress carries its authorization manifest in the audit
@@ -2643,6 +2688,12 @@ def _run_ask_pipeline(req: AskRequest):
         "cloud_manifest": cloud_manifest if req.allow_cloud else None,
         "degraded": out.get("degraded", False),
         "error": out.get("error"),
+        "provider": active_provider() if out.get("route") == "frontier" or out.get("degraded") else None,
+        "billing": (
+            "chatgpt_plan" if active_provider() == CHATGPT_PLAN
+            else "claude_code" if active_provider() == CLAUDE_CODE else "api_key"
+        ) if out.get("route") == "frontier" else None,
+        "manage_usage_url": out.get("manage_usage_url"),
     }
 
 
@@ -3543,7 +3594,180 @@ def model_providers():
 
 @app.get("/providers")
 def providers_status():
-    return {"active_provider": model_config.provider, "providers": credentials.status()}
+    gpt = credentials.get(CHATGPT_PLAN) or {}
+    cc_settings = credentials.get("_claude_code") or {}
+    return {
+        "active_provider": active_provider(),
+        "providers": credentials.status(),
+        "subscriptions": {
+            CHATGPT_PLAN: {
+                "label": "ChatGPT plan (Plus or Pro)",
+                "connected": gpt.get("type") == "chatgpt_plan",
+                "email": gpt.get("email"),
+                "plan_usage": bool(gpt.get("plan_usage")),
+                "model": gpt.get("model"),
+                "manage_usage_url": MANAGE_USAGE_URL,
+                "note": (
+                    "Eligible requests use the usage included in your ChatGPT Plus or Pro plan. "
+                    "Sign-in happens on OpenAI's site; Shadow stores the resulting token only on this "
+                    "node and never sees your ChatGPT password or conversations. Requests count toward "
+                    "your plan's limits (for Plus, the same 5-hour limit you use in ChatGPT). You can cap "
+                    "or revoke Shadow's access anytime in ChatGPT Settings, Usage."
+                ),
+            },
+            CLAUDE_CODE: {
+                "label": "Your Claude Code (experimental)",
+                "enabled": _claude_code_enabled(),
+                "acknowledged_at": cc_settings.get("acknowledged_at"),
+                "detected": claude_code.detect() if cc_settings.get("enabled") else None,
+                "disabled_by_operator": claude_code.killed(),
+                "disclosure": claude_code.DISCLOSURE,
+            },
+            "gemini": {
+                "note": (
+                    "Shadow uses Gemini with an API key from Google AI Studio. Google's terms prohibit "
+                    "third-party apps from using Gemini CLI or Google AI subscription sign-ins, so "
+                    "Shadow does not offer that option."
+                ),
+            },
+        },
+    }
+
+
+class ActiveProviderRequest(BaseModel):
+    provider: str
+
+
+@app.post("/providers/active")
+def set_active_provider(req: ActiveProviderRequest):
+    """Choose where cloud-approved asks go. Only connected providers (or the
+    on-device placeholder) can be selected."""
+    p = req.provider
+    usable = (
+        p == "local_mock"
+        or (p == CHATGPT_PLAN and (credentials.get(CHATGPT_PLAN) or {}).get("type") == "chatgpt_plan")
+        or (p == CLAUDE_CODE and _claude_code_enabled())
+        or (p in CATALOG and credentials.resolve(p) is not None)
+    )
+    if not usable:
+        raise HTTPException(409, f"{p} isn't connected")
+    credentials.set("_active", {"provider": p})
+    audit.append(AuditEvent(actor="user", event_type="provider_activated", data_used=[p], status="ok"))
+    return {"active_provider": p}
+
+
+class ChatGPTSignInRequest(BaseModel):
+    # Port the node is reachable on from the browser doing the sign-in. The
+    # redirect is always http://127.0.0.1:<port>/auth/callback (SIWC rule).
+    port: int | None = None
+    # Dashboard origin to return to after sign-in (loopback origins only).
+    return_to: str | None = None
+
+
+@app.post("/providers/chatgpt_plan/signin")
+def chatgpt_signin_start(req: ChatGPTSignInRequest, request: Request):
+    """Start "Continue with ChatGPT". The browser doing the sign-in must be
+    on this computer: OpenAI only redirects to a 127.0.0.1 loopback."""
+    port = req.port or request.url.port or 8787
+    start = chatgpt_auth.start(port, getattr(request.state, "device_id", None), req.return_to)
+    audit.append(AuditEvent(actor="user", event_type="chatgpt_signin_started", status="pending"))
+    return {"authorization_url": start["authorization_url"], "redirect_uri": start["redirect_uri"]}
+
+
+@app.get("/auth/callback", include_in_schema=False)
+def chatgpt_signin_callback(request: Request):
+    """Loopback redirect target. Unauthenticated by necessity (the browser
+    arrives from OpenAI), so it is bound to the single-use state value."""
+    q = request.query_params
+    ok, message, back = False, "", "/"
+    if q.get("error"):
+        message = "Sign-in was cancelled." if q.get("error") == "access_denied" else "Sign-in failed."
+    elif not q.get("state") or not q.get("code"):
+        message = "This page needs a sign-in response from OpenAI."
+    else:
+        try:
+            info = chatgpt_auth.complete(q["state"], q["code"], q.get("client_id"), q.get("scope"))
+            ok = True
+            back = info.get("return_to") or "/"
+            message = (
+                "You're using your ChatGPT plan. Shadow will use the usage included in your ChatGPT plan."
+                if info["plan_usage"]
+                else "Signed in, but plan usage wasn't granted. Sign in again and allow it, or use an API key."
+            )
+            audit.append(AuditEvent(actor="user", event_type="chatgpt_signin_completed", status="connected",
+                                    metadata={"plan_usage": info["plan_usage"]}))
+        except ChatGPTPlanError as e:
+            message = str(e)
+        except httpx.HTTPError:
+            message = "Couldn't reach OpenAI to finish signing in. Try again."
+    import html as _html
+    status = "Connected" if ok else "Not connected"
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{status} · Shadow</title><link rel="stylesheet" href="/web/styles.css"></head>
+<body><main class="connect"><div class="card"><h1>{status}</h1><p class="sub">{_html.escape(message)}</p>
+<p><a class="btn" href="{_html.escape(back.rstrip('/'))}/#/models">Back to Shadow</a></p></div></main></body></html>"""
+    return Response(page, media_type="text/html",
+                    headers={"Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-store"})
+
+
+@app.get("/providers/chatgpt_plan/models")
+def chatgpt_models():
+    try:
+        return _page(chatgpt_auth.models())
+    except ChatGPTPlanError as e:
+        raise HTTPException(409, str(e))
+
+
+class ModelChoiceRequest(BaseModel):
+    model: str
+
+
+@app.put("/providers/chatgpt_plan/model")
+def chatgpt_set_model(req: ModelChoiceRequest):
+    cred = credentials.get(CHATGPT_PLAN) or {}
+    if cred.get("type") != "chatgpt_plan":
+        raise HTTPException(409, "ChatGPT isn't connected")
+    cred["model"] = req.model
+    credentials.set(CHATGPT_PLAN, cred)
+    return {"model": req.model}
+
+
+def chatgpt_sign_out():
+    res = chatgpt_auth.sign_out()
+    if active_provider() == CHATGPT_PLAN:
+        credentials.delete("_active")
+    audit.append(AuditEvent(actor="user", event_type="chatgpt_signed_out", status="disconnected",
+                            metadata={"remote_revocation_confirmed": res["revoked"]}))
+    return {"connected": False, "remote_revocation_confirmed": res["revoked"]}
+
+
+class ClaudeCodeEnableRequest(BaseModel):
+    acknowledge: bool = False
+
+
+@app.post("/providers/claude_code/enable")
+def claude_code_enable(req: ClaudeCodeEnableRequest):
+    """Opt in to the experimental Claude Code delegate. Requires explicit
+    acknowledgement of the disclosure; refused when the operator disabled it."""
+    if claude_code.killed():
+        raise HTTPException(403, "Claude Code is disabled on this node")
+    if not req.acknowledge:
+        raise HTTPException(400, "acknowledge the disclosure to enable this")
+    found = claude_code.detect()
+    if not found.get("available"):
+        raise HTTPException(409, found.get("reason", "Claude Code isn't available"))
+    credentials.set("_claude_code", {"enabled": True, "acknowledged_at": time.time()})
+    audit.append(AuditEvent(actor="user", event_type="claude_code_enabled", status="ok",
+                            metadata={"version": found.get("version")}))
+    return {"enabled": True, **found}
+
+
+def claude_code_disable():
+    credentials.delete("_claude_code")
+    if active_provider() == CLAUDE_CODE:
+        credentials.delete("_active")
+    audit.append(AuditEvent(actor="user", event_type="claude_code_disabled", status="ok"))
+    return {"enabled": False}
 
 
 @app.post("/providers/{name}/connect")
@@ -3568,6 +3792,16 @@ def provider_connect(name: str, req: ProviderConnectRequest):
 
 @app.delete("/providers/{name}")
 def provider_disconnect(name: str):
+    # Subscription providers have their own teardown (remote revocation,
+    # opt-out); never just drop their tokens.
+    if name == CHATGPT_PLAN:
+        return chatgpt_sign_out()
+    if name == CLAUDE_CODE:
+        return claude_code_disable()
+    if name not in CATALOG:
+        raise HTTPException(404, "unknown provider")
+    if active_provider() == name:
+        credentials.delete("_active")
     credentials.delete(name)
     audit.append(
         AuditEvent(

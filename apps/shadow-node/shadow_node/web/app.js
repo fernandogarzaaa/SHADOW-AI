@@ -130,7 +130,7 @@ function panelCard(p, extra = "") {
 
 const VIEWS = {
   overview: ["Overview", "What needs your attention, at a glance.", loadOverview],
-  ask: ["Ask Shadow", "Ask about your private memory.", null],
+  ask: ["Ask Shadow", "Ask about your private memory.", () => refreshBilling()],
   approvals: ["Approvals", "Your explicit yes or no.", loadApprovals],
   actions: ["Actions", "Real actions, behind the approval gate.", loadActions],
   memory: ["Memory", "What Shadow knows, encrypted on this node.", loadMemory],
@@ -454,7 +454,36 @@ const ACTIONS = {
     try { await post(`/providers/${encodeURIComponent(name)}/connect`, { api_key: k }); input.value = ""; toast("Connected."); loadModels(); } catch (e) { toast(errText(e), true); }
   },
   "provider-disconnect": async (el) => {
-    try { await del(`/providers/${encodeURIComponent(el.dataset.name)}`); toast("Disconnected."); loadModels(); } catch (e) { toast(errText(e), true); }
+    try {
+      const r = await del(`/providers/${encodeURIComponent(el.dataset.name)}`);
+      toast(r.remote_revocation_confirmed === false
+        ? "Signed out here. OpenAI didn't confirm; you can also disconnect Shadow in ChatGPT settings."
+        : "Disconnected.");
+      loadModels();
+    } catch (e) { toast(errText(e), true); }
+  },
+  "provider-activate": async (el) => {
+    try {
+      await post("/providers/active", { provider: el.dataset.name });
+      toast(`Answers now come from ${PROVIDER_LABELS[el.dataset.name] || el.dataset.name}.`);
+      loadModels();
+    } catch (e) { toast(errText(e), true); }
+  },
+  "chatgpt-signin": async (el) => {
+    await busy(el, async () => {
+      try {
+        const r = await post("/providers/chatgpt_plan/signin", { port: Number(location.port) || 80, return_to: location.origin });
+        location.assign(r.authorization_url);
+      } catch (e) { toast(errText(e), true); }
+    });
+  },
+  "claude-code-enable": async (el) => {
+    if (!confirm("Enable the experimental Claude Code option?\n\nShadow will run the Claude Code you installed and signed in to on this computer. Anthropic may bill this to usage credits, limit it, or act on accounts without notice. Use it only for your own requests.")) return;
+    try {
+      const r = await post("/providers/claude_code/enable", { acknowledge: true });
+      toast(`Claude Code ${r.version || ""} enabled.`);
+      loadModels();
+    } catch (e) { toast(errText(e), true); }
   },
   "provider-oauth": async (el) => {
     try {
@@ -525,6 +554,10 @@ $("#askForm").addEventListener("submit", async (ev) => {
       const where = r.route === "frontier" ? `cloud · ${r.model_used}` : `on-device · ${r.model_used}`;
       const tone = r.degraded ? " bad" : r.model_used === "local_mock" ? " warn" : "";
       let h = `<div class="answer-row"><canvas data-orb="${r.degraded ? "breathing" : "composing"}" data-size="32" data-color="accent" data-paused aria-hidden="true"></canvas><div class="answer${tone}">${esc(r.answer)}</div></div>`;
+      if (r.manage_usage_url) {
+        h += `<div class="actions" style="justify-content:flex-start;margin-top:8px"><a class="btn sm" href="${esc(r.manage_usage_url)}" target="_blank" rel="noopener">Manage usage</a></div>`;
+      }
+      if (r.billing === "chatgpt_plan") h += `<p class="hint" style="margin-top:8px">Using ChatGPT plan</p>`;
       if (r.model_used === "local_mock" && !r.degraded) {
         h += `<p class="hint" style="margin-top:8px">This came from the on-device placeholder model, not a real one. Connect a provider in <a href="#/models">Models</a> and tick "Use the cloud model" for real answers.</p>`;
       }
@@ -928,25 +961,113 @@ async function loadDevices() {
 
 // --- models -------------------------------------------------------------------------------------
 
-async function loadModels() {
-  const out = $("#providersOut");
-  if (!out.innerHTML) out.innerHTML = skeleton(3);
+const PROVIDER_LABELS = { chatgpt_plan: "ChatGPT plan", claude_code: "your Claude Code", local_mock: "on-device placeholder",
+  anthropic: "Anthropic API key", openai: "OpenAI API key", gemini: "Gemini API key" };
+
+function billingHTML(active) {
+  if (active === "chatgpt_plan") {
+    return `· <span class="pill accent">Using ChatGPT plan</span> <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">Manage usage</a>`;
+  }
+  if (!active || active === "local_mock") return "· no cloud model selected";
+  return `· via ${esc(PROVIDER_LABELS[active] || active)}`;
+}
+
+async function refreshBilling() {
   try {
     const d = await get("/providers");
+    state.activeProvider = d.active_provider;
+    $("#askBilling").innerHTML = billingHTML(d.active_provider);
+  } catch { /* status line covers connectivity */ }
+}
+
+async function loadModels() {
+  const out = $("#providersOut");
+  const subs = $("#subscriptionsOut");
+  if (!out.innerHTML) { out.innerHTML = skeleton(3); subs.innerHTML = skeleton(2); }
+  try {
+    const d = await get("/providers");
+    state.activeProvider = d.active_provider;
+    const useBtn = (name, connected) => connected
+      ? (d.active_provider === name
+        ? '<span class="pill accent">answering now</span>'
+        : `<button class="btn sm" type="button" data-action="provider-activate" data-name="${esc(name)}">Use for answers</button>`)
+      : "";
+    const s = d.subscriptions || {};
+    const gpt = s.chatgpt_plan || {};
+    const cc = s.claude_code || {};
+    const onLoopback = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+    let gptBody;
+    if (gpt.connected) {
+      gptBody = `<div class="d">${gpt.plan_usage ? "Signed in" : "Signed in, but plan usage wasn't granted"}${gpt.email ? ` as <b>${esc(gpt.email)}</b>` : ""}.</div>
+        <div class="row" style="margin-top:10px"><div class="grow"><label for="gptModel">Model</label>
+        <select id="gptModel" data-current="${esc(gpt.model || "")}" style="margin:0"><option>Loading models…</option></select></div></div>
+        <div class="acts">${useBtn("chatgpt_plan", gpt.plan_usage && gpt.model)}
+          <a class="ghost sm" href="${esc(gpt.manage_usage_url)}" target="_blank" rel="noopener">Manage usage</a>
+          <button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="chatgpt_plan">Sign out</button></div>`;
+    } else {
+      gptBody = `<div class="d">${esc(gpt.note || "")}</div>
+        <div class="acts">${onLoopback
+          ? '<button class="btn sm" type="button" data-action="chatgpt-signin">Continue with ChatGPT</button>'
+          : `<span class="hint" style="margin:0">To sign in, open the dashboard on the node's computer at <b>http://127.0.0.1:${esc(location.port || "8787")}</b>; OpenAI only returns to this computer.</span>`}
+          <a class="ghost sm" href="${esc(gpt.manage_usage_url || "https://chatgpt.com/settings/usage")}" target="_blank" rel="noopener">Manage usage</a></div>`;
+    }
+    let ccBody;
+    if (cc.disabled_by_operator) {
+      ccBody = '<div class="d">Turned off on this node by its operator.</div>';
+    } else if (cc.enabled) {
+      const det = cc.detected || {};
+      ccBody = `<div class="d">${det.available ? `Claude Code ${esc(det.version || "")} found on this computer.` : esc(det.reason || "Claude Code wasn't found.")} Shadow starts it for your own requests only; it never sees your Claude login.</div>
+        <div class="acts">${useBtn("claude_code", det.available)}
+          <button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="claude_code">Turn off</button></div>`;
+    } else {
+      ccBody = `<div class="d">${esc(cc.disclosure || "")}</div>
+        <div class="acts"><button class="ghost sm" type="button" data-action="claude-code-enable">Enable at my own risk</button></div>`;
+    }
+    subs.innerHTML = `
+      <div class="item"><div class="t">ChatGPT Plus or Pro ${gpt.connected ? '<span class="pill ok">connected</span>' : ""}</div>${gptBody}</div>
+      <div class="item"><div class="t">Your Claude Code <span class="pill warn">experimental</span> ${cc.enabled ? '<span class="pill ok">on</span>' : ""}</div>${ccBody}</div>
+      <div class="item"><div class="t">Gemini subscription <span class="pill">not available</span></div><div class="d">${esc((s.gemini || {}).note || "")}</div></div>`;
+    if (gpt.connected) loadChatGPTModels();
+
     out.innerHTML = d.providers.map((p) => {
       const badge = p.connected ? `<span class="pill ok">connected${p.credential_source === "env" ? " · from environment" : ""}</span>` : '<span class="pill">not connected</span>';
-      const active = p.provider === d.active_provider ? '<span class="pill accent">active</span>' : "";
       const oauth = p.oauth_supported ? `<button class="ghost sm" type="button" data-action="provider-oauth" data-name="${esc(p.provider)}">Sign in with OAuth</button>` : "";
-      const dis = p.connected ? `<button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="${esc(p.provider)}">Disconnect</button>` : "";
-      return `<div class="item"><div class="t">${esc(p.label)} ${badge}${active}</div><div class="d">${esc(p.note)}</div>
+      const dis = p.connected && p.credential_source !== "env" ? `<button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="${esc(p.provider)}">Disconnect</button>` : "";
+      return `<div class="item"><div class="t">${esc(p.label)} ${badge}</div><div class="d">${esc(p.note)}</div>
         <div class="row" style="margin-top:10px"><div class="grow"><label class="sr-only" for="key-${esc(p.provider)}">API key for ${esc(p.label)}</label><input id="key-${esc(p.provider)}" placeholder="Paste API key" type="password" autocomplete="off" style="margin:0" /></div>
         <button class="btn sm" type="button" data-action="provider-connect" data-name="${esc(p.provider)}">Connect</button></div>
-        ${oauth || dis ? `<div class="acts">${oauth}${dis}</div>` : ""}</div>`;
-    }).join("");
+        <div class="acts">${useBtn(p.provider, p.connected)}${oauth}${dis}</div></div>`;
+    }).join("") + `<div class="item"><div class="t">On-device placeholder ${d.active_provider === "local_mock" ? '<span class="pill accent">answering now</span>' : ""}</div>
+      <div class="d">No cloud model. Answers are canned; useful only to test the node.</div>
+      <div class="acts">${d.active_provider === "local_mock" ? "" : '<button class="ghost sm" type="button" data-action="provider-activate" data-name="local_mock">Use for answers</button>'}</div></div>`;
+    $("#askBilling").innerHTML = billingHTML(d.active_provider);
   } catch (e) {
     out.innerHTML = failed(e);
+    subs.innerHTML = "";
   }
 }
+
+async function loadChatGPTModels() {
+  const sel = $("#gptModel");
+  if (!sel) return;
+  try {
+    const r = await get("/providers/chatgpt_plan/models");
+    const current = sel.dataset.current;
+    sel.innerHTML = '<option value="">Choose a model…</option>' +
+      r.items.map((m) => `<option value="${esc(m.slug)}"${m.slug === current ? " selected" : ""}>${esc(m.display_name)}</option>`).join("");
+  } catch (e) {
+    sel.innerHTML = `<option value="">${esc(errText(e))}</option>`;
+  }
+}
+
+document.addEventListener("change", async (ev) => {
+  if (ev.target.id !== "gptModel" || !ev.target.value) return;
+  try {
+    await api("/providers/chatgpt_plan/model", { method: "PUT", body: { model: ev.target.value } });
+    toast("Model saved.");
+    loadModels();
+  } catch (e) { toast(errText(e), true); }
+});
 
 async function finishOAuthIfReturning() {
   const params = new URLSearchParams(location.search);
