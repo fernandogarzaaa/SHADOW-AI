@@ -17,6 +17,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from .models import *
+from .egress_scan import DEFAULT_OUTBOUND_TOOLS, scan as scan_egress
 from .capabilities import (
     AgentPersona,
     MEMORY_TOOLS,
@@ -76,7 +77,16 @@ DEFAULT_POLICY: dict = {
     # gates above (emergency pause, blocked tools, destructive double
     # confirmation), which are evaluated first in decide().
     "tool_tiers": {},
+    # Tools whose parameters leave the node. Their parameters are scanned
+    # for credentials (always denied) and card/ID numbers (approval that
+    # names the finding; no tier or user rule can waive it).
+    "outbound_tools": list(DEFAULT_OUTBOUND_TOOLS),
 }
+
+#: User-set per-tool rules (dashboard / "Always allow"), layered over the
+#: operator policy. `block` and `ask` always win; `allow` only applies to
+#: tools eligible for it (see PolicyEngine.allow_eligible).
+USER_RULES = ("allow", "ask", "block")
 
 
 class PolicyOutcome(str, Enum):
@@ -195,11 +205,23 @@ def _parse_irreversible_tools(raw: dict | None) -> dict[str, str]:
     return mapping
 
 
+def _listing(kinds: list[str]) -> str:
+    """'an API key', 'a card number and a Social Security number'."""
+    items = [("an " if k[:1].lower() in "aeiou" else "a ") + k for k in kinds]
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
 class PolicyEngine:
     """Single policy authority. Every agent action flows through decide()."""
 
     def __init__(self, policy: dict | None = None, policy_file: str | Path | None = None):
         self.document = _load_policy_document(policy, policy_file)
+        self.outbound_tools = {
+            t.lower() for t in self.document.get("outbound_tools", DEFAULT_OUTBOUND_TOOLS)
+        }
+        # User rules: tool -> allow | ask | block. Set at runtime by the
+        # node (persisted there); empty means operator policy only.
+        self.user_rules: dict[str, str] = {}
         self.blocked_tools = {t.lower() for t in self.document.get("blocked_tools", [])}
         self.blocked_patterns = [p.lower() for p in self.document.get("blocked_description_patterns", [])]
         self.destructive_tools = {t.lower() for t in self.document.get("destructive_tools", [])}
@@ -219,6 +241,38 @@ class PolicyEngine:
                     f"{tool!r}: sensitive tools always require approval; "
                     f"use 'always_ask' or 'auto_approve' instead"
                 )
+
+    # -- user rules -----------------------------------------------------------
+    def allow_eligible(self, tool: str) -> tuple[bool, str]:
+        """Whether a user may set `allow` (or "Always allow") for a tool.
+        Never for blocked, sensitive, destructive, irreversible or outbound
+        tools, or tools the operator tiered `always_ask`: a user rule may
+        tighten operator policy but never loosen a safety gate."""
+        t = tool.lower()
+        if t in self.blocked_tools:
+            return False, "it's blocked by policy"
+        if t in self.sensitive_tools:
+            return False, "it touches sensitive data or accounts"
+        if t in self.destructive_tools or t in self.irreversible_tools:
+            return False, "it can't be undone"
+        if t in self.outbound_tools:
+            return False, "it sends data off this node"
+        if self.tool_tiers.get(t) == "always_ask":
+            return False, "the node operator requires approval"
+        return True, ""
+
+    def set_user_rule(self, tool: str, rule: str | None) -> None:
+        t = tool.lower()
+        if rule is None:
+            self.user_rules.pop(t, None)
+            return
+        if rule not in USER_RULES:
+            raise ValueError(f"rule must be one of {USER_RULES}")
+        if rule == "allow":
+            ok, why = self.allow_eligible(t)
+            if not ok:
+                raise ValueError(f"'{tool}' can't be set to allow: {why}")
+        self.user_rules[t] = rule
 
     # -- risk classification -------------------------------------------------
     def is_destructive(self, action: AgentAction) -> bool:
@@ -362,6 +416,33 @@ class PolicyEngine:
                 rule_id="irreversible_needs_approval",
                 risk=risk,
             )
+        # Outgoing-data filter: credentials never leave the node; card and
+        # ID numbers need an approval that names them. Runs before persona,
+        # tiers and user rules, so nothing can waive it.
+        if action.tool_name.lower() in self.outbound_tools:
+            findings = scan_egress(action.params)
+            blocking = sorted(f.kind for f in findings if f.severity == "block")
+            confirm = sorted(f.kind for f in findings if f.severity == "confirm")
+            if blocking:
+                return PolicyDecision(
+                    outcome=PolicyOutcome.DENY,
+                    reason=(
+                        f"Shadow won't send this: it contains what looks like {_listing(blocking)}. "
+                        "Remove it and try again."
+                    ),
+                    rule_id="outbound_secret_blocked",
+                    risk=risk,
+                )
+            if confirm and not approved:
+                return PolicyDecision(
+                    outcome=PolicyOutcome.REQUIRE_APPROVAL,
+                    reason=(
+                        f"This sends what looks like {_listing(confirm)}. "
+                        "Check it before approving."
+                    ),
+                    rule_id="outbound_sensitive_data",
+                    risk=risk,
+                )
         # Persona capability envelope. Runs after the hard gates above, so a
         # persona can never override emergency pause, blocked tools, or the
         # destructive double-confirmation. It runs before the approval tiers:
@@ -371,6 +452,23 @@ class PolicyEngine:
         persona_decision = self._check_persona(action, persona, risk)
         if persona_decision is not None:
             return persona_decision
+        # User rules: Block and Ask-first always win over operator tiers and
+        # standing allows (they can only tighten).
+        user_rule = self.user_rules.get(action.tool_name.lower())
+        if user_rule == "block":
+            return PolicyDecision(
+                outcome=PolicyOutcome.DENY,
+                reason=f"You blocked '{action.tool_name}'.",
+                rule_id="user_rule_block",
+                risk=risk,
+            )
+        if user_rule == "ask" and not approved:
+            return PolicyDecision(
+                outcome=PolicyOutcome.REQUIRE_APPROVAL,
+                reason=f"You asked to approve '{action.tool_name}' every time.",
+                rule_id="user_rule_ask",
+                risk=risk,
+            )
         # Per-tool approval tiers. These run after the hard gates above, so a
         # tier can only relax the approval requirement, never override a
         # denial. An empty tool_tiers map (the default) falls straight
@@ -409,6 +507,22 @@ class PolicyEngine:
                 outcome=PolicyOutcome.ALLOW,
                 reason=f"Tool '{action.tool_name}' is tiered 'auto_approve': routine use waived approval.",
                 rule_id="tool_tier_auto_approve",
+                risk=risk,
+            )
+        # User "Always allow": a standing approval for routine uses of an
+        # eligible tool. Re-checks eligibility (operator policy may have
+        # changed since the rule was saved) and never covers high risk.
+        if (
+            user_rule == "allow"
+            and tier != "always_ask"
+            and self.allow_eligible(action.tool_name)[0]
+            and risk in (RiskClass.LOW, RiskClass.MEDIUM)
+            and not self.is_destructive(action)
+        ):
+            return PolicyDecision(
+                outcome=PolicyOutcome.ALLOW,
+                reason=f"You chose to always allow '{action.tool_name}'.",
+                rule_id="user_rule_allow",
                 risk=risk,
             )
         if self.requires_approval(action, profile) and not approved:

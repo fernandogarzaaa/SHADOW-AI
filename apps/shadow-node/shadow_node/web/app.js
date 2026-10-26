@@ -84,6 +84,13 @@ async function api(path, { method = "GET", body, auth = true } = {}) {
   return { data, status: r.status };
 }
 const get = async (p) => (await api(p)).data;
+
+async function getBlob(path) {
+  const headers = state.authRequired && state.cred ? await authHeaders(state.cred, "GET", path, "") : {};
+  const r = await fetch(path, { headers, credentials: "same-origin" });
+  if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`, `HTTP ${r.status}`);
+  return r.blob();
+}
 const post = async (p, body = {}) => (await api(p, { method: "POST", body })).data;
 const patch = async (p, body) => (await api(p, { method: "PATCH", body })).data;
 const del = async (p) => (await api(p, { method: "DELETE" })).data;
@@ -130,9 +137,10 @@ function panelCard(p, extra = "") {
 
 const VIEWS = {
   overview: ["Overview", "What needs your attention, at a glance.", loadOverview],
-  ask: ["Ask Shadow", "Ask about your private memory.", null],
+  ask: ["Ask Shadow", "Ask about your private memory.", () => refreshBilling()],
   approvals: ["Approvals", "Your explicit yes or no.", loadApprovals],
   actions: ["Actions", "Real actions, behind the approval gate.", loadActions],
+  browser: ["Browser", "A private browser that does tasks for you, with your approval.", loadBrowser],
   memory: ["Memory", "What Shadow knows, encrypted on this node.", loadMemory],
   goals: ["Goals", "Outcomes you're working toward.", loadGoals],
   schedule: ["Schedule", "Reminders and background tasks.", loadSchedule],
@@ -340,6 +348,23 @@ const ACTIONS = {
   reload: (el) => VIEWS[el.dataset.target]?.[2]?.(),
   "approval-decide": (el) => decideApproval(el.dataset.id, el.dataset.ok === "1", el),
   "approval-run": (el) => runApproval(el.dataset.id, el),
+  "browser-watch": (el) => { state.browserFrameAt = null; watchBrowser(el.dataset.id); window.scrollTo({ top: 0 }); },
+  "browser-stop": async () => {
+    try { await post(`/browser/tasks/${encodeURIComponent(state.browserTask)}/stop`); toast("Stopping…"); } catch (e) { toast(errText(e), true); }
+  },
+  "vault-delete": async (el) => {
+    if (!confirm(`Remove the saved login for ${el.dataset.origin}?`)) return;
+    try { await post("/browser/vault/delete", { origin: el.dataset.origin }); loadVault(); } catch (e) { toast(errText(e), true); }
+  },
+  "approval-always": async (el) => {
+    await busy(el, async () => {
+      try {
+        await post(`/approvals/${encodeURIComponent(el.dataset.id)}/approve`, { remember: true });
+        toast("Approved, and allowed from now on. Change it any time in Actions → Permissions.");
+        loadApprovals();
+      } catch (e) { toast(errText(e), true); }
+    });
+  },
   "mem-delete": async (el) => {
     if (!confirm("Delete this memory? It will no longer be searched or sent anywhere.")) return;
     try {
@@ -454,7 +479,36 @@ const ACTIONS = {
     try { await post(`/providers/${encodeURIComponent(name)}/connect`, { api_key: k }); input.value = ""; toast("Connected."); loadModels(); } catch (e) { toast(errText(e), true); }
   },
   "provider-disconnect": async (el) => {
-    try { await del(`/providers/${encodeURIComponent(el.dataset.name)}`); toast("Disconnected."); loadModels(); } catch (e) { toast(errText(e), true); }
+    try {
+      const r = await del(`/providers/${encodeURIComponent(el.dataset.name)}`);
+      toast(r.remote_revocation_confirmed === false
+        ? "Signed out here. OpenAI didn't confirm; you can also disconnect Shadow in ChatGPT settings."
+        : "Disconnected.");
+      loadModels();
+    } catch (e) { toast(errText(e), true); }
+  },
+  "provider-activate": async (el) => {
+    try {
+      await post("/providers/active", { provider: el.dataset.name });
+      toast(`Answers now come from ${PROVIDER_LABELS[el.dataset.name] || el.dataset.name}.`);
+      loadModels();
+    } catch (e) { toast(errText(e), true); }
+  },
+  "chatgpt-signin": async (el) => {
+    await busy(el, async () => {
+      try {
+        const r = await post("/providers/chatgpt_plan/signin", { port: Number(location.port) || 80, return_to: location.origin });
+        location.assign(r.authorization_url);
+      } catch (e) { toast(errText(e), true); }
+    });
+  },
+  "claude-code-enable": async (el) => {
+    if (!confirm("Enable the experimental Claude Code option?\n\nShadow will run the Claude Code you installed and signed in to on this computer. Anthropic may bill this to usage credits, limit it, or act on accounts without notice. Use it only for your own requests.")) return;
+    try {
+      const r = await post("/providers/claude_code/enable", { acknowledge: true });
+      toast(`Claude Code ${r.version || ""} enabled.`);
+      loadModels();
+    } catch (e) { toast(errText(e), true); }
   },
   "provider-oauth": async (el) => {
     try {
@@ -525,6 +579,10 @@ $("#askForm").addEventListener("submit", async (ev) => {
       const where = r.route === "frontier" ? `cloud · ${r.model_used}` : `on-device · ${r.model_used}`;
       const tone = r.degraded ? " bad" : r.model_used === "local_mock" ? " warn" : "";
       let h = `<div class="answer-row"><canvas data-orb="${r.degraded ? "breathing" : "composing"}" data-size="32" data-color="accent" data-paused aria-hidden="true"></canvas><div class="answer${tone}">${esc(r.answer)}</div></div>`;
+      if (r.manage_usage_url) {
+        h += `<div class="actions" style="justify-content:flex-start;margin-top:8px"><a class="btn sm" href="${esc(r.manage_usage_url)}" target="_blank" rel="noopener">Manage usage</a></div>`;
+      }
+      if (r.billing === "chatgpt_plan") h += `<p class="hint" style="margin-top:8px">Using ChatGPT plan</p>`;
       if (r.model_used === "local_mock" && !r.degraded) {
         h += `<p class="hint" style="margin-top:8px">This came from the on-device placeholder model, not a real one. Connect a provider in <a href="#/models">Models</a> and tick "Use the cloud model" for real answers.</p>`;
       }
@@ -568,8 +626,11 @@ function approvalItem(a, mode) {
   const params = act.params && Object.keys(act.params).length ? `<pre class="json">${esc(JSON.stringify(act.params, null, 2))}</pre>` : "";
   const dbl = a.requires_double_confirmation ? '<span class="pill warn">needs a second confirmation</span>' : "";
   const exp = a.expires_at ? `<span class="pill">expires ${esc(fmtTime(a.expires_at))}</span>` : "";
+  const always = mode === "pending" && state.allowEligible?.has(act.tool_name)
+    ? `<button class="ghost sm" type="button" data-action="approval-always" data-id="${esc(a.id)}" title="Approve this and allow ${esc(act.tool_name)} from now on">Always allow</button>`
+    : "";
   const buttons = mode === "pending"
-    ? `<button class="btn sm" type="button" data-action="approval-decide" data-ok="1" data-id="${esc(a.id)}">Approve</button>
+    ? `<button class="btn sm" type="button" data-action="approval-decide" data-ok="1" data-id="${esc(a.id)}">Approve</button>${always}
        <button class="ghost sm danger" type="button" data-action="approval-decide" data-ok="0" data-id="${esc(a.id)}">Deny</button>`
     : `<button class="btn sm" type="button" data-action="approval-run" data-id="${esc(a.id)}">Run now</button>`;
   return `<div class="item${mode === "pending" ? " beam-pulse" : ""}"><div class="t">${esc(act.tool_name)} <span class="pill ${esc(a.risk_label)}">${esc(a.risk_label)} risk</span>${dbl}${exp}</div>
@@ -584,7 +645,11 @@ async function loadApprovals() {
   const ready = $("#apprReady");
   if (!out.innerHTML) { out.innerHTML = skeleton(2); ready.innerHTML = skeleton(1); }
   try {
-    const [pend, appr] = await Promise.all([get("/approvals?status=pending"), get("/approvals?status=approved")]);
+    const [pend, appr, rules] = await Promise.all([
+      get("/approvals?status=pending"), get("/approvals?status=approved"),
+      get("/policy/rules").catch(() => ({ items: [] })),
+    ]);
+    state.allowEligible = new Set(rules.items.filter((r) => r.allow_eligible && r.rule !== "allow").map((r) => r.tool));
     [...pend.items, ...appr.items].forEach((a) => approvalCache.set(a.id, a));
     out.innerHTML = pend.items.length ? pend.items.map((a) => approvalItem(a, "pending")).join("") : empty("Nothing waiting.", " New requests will appear here.", true);
     ready.innerHTML = appr.items.length ? appr.items.map((a) => approvalItem(a, "approved")).join("") : empty("Nothing approved and waiting to run.");
@@ -600,12 +665,13 @@ async function decideApproval(id, ok, el) {
     try {
       if (ok) {
         await post(`/approvals/${encodeURIComponent(id)}/approve`);
-        toast("Approved. Run it below when you're ready.");
+        toast(currentView() === "browser" ? "Approved. The browser continues." : "Approved. Run it below when you're ready.");
       } else {
         const reason = prompt("Why are you denying this? (optional)") ?? "";
         await post(`/approvals/${encodeURIComponent(id)}/deny`, { reason: reason || "Denied from dashboard" });
         toast("Denied.");
       }
+      if (currentView() === "browser") { $("#browserPrompt").dataset.key = ""; return; }
       loadApprovals();
     } catch (e) { toast(errText(e), true); }
   });
@@ -641,7 +707,45 @@ const FIELDS = {
 };
 let toolMeta = [];
 
+const RULE_LABELS = { "": "Default", allow: "Allow", ask: "Ask first", block: "Block" };
+
+async function loadRules() {
+  const out = $("#rulesOut");
+  if (!out.innerHTML) out.innerHTML = skeleton(2);
+  try {
+    const r = await get("/policy/rules");
+    out.innerHTML = r.items.map((row) => {
+      const opts = ["", "allow", "ask", "block"].map((v) => {
+        const disabled = v === "allow" && !row.allow_eligible;
+        return `<option value="${v}"${(row.rule || "") === v ? " selected" : ""}${disabled ? " disabled" : ""}>${RULE_LABELS[v]}${disabled ? " (not available)" : ""}</option>`;
+      }).join("");
+      const why = row.allow_eligible ? "" : `<div class="d">Always needs your approval: ${esc(row.allow_blocked_reason || "")}.</div>`;
+      return `<div class="item"><div class="row" style="align-items:center">
+        <div class="grow"><div class="t">${esc(row.tool)} ${row.outbound ? '<span class="pill warn">sends data</span>' : ""}</div>${why}</div>
+        <div><label class="sr-only" for="rule-${esc(row.tool)}">Rule for ${esc(row.tool)}</label>
+        <select id="rule-${esc(row.tool)}" data-rule-tool="${esc(row.tool)}" style="margin:0;width:auto">${opts}</select></div></div></div>`;
+    }).join("") || empty("No tools registered.");
+  } catch (e) {
+    out.innerHTML = e.status === 403 ? empty("Only an owner device can change permissions.") : failed(e);
+  }
+}
+
+document.addEventListener("change", async (ev) => {
+  const tool = ev.target.dataset?.ruleTool;
+  if (!tool) return;
+  const rule = ev.target.value;
+  try {
+    if (rule) await api(`/policy/rules/${encodeURIComponent(tool)}`, { method: "PUT", body: { rule } });
+    else await del(`/policy/rules/${encodeURIComponent(tool)}`);
+    toast(rule ? `${tool}: ${RULE_LABELS[rule]}.` : `${tool}: back to default.`);
+  } catch (e) {
+    toast(errText(e), true);
+    loadRules();
+  }
+});
+
 async function loadActions() {
+  loadRules();
   const cat = $("#toolCatalogOut");
   if (!cat.innerHTML) cat.innerHTML = skeleton(3);
   try {
@@ -686,6 +790,161 @@ $("#actForm").addEventListener("submit", async (ev) => {
       $("#actOut").innerHTML = `<div class="answer bad" role="alert">${esc(errText(e))}</div>`;
     }
   });
+});
+
+// --- browser ------------------------------------------------------------------------------
+
+const BROWSER_STATUS = {
+  queued: ["Starting", ""], running: ["Working", "accent"], waiting_approval: ["Needs your approval", "warn"],
+  waiting_user: ["Has a question", "warn"], done: ["Done", "ok"], failed: ["Failed", "bad"], stopped: ["Stopped", ""],
+};
+const BROWSER_ACTIVE = new Set(["queued", "running", "waiting_approval", "waiting_user"]);
+let browserTimer = null;
+let browserFrameUrl = null;
+
+function describeStep(a) {
+  switch (a.action) {
+    case "go": return `Open ${a.url}`;
+    case "click": return `Click element ${a.index}`;
+    case "type": return `Type "${a.text}"${a.submit ? " and submit" : ""}`;
+    case "select": return `Choose "${a.value}"`;
+    case "scroll": return `Scroll ${a.direction || "down"}`;
+    case "back": return "Go back";
+    case "note": return `Note: ${a.text}`;
+    case "ask": return `Ask you: ${a.text}`;
+    case "done": return "Finish";
+    default: return a.action || "?";
+  }
+}
+
+async function loadBrowser() {
+  get("/providers").then((d) => {
+    const ok = d.active_provider && d.active_provider !== "local_mock";
+    $("#browserModel").innerHTML = ok
+      ? `Driven by ${esc(PROVIDER_LABELS[d.active_provider] || d.active_provider)}${d.active_provider === "chatgpt_plan" ? ' · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">Manage usage</a>' : ""}.`
+      : 'Needs a cloud model: choose one in <a href="#/models">Models</a>.';
+    $("#browserBtn").disabled = !ok;
+  }).catch(() => {});
+  loadVault();
+  const list = $("#browserTasks");
+  if (!list.innerHTML) list.innerHTML = skeleton(1);
+  try {
+    const r = await get("/browser/tasks");
+    list.innerHTML = r.items.length ? r.items.map((t) => {
+      const [label, tone] = BROWSER_STATUS[t.status] || [t.status, ""];
+      return `<div class="item"><div class="t">${esc(t.goal)} <span class="pill ${tone}">${esc(label)}</span></div>
+        <div class="d">${esc(t.answer || t.error || t.url || "")}</div>
+        <div class="acts"><button class="ghost sm" type="button" data-action="browser-watch" data-id="${esc(t.id)}">View</button></div></div>`;
+    }).join("") : empty("No browser tasks yet.", "", true);
+    const live = r.items.find((t) => BROWSER_ACTIVE.has(t.status));
+    if (live && !state.browserTask) watchBrowser(live.id);
+  } catch (e) {
+    list.innerHTML = failed(e);
+  }
+}
+
+function watchBrowser(id) {
+  state.browserTask = id;
+  $("#browserLive").hidden = false;
+  clearTimeout(browserTimer);
+  pollBrowser();
+}
+
+async function pollBrowser() {
+  const id = state.browserTask;
+  if (!id || currentView() !== "browser") return;
+  let t;
+  try {
+    t = await get(`/browser/tasks/${encodeURIComponent(id)}`);
+  } catch (e) {
+    $("#browserStatus").textContent = errText(e);
+    return;
+  }
+  const [label, tone] = BROWSER_STATUS[t.status] || [t.status, ""];
+  $("#browserLiveTitle").textContent = t.goal.length > 70 ? `${t.goal.slice(0, 70)}…` : t.goal;
+  const st = $("#browserStatus");
+  st.textContent = label;
+  st.className = `pill ${tone}`;
+  $("#browserStop").hidden = !BROWSER_ACTIVE.has(t.status);
+  $("#browserUrlNow").textContent = t.url || "";
+  $("#browserSteps").innerHTML = t.steps.map((s) => `<li><b>${esc(describeStep(s.action))}</b> · ${esc(s.result)}</li>`).join("");
+  let prompt = "";
+  if (t.status === "waiting_approval" && t.approval_id) {
+    const a = approvalCache.get(t.approval_id) || (await get("/approvals?status=pending")).items.find((x) => x.id === t.approval_id);
+    if (a) approvalCache.set(a.id, a);
+    prompt = `<div class="item beam-pulse" style="margin-bottom:12px"><div class="t">Approve this step?</div>
+      <div class="d">${esc(a ? a.action.description : "The task wants to do something that changes a site.")}</div>
+      <div class="acts"><button class="btn sm" type="button" data-action="approval-decide" data-ok="1" data-id="${esc(t.approval_id)}">Approve</button>
+      <button class="ghost sm danger" type="button" data-action="approval-decide" data-ok="0" data-id="${esc(t.approval_id)}">Deny</button></div></div>`;
+  } else if (t.status === "waiting_user" && t.question) {
+    prompt = `<form class="item" id="browserReplyForm" style="margin-bottom:12px"><div class="t">${esc(t.question)}</div>
+      <div class="row" style="margin-top:8px"><input class="grow" id="browserReply" aria-label="Your answer" style="margin:0" required />
+      <button class="btn sm" type="submit">Answer</button></div></form>`;
+  }
+  const prev = $("#browserPrompt");
+  if (prev.dataset.key !== `${t.status}:${t.approval_id}:${t.question}`) {
+    prev.innerHTML = prompt;
+    prev.dataset.key = `${t.status}:${t.approval_id}:${t.question}`;
+  }
+  $("#browserAnswer").innerHTML = t.answer
+    ? `<div class="answer">${esc(t.answer)}</div>${t.notes.length ? `<ul class="steps">${t.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}`
+    : t.error ? `<div class="answer bad">${esc(t.error)}</div>` : "";
+  if (t.frame_at && t.frame_at !== state.browserFrameAt) {
+    try {
+      const blob = await getBlob(`/browser/tasks/${encodeURIComponent(id)}/frame`);
+      if (browserFrameUrl) URL.revokeObjectURL(browserFrameUrl);
+      browserFrameUrl = URL.createObjectURL(blob);
+      $("#browserFrame").src = browserFrameUrl;
+      state.browserFrameAt = t.frame_at;
+    } catch { /* next poll retries */ }
+  }
+  if (BROWSER_ACTIVE.has(t.status)) browserTimer = setTimeout(pollBrowser, 1500);
+  else loadBrowser();
+}
+
+$("#browserForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const goal = $("#browserGoal").value.trim();
+  if (!goal) return $("#browserGoal").focus();
+  await busy($("#browserBtn"), async () => {
+    try {
+      const t = await post("/browser/tasks", { goal, start_url: $("#browserUrl").value.trim() });
+      $("#browserGoal").value = "";
+      state.browserFrameAt = null;
+      watchBrowser(t.id);
+      loadBrowser();
+    } catch (e) { toast(errText(e), true); }
+  });
+});
+
+document.addEventListener("submit", async (ev) => {
+  if (ev.target.id !== "browserReplyForm") return;
+  ev.preventDefault();
+  try {
+    await post(`/browser/tasks/${encodeURIComponent(state.browserTask)}/reply`, { text: $("#browserReply").value });
+    $("#browserPrompt").dataset.key = "";
+  } catch (e) { toast(errText(e), true); }
+});
+
+async function loadVault() {
+  const out = $("#vaultOut");
+  try {
+    const r = await get("/browser/vault");
+    out.innerHTML = r.items.length ? r.items.map((v) => `<div class="item"><div class="t">${esc(v.origin)}</div>
+      <div class="d">${esc(v.username || "(no username)")} · password saved</div>
+      <div class="acts"><button class="ghost sm danger" type="button" data-action="vault-delete" data-origin="${esc(v.origin)}">Remove</button></div></div>`).join("")
+      : empty("No saved logins.");
+  } catch (e) { out.innerHTML = failed(e); }
+}
+
+$("#vaultForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await api("/browser/vault", { method: "PUT", body: { origin: $("#vaultOrigin").value, username: $("#vaultUser").value, password: $("#vaultPass").value } });
+    ev.target.reset();
+    toast("Login saved.");
+    loadVault();
+  } catch (e) { toast(errText(e), true); }
 });
 
 // --- memory -------------------------------------------------------------------------------
@@ -928,25 +1187,113 @@ async function loadDevices() {
 
 // --- models -------------------------------------------------------------------------------------
 
-async function loadModels() {
-  const out = $("#providersOut");
-  if (!out.innerHTML) out.innerHTML = skeleton(3);
+const PROVIDER_LABELS = { chatgpt_plan: "ChatGPT plan", claude_code: "your Claude Code", local_mock: "on-device placeholder",
+  anthropic: "Anthropic API key", openai: "OpenAI API key", gemini: "Gemini API key" };
+
+function billingHTML(active) {
+  if (active === "chatgpt_plan") {
+    return `· <span class="pill accent">Using ChatGPT plan</span> <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">Manage usage</a>`;
+  }
+  if (!active || active === "local_mock") return "· no cloud model selected";
+  return `· via ${esc(PROVIDER_LABELS[active] || active)}`;
+}
+
+async function refreshBilling() {
   try {
     const d = await get("/providers");
+    state.activeProvider = d.active_provider;
+    $("#askBilling").innerHTML = billingHTML(d.active_provider);
+  } catch { /* status line covers connectivity */ }
+}
+
+async function loadModels() {
+  const out = $("#providersOut");
+  const subs = $("#subscriptionsOut");
+  if (!out.innerHTML) { out.innerHTML = skeleton(3); subs.innerHTML = skeleton(2); }
+  try {
+    const d = await get("/providers");
+    state.activeProvider = d.active_provider;
+    const useBtn = (name, connected) => connected
+      ? (d.active_provider === name
+        ? '<span class="pill accent">answering now</span>'
+        : `<button class="btn sm" type="button" data-action="provider-activate" data-name="${esc(name)}">Use for answers</button>`)
+      : "";
+    const s = d.subscriptions || {};
+    const gpt = s.chatgpt_plan || {};
+    const cc = s.claude_code || {};
+    const onLoopback = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+    let gptBody;
+    if (gpt.connected) {
+      gptBody = `<div class="d">${gpt.plan_usage ? "Signed in" : "Signed in, but plan usage wasn't granted"}${gpt.email ? ` as <b>${esc(gpt.email)}</b>` : ""}.</div>
+        <div class="row" style="margin-top:10px"><div class="grow"><label for="gptModel">Model</label>
+        <select id="gptModel" data-current="${esc(gpt.model || "")}" style="margin:0"><option>Loading models…</option></select></div></div>
+        <div class="acts">${useBtn("chatgpt_plan", gpt.plan_usage && gpt.model)}
+          <a class="ghost sm" href="${esc(gpt.manage_usage_url)}" target="_blank" rel="noopener">Manage usage</a>
+          <button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="chatgpt_plan">Sign out</button></div>`;
+    } else {
+      gptBody = `<div class="d">${esc(gpt.note || "")}</div>
+        <div class="acts">${onLoopback
+          ? '<button class="btn sm" type="button" data-action="chatgpt-signin">Continue with ChatGPT</button>'
+          : `<span class="hint" style="margin:0">To sign in, open the dashboard on the node's computer at <b>http://127.0.0.1:${esc(location.port || "8787")}</b>; OpenAI only returns to this computer.</span>`}
+          <a class="ghost sm" href="${esc(gpt.manage_usage_url || "https://chatgpt.com/settings/usage")}" target="_blank" rel="noopener">Manage usage</a></div>`;
+    }
+    let ccBody;
+    if (cc.disabled_by_operator) {
+      ccBody = '<div class="d">Turned off on this node by its operator.</div>';
+    } else if (cc.enabled) {
+      const det = cc.detected || {};
+      ccBody = `<div class="d">${det.available ? `Claude Code ${esc(det.version || "")} found on this computer.` : esc(det.reason || "Claude Code wasn't found.")} Shadow starts it for your own requests only; it never sees your Claude login.</div>
+        <div class="acts">${useBtn("claude_code", det.available)}
+          <button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="claude_code">Turn off</button></div>`;
+    } else {
+      ccBody = `<div class="d">${esc(cc.disclosure || "")}</div>
+        <div class="acts"><button class="ghost sm" type="button" data-action="claude-code-enable">Enable at my own risk</button></div>`;
+    }
+    subs.innerHTML = `
+      <div class="item"><div class="t">ChatGPT Plus or Pro ${gpt.connected ? '<span class="pill ok">connected</span>' : ""}</div>${gptBody}</div>
+      <div class="item"><div class="t">Your Claude Code <span class="pill warn">experimental</span> ${cc.enabled ? '<span class="pill ok">on</span>' : ""}</div>${ccBody}</div>
+      <div class="item"><div class="t">Gemini subscription <span class="pill">not available</span></div><div class="d">${esc((s.gemini || {}).note || "")}</div></div>`;
+    if (gpt.connected) loadChatGPTModels();
+
     out.innerHTML = d.providers.map((p) => {
       const badge = p.connected ? `<span class="pill ok">connected${p.credential_source === "env" ? " · from environment" : ""}</span>` : '<span class="pill">not connected</span>';
-      const active = p.provider === d.active_provider ? '<span class="pill accent">active</span>' : "";
       const oauth = p.oauth_supported ? `<button class="ghost sm" type="button" data-action="provider-oauth" data-name="${esc(p.provider)}">Sign in with OAuth</button>` : "";
-      const dis = p.connected ? `<button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="${esc(p.provider)}">Disconnect</button>` : "";
-      return `<div class="item"><div class="t">${esc(p.label)} ${badge}${active}</div><div class="d">${esc(p.note)}</div>
+      const dis = p.connected && p.credential_source !== "env" ? `<button class="ghost sm danger" type="button" data-action="provider-disconnect" data-name="${esc(p.provider)}">Disconnect</button>` : "";
+      return `<div class="item"><div class="t">${esc(p.label)} ${badge}</div><div class="d">${esc(p.note)}</div>
         <div class="row" style="margin-top:10px"><div class="grow"><label class="sr-only" for="key-${esc(p.provider)}">API key for ${esc(p.label)}</label><input id="key-${esc(p.provider)}" placeholder="Paste API key" type="password" autocomplete="off" style="margin:0" /></div>
         <button class="btn sm" type="button" data-action="provider-connect" data-name="${esc(p.provider)}">Connect</button></div>
-        ${oauth || dis ? `<div class="acts">${oauth}${dis}</div>` : ""}</div>`;
-    }).join("");
+        <div class="acts">${useBtn(p.provider, p.connected)}${oauth}${dis}</div></div>`;
+    }).join("") + `<div class="item"><div class="t">On-device placeholder ${d.active_provider === "local_mock" ? '<span class="pill accent">answering now</span>' : ""}</div>
+      <div class="d">No cloud model. Answers are canned; useful only to test the node.</div>
+      <div class="acts">${d.active_provider === "local_mock" ? "" : '<button class="ghost sm" type="button" data-action="provider-activate" data-name="local_mock">Use for answers</button>'}</div></div>`;
+    $("#askBilling").innerHTML = billingHTML(d.active_provider);
   } catch (e) {
     out.innerHTML = failed(e);
+    subs.innerHTML = "";
   }
 }
+
+async function loadChatGPTModels() {
+  const sel = $("#gptModel");
+  if (!sel) return;
+  try {
+    const r = await get("/providers/chatgpt_plan/models");
+    const current = sel.dataset.current;
+    sel.innerHTML = '<option value="">Choose a model…</option>' +
+      r.items.map((m) => `<option value="${esc(m.slug)}"${m.slug === current ? " selected" : ""}>${esc(m.display_name)}</option>`).join("");
+  } catch (e) {
+    sel.innerHTML = `<option value="">${esc(errText(e))}</option>`;
+  }
+}
+
+document.addEventListener("change", async (ev) => {
+  if (ev.target.id !== "gptModel" || !ev.target.value) return;
+  try {
+    await api("/providers/chatgpt_plan/model", { method: "PUT", body: { model: ev.target.value } });
+    toast("Model saved.");
+    loadModels();
+  } catch (e) { toast(errText(e), true); }
+});
 
 async function finishOAuthIfReturning() {
   const params = new URLSearchParams(location.search);

@@ -12,7 +12,10 @@ import {
 	APPROVAL_ACTION_APPROVE,
 	APPROVAL_ACTION_DENY,
 	APPROVAL_CATEGORY_ID,
+	APPROVAL_ACTION_REVIEW,
 	approvalDeepLink,
+	browserTaskDeepLink,
+	browserTaskIdFromData,
 	approvalIdFromData,
 	decisionForActionIdentifier,
 	isReminderNotification,
@@ -63,5 +66,20 @@ describe("approval notification routing", () => {
 		assert.equal(isReminderNotification({ type: "approval.created" }), false);
 		assert.equal(isReminderNotification(null), false);
 		assert.equal(isReminderNotification("reminder.fired"), false);
+	});
+});
+
+describe("browser task pushes", () => {
+	it("routes browser.task pushes to the live view", () => {
+		assert.equal(browserTaskIdFromData({ type: "browser.task", task_id: "brw_1", event: "question" }), "brw_1");
+		assert.equal(browserTaskDeepLink("brw_1"), "shadow://browser/brw_1");
+	});
+	it("ignores other payloads", () => {
+		assert.equal(browserTaskIdFromData({ type: "approval.created", approval_id: "a" }), null);
+		assert.equal(browserTaskIdFromData(null), null);
+		assert.equal(browserTaskIdFromData({ type: "browser.task" }), null);
+	});
+	it("review action opens the approval instead of deciding", () => {
+		assert.equal(decisionForActionIdentifier(APPROVAL_ACTION_REVIEW), null);
 	});
 });

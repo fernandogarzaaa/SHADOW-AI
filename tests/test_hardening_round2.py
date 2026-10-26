@@ -284,3 +284,62 @@ def test_fixed_bootstrap_code_locks_and_is_single_use():
     assert b2.check("LONG-ENOUGH-CODE")
     b2.consume()
     assert b2.ensure() != "LONG-ENOUGH-CODE"  # never re-armed; a random code instead
+
+
+# --- push notifications ---------------------------------------------------------------
+
+def _apr(tool, **kw):
+    from agent_core import AgentAction, AgentCore
+    return AgentCore().approvals.create(AgentAction(tool_name=tool, description=f"do {tool} for Dana", params=kw), "t")
+
+
+def test_routine_approval_push_has_buttons_and_no_details(monkeypatch):
+    import shadow_node.main as m
+    monkeypatch.setattr(m, "PUSH_DETAIL", "brief")
+    msg = m._approval_push(_apr("note.create", title="x"))
+    assert msg["category"] == "shadow.approval"
+    assert "Dana" not in msg["body"] and "note.create" in msg["body"]
+
+
+@pytest.mark.parametrize("tool", ["browser.action", "send_email", "http.get", "email.draft", "delete_file"])
+def test_consequential_approval_push_is_review_only(tool):
+    import shadow_node.main as m
+    msg = m._approval_push(_apr(tool, task_id="brw_1"))
+    assert msg["category"] == "shadow.approval.review"
+    if tool == "browser.action":
+        assert msg["data"]["task_id"] == "brw_1" and "browser step" in msg["body"]
+
+
+def test_full_push_detail_opt_in(monkeypatch):
+    import shadow_node.main as m
+    monkeypatch.setattr(m, "PUSH_DETAIL", "full")
+    assert "Dana" in m._approval_push(_apr("note.create"))["body"]
+
+
+def test_push_tokens_persist_and_revoke(tmp_path):
+    from cryptography.fernet import Fernet
+    from shadow_node.runtime_store import EncryptedRuntimeStore, PersistentDeviceSessionStore
+    key = Fernet.generate_key()
+    db = str(tmp_path / "rt.db")
+    s1 = PersistentDeviceSessionStore(EncryptedRuntimeStore(db, key=key))
+    dev = s1.register("Phone", "pk", "sec")
+    s1.set_push_token(dev.id, "ExponentPushToken[abc]")
+    s2 = PersistentDeviceSessionStore(EncryptedRuntimeStore(db, key=key))
+    assert s2.push_tokens == {dev.id: "ExponentPushToken[abc]"}
+    s2.revoke(dev.id)
+    s3 = PersistentDeviceSessionStore(EncryptedRuntimeStore(db, key=key))
+    assert s3.push_tokens == {}
+
+
+def test_browser_question_and_finish_push(monkeypatch):
+    import shadow_node.main as m
+    sent = []
+    monkeypatch.setattr(m, "_notify_proactive", lambda title, body, data: sent.append((title, body, data)))
+    monkeypatch.setattr(m, "PUSH_DETAIL", "brief")
+    task = SimpleNamespace(id="brw_9", goal="buy my secret gift")
+    m._notify_browser_task(task, "question")
+    m._notify_browser_task(task, "done")
+    m._notify_browser_task(task, "running")  # not pushed
+    assert [s[2]["event"] for s in sent] == ["question", "done"]
+    assert all("secret gift" not in s[1] for s in sent)
+    assert sent[0][2] == {"type": "browser.task", "task_id": "brw_9", "event": "question"}

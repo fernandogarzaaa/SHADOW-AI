@@ -189,7 +189,8 @@ def test_push_token_register_and_notify(monkeypatch):
     token, title, data, category_id = calls[0]
     assert token == "ExponentPushToken[abc123]"
     assert data["approval_id"] == created["id"]
-    assert category_id == "shadow.approval"
+    # send_email can't be undone: the push only offers Review (opens the app)
+    assert category_id == "shadow.approval.review"
 
 
 def test_push_rejects_non_expo_token(monkeypatch):

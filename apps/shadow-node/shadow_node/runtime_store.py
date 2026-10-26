@@ -89,6 +89,11 @@ class PersistentDeviceSessionStore(DeviceSessionStore):
             self.devices[dev.id] = dev
         for secret in store.all("device_secrets", _Secret):
             self.secrets[secret.id] = secret.value
+        # Push tokens survive restarts (they used to be lost on every
+        # restart, silently stopping approval notifications).
+        for tok in store.all("push_tokens", _Secret):
+            if tok.id in self.devices and not self.devices[tok.id].revoked:
+                self.push_tokens[tok.id] = tok.value
 
     def register(self, name: str, public_key: str, secret: str | None = None, is_owner: bool = False,
                  credential_scheme: str = "stored") -> Device:
@@ -108,6 +113,13 @@ class PersistentDeviceSessionStore(DeviceSessionStore):
 
     def _persist_device(self, dev: Device) -> None:
         self._store.put("devices", dev.id, dev)
+
+    def set_push_token(self, device_id: str, token: str | None) -> None:
+        super().set_push_token(device_id, token)
+        if token is None:
+            self._store.delete("push_tokens", device_id)
+        else:
+            self._store.put("push_tokens", device_id, _Secret(id=device_id, value=token))
 
 
 # Minimal model so device secrets ride the same encrypted store.

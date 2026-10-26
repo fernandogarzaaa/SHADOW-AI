@@ -171,6 +171,21 @@ Generated from the route table. "signed" routes need the `x-shadow-*` request-si
 |---|---|---|---|
 | `GET` | `/audit` | signed | Audit trail, oldest first, as the uniform page envelope. |
 
+### browser
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `GET` | `/browser/status` | signed |  |
+| `GET` | `/browser/tasks/{task_id}/frame` | signed | Latest screenshot of the task's page (the live view). |
+| `POST` | `/browser/tasks/{task_id}/reply` | signed |  |
+| `POST` | `/browser/tasks/{task_id}/stop` | signed |  |
+| `GET` | `/browser/tasks/{task_id}` | signed |  |
+| `GET` | `/browser/tasks` | signed |  |
+| `POST` | `/browser/tasks` | signed | Start a browser task with the model chosen in Models. |
+| `POST` | `/browser/vault/delete` | signed |  |
+| `GET` | `/browser/vault` | signed | Saved site logins: origins and usernames only. |
+| `PUT` | `/browser/vault` | signed |  |
+
 ### claims
 
 | Method | Path | Auth | Summary |
@@ -327,10 +342,23 @@ Generated from the route table. "signed" routes need the `x-shadow-*` request-si
 | `GET` | `/persona` | signed | The assistant's Cookie-style identity: name, avatar emoji, vibe, status. |
 | `PUT` | `/persona` | signed | Update the assistant's identity. |
 
+### policy
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| `DELETE` | `/policy/rules/{tool}` | signed |  |
+| `PUT` | `/policy/rules/{tool}` | signed |  |
+| `GET` | `/policy/rules` | signed | Your per-tool rules plus, for every known tool, whether "Allow" is possible and why not. |
+
 ### providers
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
+| `POST` | `/providers/active` | signed | Choose where cloud-approved asks go. |
+| `PUT` | `/providers/chatgpt_plan/model` | signed |  |
+| `GET` | `/providers/chatgpt_plan/models` | signed |  |
+| `POST` | `/providers/chatgpt_plan/signin` | signed | Start "Continue with ChatGPT". |
+| `POST` | `/providers/claude_code/enable` | signed | Opt in to the experimental Claude Code delegate. |
 | `POST` | `/providers/{name}/connect` | signed |  |
 | `POST` | `/providers/{name}/oauth/exchange` | signed |  |
 | `GET` | `/providers/{name}/oauth/start` | signed |  |

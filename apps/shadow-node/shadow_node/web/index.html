@@ -53,6 +53,7 @@
       <a href="#/ask" data-view="ask"><span class="dot" aria-hidden="true"></span>Ask</a>
       <a href="#/approvals" data-view="approvals"><span class="dot" aria-hidden="true"></span>Approvals<span class="badge" id="apprBadge" hidden></span></a>
       <a href="#/actions" data-view="actions"><span class="dot" aria-hidden="true"></span>Actions</a>
+      <a href="#/browser" data-view="browser"><span class="dot" aria-hidden="true"></span>Browser</a>
       <div class="nav-group" aria-hidden="true">Knowledge</div>
       <a href="#/memory" data-view="memory"><span class="dot" aria-hidden="true"></span>Memory</a>
       <a href="#/goals" data-view="goals"><span class="dot" aria-hidden="true"></span>Goals</a>
@@ -113,7 +114,7 @@
         <label for="askInput" class="sr-only">Question</label>
         <textarea id="askInput" placeholder="What did I note about the Aurora project?" required></textarea>
         <div class="row">
-          <label class="check grow"><input type="checkbox" id="askCloud" /> Use the cloud model (needs a cloud consent grant)</label>
+          <label class="check grow"><input type="checkbox" id="askCloud" /> Use the cloud model <span id="askBilling"></span></label>
           <button class="btn" type="submit" id="askBtn">Ask</button>
         </div>
         <div id="askOut" aria-live="polite"></div>
@@ -146,9 +147,57 @@
         <div id="actOut" aria-live="polite"></div>
       </form>
       <div class="card">
+        <h2>Permissions</h2>
+        <p class="hint">Choose how each tool is handled. "Ask first" and "Block" always win. "Allow" is only offered for tools that stay on this node and can be undone; sending data, deleting and anything you can't take back always need your approval, and Shadow never sends things that look like passwords or API keys.</p>
+        <div id="rulesOut" class="list"></div>
+      </div>
+      <div class="card">
         <h2>Tool catalog</h2>
         <p class="hint">Every tool needs your approval to run. Tools marked "extra consent" also need a confirmation step.</p>
         <div id="toolCatalogOut" class="list"></div>
+      </div>
+    </section>
+
+    <!-- BROWSER -->
+    <section class="view" id="view-browser" aria-labelledby="title">
+      <form class="card" id="browserForm">
+        <h2>Give the browser a task</h2>
+        <p class="hint">A private Chrome on this computer does it step by step, using the model you chose in Models. Buying, paying, sending, submitting forms, deleting and signing in wait for your approval here. Passwords come from your saved logins and are never shown to the model.</p>
+        <label for="browserGoal">Task</label>
+        <textarea id="browserGoal" maxlength="2000" required placeholder="Find the price of a 1-year Python subscription on example.com"></textarea>
+        <div class="row">
+          <div class="grow"><label for="browserUrl">Start at (optional)</label><input id="browserUrl" placeholder="https://example.com" autocomplete="off" style="margin:0" /></div>
+          <button class="btn" type="submit" id="browserBtn">Start</button>
+        </div>
+        <p class="hint" id="browserModel" style="margin-top:10px"></p>
+      </form>
+      <div class="card" id="browserLive" hidden>
+        <div class="card-head"><h2 id="browserLiveTitle">Live</h2>
+          <div class="acts" style="margin:0"><span class="pill" id="browserStatus"></span>
+          <button class="ghost sm danger" type="button" data-action="browser-stop" id="browserStop">Stop</button></div></div>
+        <p class="hint" id="browserUrlNow" style="overflow-wrap:anywhere"></p>
+        <div id="browserPrompt"></div>
+        <img id="browserFrame" alt="Live view of the browser task" style="width:100%;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);min-height:120px" />
+        <div id="browserAnswer"></div>
+        <h3 style="font-size:14px;margin:16px 0 6px">Steps</h3>
+        <ol id="browserSteps" class="steps" style="font-size:13px"></ol>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Recent tasks</h2><button class="ghost sm" type="button" data-action="reload" data-target="browser">Refresh</button></div>
+        <div id="browserTasks" class="list"></div>
+      </div>
+      <div class="card">
+        <h2>Saved logins</h2>
+        <p class="hint">Stored encrypted on this node and only filled in on the exact site they were saved for. The model only sees placeholders.</p>
+        <div id="vaultOut" class="list"></div>
+        <form id="vaultForm" style="margin-top:12px">
+          <div class="row">
+            <div class="grow"><label for="vaultOrigin">Site</label><input id="vaultOrigin" placeholder="https://example.com" autocomplete="off" required style="margin:0" /></div>
+            <div class="grow"><label for="vaultUser">Username or email</label><input id="vaultUser" autocomplete="off" style="margin:0" /></div>
+            <div class="grow"><label for="vaultPass">Password</label><input id="vaultPass" type="password" autocomplete="new-password" required style="margin:0" /></div>
+            <button class="btn" type="submit">Save</button>
+          </div>
+        </form>
       </div>
     </section>
 
@@ -260,8 +309,13 @@
         <div id="savingsBox" class="meta"><span class="pill">Ask something to see routing and token savings.</span></div>
       </div>
       <div class="card">
-        <h2>Providers</h2>
-        <p class="hint">Connect with an API key, or with OAuth where the provider supports it. Consumer chat subscriptions (ChatGPT Plus, Claude Pro, Gemini Advanced) can't power third-party apps.</p>
+        <h2>Use a subscription you already have</h2>
+        <p class="hint">Instead of an API key, answer with the usage included in a plan you pay for. Only options the provider allows are offered.</p>
+        <div id="subscriptionsOut" class="list"></div>
+      </div>
+      <div class="card">
+        <h2>API keys</h2>
+        <p class="hint">Bring your own key. Keys are stored encrypted on this node and never sent to your other devices.</p>
         <div id="providersOut" class="list"></div>
       </div>
     </section>

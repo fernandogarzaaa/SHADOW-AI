@@ -5,9 +5,13 @@ import { useApprovalsStore } from "@/stores/useApprovalsStore";
 import {
 	APPROVAL_ACTION_APPROVE,
 	APPROVAL_ACTION_DENY,
+	APPROVAL_ACTION_REVIEW,
 	APPROVAL_CATEGORY_ID,
+	APPROVAL_REVIEW_CATEGORY_ID,
 	approvalDeepLink,
 	approvalIdFromData,
+	browserTaskDeepLink,
+	browserTaskIdFromData,
 	decisionForActionIdentifier,
 	isReminderNotification,
 	REMINDER_DEEP_LINK,
@@ -41,12 +45,24 @@ export async function setupApprovalNotificationCategories(): Promise<void> {
 			{
 				identifier: APPROVAL_ACTION_APPROVE,
 				buttonTitle: "Approve",
-				options: { opensAppToForeground: false },
+				// Approving from the lock screen requires unlocking the phone
+				// first (Face ID / passcode). Denying is always safe.
+				options: { opensAppToForeground: false, isAuthenticationRequired: true },
 			},
 			{
 				identifier: APPROVAL_ACTION_DENY,
 				buttonTitle: "Deny",
 				options: { opensAppToForeground: false, isDestructive: true },
+			},
+		]);
+		// Consequential approvals (browser steps, sends, purchases, anything
+		// irreversible) never get a one-tap Approve: only Review, which opens
+		// the full card in the app.
+		await Notifications.setNotificationCategoryAsync(APPROVAL_REVIEW_CATEGORY_ID, [
+			{
+				identifier: APPROVAL_ACTION_REVIEW,
+				buttonTitle: "Review",
+				options: { opensAppToForeground: true, isAuthenticationRequired: true },
 			},
 		]);
 	} catch {
@@ -78,10 +94,14 @@ export function startApprovalNotificationResponses(): {
 			if (handled.has(requestId)) return;
 			handled.add(requestId);
 
-			const approvalId = approvalIdFromData(
-				response.notification.request.content.data,
-			);
-			if (isReminderNotification(response.notification.request.content.data)) {
+			const data = response.notification.request.content.data;
+			const browserTaskId = browserTaskIdFromData(data);
+			if (browserTaskId) {
+				await Linking.openURL(browserTaskDeepLink(browserTaskId));
+				return;
+			}
+			const approvalId = approvalIdFromData(data);
+			if (isReminderNotification(data)) {
 				// A fired-reminder push: open the Feed tab where reminders live.
 				await Linking.openURL(REMINDER_DEEP_LINK);
 				return;

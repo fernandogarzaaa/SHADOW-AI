@@ -80,7 +80,7 @@ CATALOG = {
         "default_model": "claude-opus-5-5",
         "auth_methods": ["api_key"],
         "subscription_oauth": False,
-        "note": "Programmatic inference uses an API key. Claude Pro/Max subscriptions are not usable for third-party app inference.",
+        "note": "Billed per use to your Anthropic API account. Claude Pro/Max can't be signed in to other apps; see the experimental Claude Code option for using your plan.",
         "ctor": lambda cred, model: AnthropicProvider(cred.get("api_key", ""), model, cred.get("endpoint", "") or ""),
     },
     "openai": {
@@ -88,7 +88,7 @@ CATALOG = {
         "default_model": "gpt-4o-mini",
         "auth_methods": ["api_key"],
         "subscription_oauth": False,
-        "note": "Programmatic inference uses an API key. ChatGPT Plus/Pro subscriptions cannot power third-party API calls.",
+        "note": "Billed per use to your OpenAI API account. To use your ChatGPT Plus or Pro plan instead, choose Continue with ChatGPT.",
         "ctor": lambda cred, model: OpenAIProvider(cred.get("api_key", ""), model, cred.get("endpoint", "") or ""),
     },
     "gemini": {
@@ -96,7 +96,7 @@ CATALOG = {
         "default_model": "gemini-2.5-flash",
         "auth_methods": ["api_key", "oauth"],
         "subscription_oauth": False,
-        "note": "API key (AI Studio) or Google OAuth (billed to your Google Cloud / Vertex). Gemini Advanced consumer subscription is not programmatically accessible.",
+        "note": "API key from Google AI Studio, or Google OAuth billed to your Google Cloud project. Google doesn't allow Gemini subscriptions in other apps.",
         "ctor": lambda cred, model: GeminiProvider(cred.get("api_key", ""), model, oauth_token=cred.get("oauth_token")),
     },
 }

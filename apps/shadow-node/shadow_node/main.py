@@ -110,9 +110,20 @@ from .ambient_tasks import (
     memory_digest as _amb_memory_digest,
 )
 from . import provider_auth
+from . import claude_code
+from . import browser_agent
+from .chatgpt_plan import (
+    PROVIDER as CHATGPT_PLAN,
+    MANAGE_USAGE_URL,
+    ChatGPTPlanAuth,
+    ChatGPTPlanError,
+    ChatGPTPlanProvider,
+)
+CLAUDE_CODE = claude_code.PROVIDER
 from . import accounts
 from .events import EventBus
 from pathlib import Path
+import httpx
 import contextlib, contextvars, re, tempfile, hashlib, uuid, os, time, secrets, json, asyncio, threading, urllib.request, base64
 from contextlib import asynccontextmanager
 
@@ -241,6 +252,12 @@ media_store = media_mod.MediaStore(_runtime_store if _runtime_db else None)
 set_system_prompt_override(system_prompt_for(persona))
 bus = EventBus()
 EXPO_PUSH_ENABLED = os.getenv("SHADOW_EXPO_PUSH_ENABLED", "false").lower() == "true"
+# Push text passes through Expo's and Apple's/Google's servers. "brief"
+# (default) says only what kind of thing is waiting; "full" includes the
+# action description.
+PUSH_DETAIL = os.getenv("SHADOW_PUSH_DETAIL", "brief").lower()
+APPROVAL_CATEGORY = "shadow.approval"  # Approve / Deny buttons on the push
+REVIEW_CATEGORY = "shadow.approval.review"  # a single Review button (opens the app)
 
 
 def _send_expo_push(
@@ -270,22 +287,47 @@ def _send_expo_push(
         log.warning("expo_push_failed", extra={"error": str(e)[:200]})
 
 
+def _approval_push(req) -> dict:
+    """Title, body, category and data for an approval push.
+
+    Routine approvals get Approve / Deny buttons on the notification.
+    Anything with real consequences (browser steps, irreversible, outbound,
+    high-risk or double-confirmation actions) only gets "Review", which
+    opens the app so the user sees the full card before deciding."""
+    action = req.action
+    tool = action.tool_name.lower()
+    review_only = (
+        tool == browser_agent.APPROVAL_TOOL
+        or bool(req.requires_double_confirmation)
+        or core.policy.is_irreversible(action)
+        or tool in core.policy.outbound_tools
+        or tool in core.policy.sensitive_tools
+        or str(getattr(req.risk_label, "value", req.risk_label)) in ("high", "blocked")
+    )
+    if PUSH_DETAIL == "full":
+        body = req.action_preview or action.description
+    elif tool == browser_agent.APPROVAL_TOOL:
+        body = "A browser step is waiting for your approval."
+    else:
+        body = f"{action.tool_name} is waiting for your decision."
+    data = {"type": "approval.created", "approval_id": req.id}
+    if tool == browser_agent.APPROVAL_TOOL and isinstance(action.params, dict):
+        data["task_id"] = action.params.get("task_id")
+    return {"title": "Approval needed", "body": body,
+            "category": REVIEW_CATEGORY if review_only else APPROVAL_CATEGORY, "data": data}
+
+
 def _notify_approval_created(req):
     if not EXPO_PUSH_ENABLED:
         return
+    msg = _approval_push(req)
 
     def _run():
         for device_id, token in list(sessions.push_tokens.items()):
             dev = sessions.devices.get(device_id)
             if dev is None or dev.revoked:
                 continue
-            _send_expo_push(
-                token,
-                "Approval needed",
-                req.action_preview or req.action.description,
-                {"type": "approval.created", "approval_id": req.id},
-                category_id="shadow.approval",
-            )
+            _send_expo_push(token, msg["title"], msg["body"], msg["data"], category_id=msg["category"])
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -612,6 +654,84 @@ ambient_scheduler.update_context(
 hybrid = HybridRouter(model, axiom)
 credentials = provider_auth.CredentialStore()
 oauth_txns = provider_auth.OAuthTransactionStore()
+chatgpt_auth = ChatGPTPlanAuth(credentials)
+SUBSCRIPTION_PROVIDERS = {CHATGPT_PLAN, CLAUDE_CODE}
+
+
+# User approval rules (Allow / Ask first / Block per tool), persisted
+# encrypted on the node and layered over the operator policy.
+_RULES_KEY = "_policy_rules"
+
+
+def _load_user_rules() -> None:
+    for tool, rule in ((credentials.get(_RULES_KEY) or {}).get("rules") or {}).items():
+        try:
+            core.policy.set_user_rule(tool, rule)
+        except ValueError:
+            # Operator policy changed since the rule was saved (e.g. the tool
+            # became sensitive): drop the now-invalid allow.
+            pass
+
+
+def _save_user_rules() -> None:
+    credentials.set(_RULES_KEY, {"rules": dict(core.policy.user_rules)})
+
+
+_load_user_rules()
+
+browser = browser_agent.BrowserAgent(
+    model_factory=lambda: _build_active_frontier(active_provider()),
+    approvals=core.approvals,
+    policy_profile=lambda: profile,
+    vault=browser_agent.Vault(credentials),
+    audit=lambda ev, st, md: audit.append(AuditEvent(actor="browser", event_type=ev, status=st, metadata=md)),
+    notify=lambda task, event: _notify_browser_task(task, event),
+)
+
+
+def _notify_browser_task(task, event: str) -> None:
+    """Push when a browser task needs you or finishes (approval steps push
+    through the normal approval path)."""
+    goal = task.goal if PUSH_DETAIL == "full" else "your browser task"
+    title, body = {
+        "question": ("Shadow has a question", f"Answer it to continue {goal}."),
+        "done": ("Browser task finished", f"Shadow finished {goal}."),
+        "failed": ("Browser task stopped", f"Shadow couldn't finish {goal}."),
+    }.get(event, (None, None))
+    if title:
+        _notify_proactive(title, body, {"type": "browser.task", "task_id": task.id, "event": event})
+
+
+def active_provider() -> str:
+    """The provider asks go to: chosen in the dashboard (stored), else the
+    SHADOW_MODEL_PROVIDER environment default."""
+    chosen = (credentials.get("_active") or {}).get("provider")
+    return chosen or model_config.provider
+
+
+def _claude_code_enabled() -> bool:
+    return bool((credentials.get("_claude_code") or {}).get("enabled")) and not claude_code.killed()
+
+
+def _build_active_frontier(provider: str):
+    """Construct the frontier model for `provider`, or None when it isn't
+    connected. Subscription providers are only ever built for a
+    user-initiated ask (this function's only caller)."""
+    if provider == CHATGPT_PLAN:
+        cred = credentials.get(CHATGPT_PLAN) or {}
+        if cred.get("type") != "chatgpt_plan":
+            return None
+        return ChatGPTPlanProvider(chatgpt_auth, cred.get("model") or "")
+    if provider == CLAUDE_CODE:
+        return claude_code.ClaudeCodeProvider() if _claude_code_enabled() else None
+    cred = credentials.resolve(provider)
+    if cred is None:
+        return None
+    cred = {**cred, "endpoint": model_config.endpoint if provider == model_config.provider else ""}
+    # SHADOW_MODEL_NAME belongs to the env-configured provider; any other
+    # provider uses its own catalog default (never a foreign model id).
+    model = model_config.model_name if (provider == model_config.provider and os.getenv("SHADOW_MODEL_NAME")) else None
+    return build_frontier(provider, cred, model)
 AUTH_REQUIRED = os.getenv("SHADOW_AUTH_REQUIRED", "true").lower() == "true"
 GROUNDING_VERIFY = os.getenv("SHADOW_GROUNDING_VERIFY", "true").lower() == "true"
 RATE_LIMIT_RPM = int(os.getenv("SHADOW_RATE_LIMIT_RPM", "0"))  # 0 disables
@@ -829,6 +949,7 @@ async def auth_middleware(request: Request, call_next):
         or request.url.path
         in {"/", "/health", "/ready", "/pair/start", "/pair/confirm"}
         or request.url.path.startswith("/web/")
+        or request.url.path == "/auth/callback"
         or request.url.path.startswith("/docs")
         or request.url.path.startswith("/openapi")
     )
@@ -937,7 +1058,7 @@ WEB_INDEX = os.path.join(WEB_DIR, "index.html")
 # IndexedDB, so the CSP is the main defence against injected script.
 DASHBOARD_CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+    "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; "
     "base-uri 'none'; form-action 'self'; object-src 'none'"
 )
 
@@ -2530,7 +2651,7 @@ def _run_ask_pipeline(req: AskRequest):
     # payload, independent of the `sensitive` flag, grants, or approvals.
     cloud_manifest = core.policy.authorize_cloud_context(
         results,
-        provider=model_config.provider,
+        provider=active_provider(),
         purpose="answer_user_question",
         grants=consents,
     )
@@ -2555,14 +2676,8 @@ def _run_ask_pipeline(req: AskRequest):
             403, "cloud escalation requires active grant and explicit approval"
         )
     # Hybrid routing: build a frontier provider only when cloud is approved AND a credential resolves; else fully local.
-    frontier = None
-    if req.allow_cloud:
-        cred = credentials.resolve(model_config.provider)
-        if cred is not None:
-            cred = {**cred, "endpoint": model_config.endpoint}
-            frontier = build_frontier(
-                model_config.provider, cred, model_config.model_name
-            )
+    provider_name = active_provider()
+    frontier = _build_active_frontier(provider_name) if req.allow_cloud else None
     try:
         out = hybrid.run(
             req.prompt,
@@ -2579,20 +2694,26 @@ def _run_ask_pipeline(req: AskRequest):
             AuditEvent(
                 actor="agent",
                 event_type="cloud_model_error",
-                model_used=model_config.provider,
+                model_used=provider_name,
                 status="fallback_local",
                 result=safe_error,
             )
         )
         out = hybrid.run(req.prompt, raw_context, frontier=None)
-        # Never pass a placeholder off as an answer: say plainly that the
-        # cloud model failed, and flag the response as degraded.
-        out["answer"] = (
-            f"The cloud model ({model_config.provider}) could not answer ({safe_error}). "
-            "Nothing was generated; try again shortly."
-        )
+        # Never pass a placeholder off as an answer, and never fall back to
+        # another billing path (e.g. the user's API key) silently: say
+        # plainly that the cloud model failed and flag the response.
+        if isinstance(e, (ChatGPTPlanError, claude_code.ClaudeCodeError)):
+            out["answer"] = f"{e} Nothing was generated."
+        else:
+            out["answer"] = (
+                f"The cloud model ({provider_name}) could not answer ({safe_error}). "
+                "Nothing was generated; try again shortly."
+            )
         out["degraded"] = True
-        out["error"] = "cloud_model_error"
+        out["error"] = getattr(e, "code", None) or "cloud_model_error"
+        if provider_name == CHATGPT_PLAN:
+            out["manage_usage_url"] = MANAGE_USAGE_URL
     cloud_used = out["route"] == "frontier"
     if cloud_used:
         # Every cloud egress carries its authorization manifest in the audit
@@ -2643,6 +2764,12 @@ def _run_ask_pipeline(req: AskRequest):
         "cloud_manifest": cloud_manifest if req.allow_cloud else None,
         "degraded": out.get("degraded", False),
         "error": out.get("error"),
+        "provider": active_provider() if out.get("route") == "frontier" or out.get("degraded") else None,
+        "billing": (
+            "chatgpt_plan" if active_provider() == CHATGPT_PLAN
+            else "claude_code" if active_provider() == CLAUDE_CODE else "api_key"
+        ) if out.get("route") == "frontier" else None,
+        "manage_usage_url": out.get("manage_usage_url"),
     }
 
 
@@ -2762,7 +2889,7 @@ def set_push_token(device_id: str, req: PushTokenRequest, request: Request):
         raise HTTPException(404, "unknown device")
     if not req.push_token.startswith("ExponentPushToken["):
         raise HTTPException(400, "not an Expo push token")
-    sessions.push_tokens[device_id] = req.push_token
+    sessions.set_push_token(device_id, req.push_token)
     audit.append(
         AuditEvent(
             actor="user",
@@ -3448,13 +3575,29 @@ def _decider_id(request: Request) -> str | None:
     )
 
 
+class ApproveRequest(BaseModel):
+    # "Always allow": also save a standing allow rule for this tool (only
+    # for tools eligible for one; owner devices only).
+    remember: bool = False
+
+
 @app.post("/approvals/{id}/approve")
-def approve(id: str, request: Request):
+def approve(id: str, request: Request, req: ApproveRequest | None = None):
     # Any trusted paired device may approve: every device was enrolled with
     # the owner's approval, and phones (enrolled via /devices/register, not
     # owners) are the primary approval surface. The approving device is
     # recorded so every decision is attributable.
     approver = _decider_id(request)
+    remember = bool(req and req.remember)
+    if remember:
+        # Check everything before deciding: a refused "Always allow" must
+        # leave the approval untouched.
+        _require_owner(request)
+        pending = core.approvals.requests.get(id)
+        if pending is not None:
+            ok, why = core.policy.allow_eligible(pending.action.tool_name)
+            if not ok:
+                raise HTTPException(409, f"'{pending.action.tool_name}' can't be always allowed: {why}")
     try:
         req = core.approvals.decide(id, True)
     except ValueError as e:
@@ -3468,6 +3611,15 @@ def approve(id: str, request: Request):
             metadata={"approval_id": id, "approved_by": approver},
         )
     )
+    if remember:
+        _require_owner(request)
+        try:
+            core.policy.set_user_rule(req.action.tool_name, "allow")
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        _save_user_rules()
+        audit.append(AuditEvent(actor="user", event_type="policy_rule_set", status="ok",
+                                metadata={"tool": req.action.tool_name, "rule": "allow", "via": id}))
     return req
 
 
@@ -3488,6 +3640,162 @@ def deny(id: str, req: DenyRequest, request: Request):
         )
     )
     return out
+
+
+class BrowserTaskRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=2000)
+    start_url: str = ""
+
+
+class BrowserReplyRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class VaultEntryRequest(BaseModel):
+    origin: str
+    username: str = ""
+    password: str = Field(min_length=1)
+
+
+class VaultDeleteRequest(BaseModel):
+    origin: str
+
+
+@app.get("/browser/status")
+def browser_status():
+    return {**browser_agent.available(), "tasks": [t.summary() for t in browser.tasks.values()]}
+
+
+@app.post("/browser/tasks", status_code=201)
+def browser_start(req: BrowserTaskRequest):
+    """Start a browser task with the model chosen in Models. Consequential
+    steps (buy, pay, send, submit, delete, sign in) wait for approval."""
+    if not browser_agent.available()["available"]:
+        raise HTTPException(503, browser_agent.available()["reason"])
+    try:
+        task = browser.start(req.goal, req.start_url, active_provider())
+    except browser_agent.BrowserTaskError as e:
+        raise HTTPException(409, str(e))
+    return task.summary()
+
+
+@app.get("/browser/tasks")
+def browser_tasks():
+    return _page(sorted((t.summary() for t in browser.tasks.values()), key=lambda t: t["created_at"], reverse=True))
+
+
+def _browser_task(task_id: str):
+    try:
+        return browser._get(task_id)
+    except KeyError:
+        raise HTTPException(404, "unknown browser task")
+
+
+@app.get("/browser/tasks/{task_id}")
+def browser_task(task_id: str):
+    return _browser_task(task_id).summary()
+
+
+@app.get("/browser/tasks/{task_id}/frame")
+def browser_frame(task_id: str):
+    """Latest screenshot of the task's page (the live view)."""
+    task = _browser_task(task_id)
+    if not task.frame:
+        raise HTTPException(404, "no frame yet")
+    return Response(task.frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/browser/tasks/{task_id}/stop")
+def browser_stop(task_id: str):
+    _browser_task(task_id)
+    return browser.stop(task_id).summary()
+
+
+@app.post("/browser/tasks/{task_id}/reply")
+def browser_reply(task_id: str, req: BrowserReplyRequest):
+    _browser_task(task_id)
+    try:
+        return browser.reply(task_id, req.text).summary()
+    except browser_agent.BrowserTaskError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/browser/vault")
+def browser_vault_list():
+    """Saved site logins: origins and usernames only. Passwords never leave
+    the node and are never shown to the model."""
+    return _page(browser.vault.list())
+
+
+@app.put("/browser/vault")
+def browser_vault_put(req: VaultEntryRequest, request: Request):
+    _require_owner(request)
+    try:
+        origin = browser.vault.put(req.origin, req.username, req.password)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    audit.append(AuditEvent(actor="user", event_type="browser_login_saved", status="stored",
+                            metadata={"origin": origin}))
+    return {"origin": origin, "username": req.username}
+
+
+@app.post("/browser/vault/delete")
+def browser_vault_delete(req: VaultDeleteRequest, request: Request):
+    _require_owner(request)
+    try:
+        removed = browser.vault.delete(req.origin)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    audit.append(AuditEvent(actor="user", event_type="browser_login_deleted", status="revoked",
+                            metadata={"origin": req.origin}))
+    return {"removed": removed}
+
+
+class RuleRequest(BaseModel):
+    rule: str  # allow | ask | block
+
+
+@app.get("/policy/rules")
+def list_policy_rules():
+    """Your per-tool rules plus, for every known tool, whether "Allow" is
+    possible and why not. Hard gates (pause, blocked tools, irreversible
+    actions, outgoing secrets) aren't rules: nothing here can change them."""
+    tools = sorted(set(core.tools.names()) | set(core.policy.user_rules))
+    rows = []
+    for t in tools:
+        ok, why = core.policy.allow_eligible(t)
+        rows.append({
+            "tool": t,
+            "rule": core.policy.user_rules.get(t.lower()),
+            "allow_eligible": ok,
+            "allow_blocked_reason": why or None,
+            "operator_tier": core.policy.tool_tiers.get(t.lower()),
+            "outbound": t.lower() in core.policy.outbound_tools,
+        })
+    return _page(rows)
+
+
+@app.put("/policy/rules/{tool}")
+def set_policy_rule(tool: str, req: RuleRequest, request: Request):
+    _require_owner(request)
+    try:
+        core.policy.set_user_rule(tool, req.rule)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    _save_user_rules()
+    audit.append(AuditEvent(actor="user", event_type="policy_rule_set", status="ok",
+                            metadata={"tool": tool, "rule": req.rule}))
+    return {"tool": tool, "rule": req.rule}
+
+
+@app.delete("/policy/rules/{tool}")
+def delete_policy_rule(tool: str, request: Request):
+    _require_owner(request)
+    core.policy.set_user_rule(tool, None)
+    _save_user_rules()
+    audit.append(AuditEvent(actor="user", event_type="policy_rule_cleared", status="ok",
+                            metadata={"tool": tool}))
+    return {"tool": tool, "rule": None}
 
 
 @app.get("/emergency_pause")
@@ -3543,7 +3851,180 @@ def model_providers():
 
 @app.get("/providers")
 def providers_status():
-    return {"active_provider": model_config.provider, "providers": credentials.status()}
+    gpt = credentials.get(CHATGPT_PLAN) or {}
+    cc_settings = credentials.get("_claude_code") or {}
+    return {
+        "active_provider": active_provider(),
+        "providers": credentials.status(),
+        "subscriptions": {
+            CHATGPT_PLAN: {
+                "label": "ChatGPT plan (Plus or Pro)",
+                "connected": gpt.get("type") == "chatgpt_plan",
+                "email": gpt.get("email"),
+                "plan_usage": bool(gpt.get("plan_usage")),
+                "model": gpt.get("model"),
+                "manage_usage_url": MANAGE_USAGE_URL,
+                "note": (
+                    "Eligible requests use the usage included in your ChatGPT Plus or Pro plan. "
+                    "Sign-in happens on OpenAI's site; Shadow stores the resulting token only on this "
+                    "node and never sees your ChatGPT password or conversations. Requests count toward "
+                    "your plan's limits (for Plus, the same 5-hour limit you use in ChatGPT). You can cap "
+                    "or revoke Shadow's access anytime in ChatGPT Settings, Usage."
+                ),
+            },
+            CLAUDE_CODE: {
+                "label": "Your Claude Code (experimental)",
+                "enabled": _claude_code_enabled(),
+                "acknowledged_at": cc_settings.get("acknowledged_at"),
+                "detected": claude_code.detect() if cc_settings.get("enabled") else None,
+                "disabled_by_operator": claude_code.killed(),
+                "disclosure": claude_code.DISCLOSURE,
+            },
+            "gemini": {
+                "note": (
+                    "Shadow uses Gemini with an API key from Google AI Studio. Google's terms prohibit "
+                    "third-party apps from using Gemini CLI or Google AI subscription sign-ins, so "
+                    "Shadow does not offer that option."
+                ),
+            },
+        },
+    }
+
+
+class ActiveProviderRequest(BaseModel):
+    provider: str
+
+
+@app.post("/providers/active")
+def set_active_provider(req: ActiveProviderRequest):
+    """Choose where cloud-approved asks go. Only connected providers (or the
+    on-device placeholder) can be selected."""
+    p = req.provider
+    usable = (
+        p == "local_mock"
+        or (p == CHATGPT_PLAN and (credentials.get(CHATGPT_PLAN) or {}).get("type") == "chatgpt_plan")
+        or (p == CLAUDE_CODE and _claude_code_enabled())
+        or (p in CATALOG and credentials.resolve(p) is not None)
+    )
+    if not usable:
+        raise HTTPException(409, f"{p} isn't connected")
+    credentials.set("_active", {"provider": p})
+    audit.append(AuditEvent(actor="user", event_type="provider_activated", data_used=[p], status="ok"))
+    return {"active_provider": p}
+
+
+class ChatGPTSignInRequest(BaseModel):
+    # Port the node is reachable on from the browser doing the sign-in. The
+    # redirect is always http://127.0.0.1:<port>/auth/callback (SIWC rule).
+    port: int | None = None
+    # Dashboard origin to return to after sign-in (loopback origins only).
+    return_to: str | None = None
+
+
+@app.post("/providers/chatgpt_plan/signin")
+def chatgpt_signin_start(req: ChatGPTSignInRequest, request: Request):
+    """Start "Continue with ChatGPT". The browser doing the sign-in must be
+    on this computer: OpenAI only redirects to a 127.0.0.1 loopback."""
+    port = req.port or request.url.port or 8787
+    start = chatgpt_auth.start(port, getattr(request.state, "device_id", None), req.return_to)
+    audit.append(AuditEvent(actor="user", event_type="chatgpt_signin_started", status="pending"))
+    return {"authorization_url": start["authorization_url"], "redirect_uri": start["redirect_uri"]}
+
+
+@app.get("/auth/callback", include_in_schema=False)
+def chatgpt_signin_callback(request: Request):
+    """Loopback redirect target. Unauthenticated by necessity (the browser
+    arrives from OpenAI), so it is bound to the single-use state value."""
+    q = request.query_params
+    ok, message, back = False, "", "/"
+    if q.get("error"):
+        message = "Sign-in was cancelled." if q.get("error") == "access_denied" else "Sign-in failed."
+    elif not q.get("state") or not q.get("code"):
+        message = "This page needs a sign-in response from OpenAI."
+    else:
+        try:
+            info = chatgpt_auth.complete(q["state"], q["code"], q.get("client_id"), q.get("scope"))
+            ok = True
+            back = info.get("return_to") or "/"
+            message = (
+                "You're using your ChatGPT plan. Shadow will use the usage included in your ChatGPT plan."
+                if info["plan_usage"]
+                else "Signed in, but plan usage wasn't granted. Sign in again and allow it, or use an API key."
+            )
+            audit.append(AuditEvent(actor="user", event_type="chatgpt_signin_completed", status="connected",
+                                    metadata={"plan_usage": info["plan_usage"]}))
+        except ChatGPTPlanError as e:
+            message = str(e)
+        except httpx.HTTPError:
+            message = "Couldn't reach OpenAI to finish signing in. Try again."
+    import html as _html
+    status = "Connected" if ok else "Not connected"
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{status} · Shadow</title><link rel="stylesheet" href="/web/styles.css"></head>
+<body><main class="connect"><div class="card"><h1>{status}</h1><p class="sub">{_html.escape(message)}</p>
+<p><a class="btn" href="{_html.escape(back.rstrip('/'))}/#/models">Back to Shadow</a></p></div></main></body></html>"""
+    return Response(page, media_type="text/html",
+                    headers={"Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-store"})
+
+
+@app.get("/providers/chatgpt_plan/models")
+def chatgpt_models():
+    try:
+        return _page(chatgpt_auth.models())
+    except ChatGPTPlanError as e:
+        raise HTTPException(409, str(e))
+
+
+class ModelChoiceRequest(BaseModel):
+    model: str
+
+
+@app.put("/providers/chatgpt_plan/model")
+def chatgpt_set_model(req: ModelChoiceRequest):
+    cred = credentials.get(CHATGPT_PLAN) or {}
+    if cred.get("type") != "chatgpt_plan":
+        raise HTTPException(409, "ChatGPT isn't connected")
+    cred["model"] = req.model
+    credentials.set(CHATGPT_PLAN, cred)
+    return {"model": req.model}
+
+
+def chatgpt_sign_out():
+    res = chatgpt_auth.sign_out()
+    if active_provider() == CHATGPT_PLAN:
+        credentials.delete("_active")
+    audit.append(AuditEvent(actor="user", event_type="chatgpt_signed_out", status="disconnected",
+                            metadata={"remote_revocation_confirmed": res["revoked"]}))
+    return {"connected": False, "remote_revocation_confirmed": res["revoked"]}
+
+
+class ClaudeCodeEnableRequest(BaseModel):
+    acknowledge: bool = False
+
+
+@app.post("/providers/claude_code/enable")
+def claude_code_enable(req: ClaudeCodeEnableRequest):
+    """Opt in to the experimental Claude Code delegate. Requires explicit
+    acknowledgement of the disclosure; refused when the operator disabled it."""
+    if claude_code.killed():
+        raise HTTPException(403, "Claude Code is disabled on this node")
+    if not req.acknowledge:
+        raise HTTPException(400, "acknowledge the disclosure to enable this")
+    found = claude_code.detect()
+    if not found.get("available"):
+        raise HTTPException(409, found.get("reason", "Claude Code isn't available"))
+    credentials.set("_claude_code", {"enabled": True, "acknowledged_at": time.time()})
+    audit.append(AuditEvent(actor="user", event_type="claude_code_enabled", status="ok",
+                            metadata={"version": found.get("version")}))
+    return {"enabled": True, **found}
+
+
+def claude_code_disable():
+    credentials.delete("_claude_code")
+    if active_provider() == CLAUDE_CODE:
+        credentials.delete("_active")
+    audit.append(AuditEvent(actor="user", event_type="claude_code_disabled", status="ok"))
+    return {"enabled": False}
 
 
 @app.post("/providers/{name}/connect")
@@ -3568,6 +4049,16 @@ def provider_connect(name: str, req: ProviderConnectRequest):
 
 @app.delete("/providers/{name}")
 def provider_disconnect(name: str):
+    # Subscription providers have their own teardown (remote revocation,
+    # opt-out); never just drop their tokens.
+    if name == CHATGPT_PLAN:
+        return chatgpt_sign_out()
+    if name == CLAUDE_CODE:
+        return claude_code_disable()
+    if name not in CATALOG:
+        raise HTTPException(404, "unknown provider")
+    if active_provider() == name:
+        credentials.delete("_active")
     credentials.delete(name)
     audit.append(
         AuditEvent(

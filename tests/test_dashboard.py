@@ -12,7 +12,7 @@ import shadow_node.main as m
 
 client = TestClient(m.app)
 ROOT = Path(__file__).resolve().parents[1]
-VIEWS = ["overview", "ask", "approvals", "actions", "memory", "goals", "schedule",
+VIEWS = ["overview", "ask", "approvals", "actions", "browser", "memory", "goals", "schedule",
          "feed", "panels", "devices", "models", "audit"]
 
 
@@ -78,7 +78,8 @@ def test_dashboard_accessibility_basics():
     assert '<button type="button" id="pauseSw" class="switch" role="switch"' in body
     # every form control has a label
     for field in ["askInput", "memTitle", "memText", "memQuery", "goalTitle", "schedText",
-                  "panelText", "pairName", "pairBootstrap", "auditFilter"]:
+                  "panelText", "pairName", "pairBootstrap", "auditFilter", "browserGoal", "browserUrl",
+                  "vaultOrigin", "vaultUser", "vaultPass"]:
         assert f'for="{field}"' in body, field
     css = (ROOT / "apps/shadow-node/shadow_node/web/styles.css").read_text()
     assert "prefers-reduced-motion" in css and "prefers-color-scheme" in css

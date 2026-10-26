@@ -7,10 +7,15 @@ Two real, legitimate ways to connect a frontier provider:
   via OAuth. Google (Gemini/Vertex) is the real example; the flow is standard
   Authorization-Code-with-PKCE.
 
-We deliberately do NOT implement "use my ChatGPT Plus / Claude Pro / Gemini
-Advanced subscription" — those consumer subscriptions cannot legitimately power
-third-party API calls. ``CATALOG[provider]["subscription_oauth"]`` is False for
-all current providers to make that explicit in the UI.
+Subscriptions are handled separately, only where the provider permits it
+(docs/research/subscription-auth-2026-10.md):
+
+- ChatGPT Plus/Pro: OpenAI's official "Sign in with ChatGPT" plan usage for
+  open-source, locally hosted apps (chatgpt_plan.py).
+- Claude Pro/Max: Shadow never offers a Claude sign-in or touches Claude
+  credentials; an experimental opt-in can launch the user's own logged-in
+  Claude Code binary (claude_code.py).
+- Gemini subscriptions: not permitted for third-party apps; API keys only.
 """
 from __future__ import annotations
 import os, json, base64, hashlib, secrets

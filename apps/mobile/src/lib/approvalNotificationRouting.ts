@@ -4,8 +4,15 @@
  * in `./approvalNotifications`.
  */
 
-/** Notification category the node attaches to approval pushes. */
+/** Notification category the node attaches to routine approval pushes
+ * (Approve / Deny buttons on the notification). */
 export const APPROVAL_CATEGORY_ID = "shadow.approval";
+
+/** Category for approvals with real consequences (browser steps, sends,
+ * irreversible or high-risk actions): a single Review button that opens
+ * the app, so the full card is seen before deciding. */
+export const APPROVAL_REVIEW_CATEGORY_ID = "shadow.approval.review";
+export const APPROVAL_ACTION_REVIEW = "shadow.approval.review.open";
 
 /** Action identifiers for the Approve / Deny buttons. */
 export const APPROVAL_ACTION_APPROVE = "shadow.approval.approve";
@@ -58,6 +65,22 @@ export function approvalDeepLink(approvalId: string): string {
 
 /** Deep-link URL that opens the Feed tab (Reminders live there). */
 export const REMINDER_DEEP_LINK = `${APPROVAL_DEEP_LINK_SCHEME}://feed`;
+
+/** Browser task pushes: data { type: "browser.task", task_id, event }. */
+export function browserTaskIdFromData(data: unknown): string | null {
+	if (!data || typeof data !== "object") {
+		return null;
+	}
+	const d = data as Record<string, unknown>;
+	if (d["type"] !== "browser.task") return null;
+	const id = d["task_id"];
+	return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/** Deep link to a browser task's live view. Pure. */
+export function browserTaskDeepLink(taskId: string): string {
+	return `${APPROVAL_DEEP_LINK_SCHEME}://browser/${encodeURIComponent(taskId)}`;
+}
 
 /** True when a notification's data payload is a fired-reminder push. Pure. */
 export function isReminderNotification(data: unknown): boolean {
